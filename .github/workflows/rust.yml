@@ -1,0 +1,16 @@
+name: Rust
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  call-ci:
+    uses: qntx/workflows/.github/workflows/rust.yml@main
+    with:
+      submodules: true
