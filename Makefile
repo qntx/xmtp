@@ -59,11 +59,13 @@ doc:
 	cargo +nightly doc --all-features --no-deps --open
 
 # Build the FFI static library in release mode
+# Toolchain is auto-selected by xmtp-ffi/rust-toolchain.toml (nightly, for cbindgen)
 .PHONY: ffi-build
 ffi-build:
 	cargo build --release --manifest-path $(FFI_DIR)/Cargo.toml
 
 # Quick compilation check for FFI
+# Toolchain is auto-selected by xmtp-ffi/rust-toolchain.toml (nightly, for cbindgen)
 .PHONY: ffi-check
 ffi-check:
 	cargo check --manifest-path $(FFI_DIR)/Cargo.toml
@@ -71,7 +73,7 @@ ffi-check:
 # Lint FFI code with Clippy (auto-fix)
 .PHONY: ffi-clippy
 ffi-clippy:
-	cargo +nightly clippy --fix \
+	cargo clippy --fix \
 		--manifest-path $(FFI_DIR)/Cargo.toml \
 		--all-targets \
 		--allow-dirty \
@@ -81,12 +83,12 @@ ffi-clippy:
 # Format FFI code
 .PHONY: ffi-fmt
 ffi-fmt:
-	cargo +nightly fmt --manifest-path $(FFI_DIR)/Cargo.toml
+	cargo fmt --manifest-path $(FFI_DIR)/Cargo.toml
 
 # Check FFI formatting without modifying files
 .PHONY: ffi-fmt-check
 ffi-fmt-check:
-	cargo +nightly fmt --manifest-path $(FFI_DIR)/Cargo.toml --check
+	cargo fmt --manifest-path $(FFI_DIR)/Cargo.toml --check
 
 .PHONY: fmt-all
 fmt-all: fmt ffi-fmt

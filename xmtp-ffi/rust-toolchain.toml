@@ -1,0 +1,3 @@
+[toolchain]
+# cbindgen [parse.expand] uses -Zunpretty=expanded which requires nightly.
+channel = "nightly"
