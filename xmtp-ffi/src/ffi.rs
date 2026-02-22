@@ -250,6 +250,8 @@ pub struct FfiInboxStateItem {
     pub(crate) identifiers_count: i32,
     pub(crate) installation_ids: *mut *mut c_char,
     pub(crate) installation_ids_count: i32,
+    /// Parallel array of client_timestamp_ns per installation (0 = unknown).
+    pub(crate) installation_client_timestamps: *mut i64,
 }
 
 /// A list of inbox states.

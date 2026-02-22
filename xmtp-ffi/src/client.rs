@@ -393,14 +393,33 @@ pub unsafe extern "C" fn xmtp_client_inbox_state(
 
 /// Convert an AssociationState to an FfiInboxStateItem.
 fn association_state_to_item(s: &xmtp_id::associations::AssociationState) -> FfiInboxStateItem {
+    use xmtp_id::associations::MemberIdentifier;
     let inbox_id = s.inbox_id().to_string();
     let recovery = s.recovery_identifier().to_string();
     let identifiers: Vec<String> = s.identifiers().into_iter().map(|i| i.to_string()).collect();
-    let installations: Vec<String> = s.installation_ids().into_iter().map(hex::encode).collect();
+
+    // Extract installations with their client_timestamp_ns from members()
+    let inst_members: Vec<_> = s
+        .members()
+        .into_iter()
+        .filter_map(|m| match &m.identifier {
+            MemberIdentifier::Installation(inst) => {
+                Some((hex::encode(&inst.0), m.client_timestamp_ns))
+            }
+            _ => None,
+        })
+        .collect();
+    let installations: Vec<String> = inst_members.iter().map(|(id, _)| id.clone()).collect();
+    let timestamps: Vec<i64> = inst_members
+        .iter()
+        .map(|(_, ts)| ts.map_or(0, |v| v as i64))
+        .collect();
+
     let mut ident_count: i32 = 0;
     let ident_ptrs = string_vec_to_c(identifiers, &mut ident_count);
     let mut inst_count: i32 = 0;
     let inst_ptrs = string_vec_to_c(installations, &mut inst_count);
+    let (ts_ptr, _, _) = timestamps.into_raw_parts();
     FfiInboxStateItem {
         inbox_id: to_c_string(&inbox_id),
         recovery_identifier: to_c_string(&recovery),
@@ -408,6 +427,7 @@ fn association_state_to_item(s: &xmtp_id::associations::AssociationState) -> Ffi
         identifiers_count: ident_count,
         installation_ids: inst_ptrs,
         installation_ids_count: inst_count,
+        installation_client_timestamps: ts_ptr,
     }
 }
 
