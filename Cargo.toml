@@ -1,5 +1,5 @@
 [workspace]
-members = ["xmtp", "xmtp-cli"]
+members = ["xmtp-sys","xmtp", "xmtp-cli"]
 default-members = ["xmtp"]
 resolver = "3"
 
