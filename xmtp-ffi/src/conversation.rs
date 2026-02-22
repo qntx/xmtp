@@ -1504,15 +1504,15 @@ pub unsafe extern "C" fn xmtp_conversation_group_metadata(
             return Err("null output pointer".into());
         }
         let metadata = conv.inner.metadata().await?;
-        let conv_type = match metadata.conversation_type {
-            xmtp_db::group::ConversationType::Group => 0,
-            xmtp_db::group::ConversationType::Dm => 1,
-            xmtp_db::group::ConversationType::Sync => 2,
-            xmtp_db::group::ConversationType::Oneshot => 3,
+        let conversation_type = match metadata.conversation_type {
+            xmtp_db::group::ConversationType::Group => FfiConversationType::Group,
+            xmtp_db::group::ConversationType::Dm => FfiConversationType::Dm,
+            xmtp_db::group::ConversationType::Sync => FfiConversationType::Sync,
+            xmtp_db::group::ConversationType::Oneshot => FfiConversationType::Oneshot,
         };
         let result = Box::new(FfiGroupMetadata {
             creator_inbox_id: to_c_string(&metadata.creator_inbox_id),
-            conversation_type: conv_type,
+            conversation_type,
         });
         unsafe { *out = Box::into_raw(result) };
         Ok(())
@@ -1535,48 +1535,51 @@ pub unsafe extern "C" fn xmtp_group_metadata_free(meta: *mut FfiGroupMetadata) {
 // Group permissions
 // ---------------------------------------------------------------------------
 
-/// Map a MembershipPolicies to i32: 0=Allow, 1=Deny, 2=Admin, 3=SuperAdmin, 5=Other.
-fn membership_policy_to_i32(p: &xmtp_mls::groups::group_permissions::MembershipPolicies) -> i32 {
+fn membership_policy_to_ffi(
+    p: &xmtp_mls::groups::group_permissions::MembershipPolicies,
+) -> FfiPermissionPolicy {
     use xmtp_mls::groups::group_permissions::{BasePolicies, MembershipPolicies};
     if let MembershipPolicies::Standard(base) = p {
         match base {
-            BasePolicies::Allow => 0,
-            BasePolicies::Deny => 1,
-            BasePolicies::AllowIfAdminOrSuperAdmin => 2,
-            BasePolicies::AllowIfSuperAdmin => 3,
-            BasePolicies::AllowSameMember => 5,
+            BasePolicies::Allow => FfiPermissionPolicy::Allow,
+            BasePolicies::Deny => FfiPermissionPolicy::Deny,
+            BasePolicies::AllowIfAdminOrSuperAdmin => FfiPermissionPolicy::Admin,
+            BasePolicies::AllowIfSuperAdmin => FfiPermissionPolicy::SuperAdmin,
+            BasePolicies::AllowSameMember => FfiPermissionPolicy::Other,
         }
     } else {
-        5 // Other
+        FfiPermissionPolicy::Other
     }
 }
 
-/// Map a MetadataPolicies to i32: 0=Allow, 1=Deny, 2=Admin, 3=SuperAdmin, 5=Other.
-fn metadata_policy_to_i32(p: &xmtp_mls::groups::group_permissions::MetadataPolicies) -> i32 {
+fn metadata_policy_to_ffi(
+    p: &xmtp_mls::groups::group_permissions::MetadataPolicies,
+) -> FfiPermissionPolicy {
     use xmtp_mls::groups::group_permissions::{MetadataBasePolicies, MetadataPolicies};
     if let MetadataPolicies::Standard(base) = p {
         match base {
-            MetadataBasePolicies::Allow => 0,
-            MetadataBasePolicies::Deny => 1,
-            MetadataBasePolicies::AllowIfActorAdminOrSuperAdmin => 2,
-            MetadataBasePolicies::AllowIfActorSuperAdmin => 3,
+            MetadataBasePolicies::Allow => FfiPermissionPolicy::Allow,
+            MetadataBasePolicies::Deny => FfiPermissionPolicy::Deny,
+            MetadataBasePolicies::AllowIfActorAdminOrSuperAdmin => FfiPermissionPolicy::Admin,
+            MetadataBasePolicies::AllowIfActorSuperAdmin => FfiPermissionPolicy::SuperAdmin,
         }
     } else {
-        5 // Other
+        FfiPermissionPolicy::Other
     }
 }
 
-/// Map a PermissionsPolicies to i32: 1=Deny, 2=Admin, 3=SuperAdmin, 5=Other.
-fn permissions_policy_to_i32(p: &xmtp_mls::groups::group_permissions::PermissionsPolicies) -> i32 {
+fn permissions_policy_to_ffi(
+    p: &xmtp_mls::groups::group_permissions::PermissionsPolicies,
+) -> FfiPermissionPolicy {
     use xmtp_mls::groups::group_permissions::{PermissionsBasePolicies, PermissionsPolicies};
     if let PermissionsPolicies::Standard(base) = p {
         match base {
-            PermissionsBasePolicies::Deny => 1,
-            PermissionsBasePolicies::AllowIfActorAdminOrSuperAdmin => 2,
-            PermissionsBasePolicies::AllowIfActorSuperAdmin => 3,
+            PermissionsBasePolicies::Deny => FfiPermissionPolicy::Deny,
+            PermissionsBasePolicies::AllowIfActorAdminOrSuperAdmin => FfiPermissionPolicy::Admin,
+            PermissionsBasePolicies::AllowIfActorSuperAdmin => FfiPermissionPolicy::SuperAdmin,
         }
     } else {
-        5 // Other
+        FfiPermissionPolicy::Other
     }
 }
 
@@ -1594,25 +1597,29 @@ pub unsafe extern "C" fn xmtp_conversation_group_permissions(
         }
         let perms = conv.inner.permissions()?;
         let policy_type = match perms.preconfigured_policy() {
-            Ok(xmtp_mls::groups::PreconfiguredPolicies::Default) => 0,
-            Ok(xmtp_mls::groups::PreconfiguredPolicies::AdminsOnly) => 1,
-            Err(_) => 2, // CustomPolicy
+            Ok(xmtp_mls::groups::PreconfiguredPolicies::Default) => {
+                FfiGroupPermissionsPreset::AllMembers
+            }
+            Ok(xmtp_mls::groups::PreconfiguredPolicies::AdminsOnly) => {
+                FfiGroupPermissionsPreset::AdminOnly
+            }
+            Err(_) => FfiGroupPermissionsPreset::Custom,
         };
 
         let ps = &perms.policies;
         let meta = &ps.update_metadata_policy;
-        let get_meta = |field: &str| -> i32 {
+        let get_meta = |field: &str| -> FfiPermissionPolicy {
             meta.get(field)
-                .map(|p| metadata_policy_to_i32(p))
-                .unwrap_or(4) // DoesNotExist
+                .map(|p| metadata_policy_to_ffi(p))
+                .unwrap_or(FfiPermissionPolicy::DoesNotExist)
         };
 
         use xmtp_mls::mls_common::group_mutable_metadata::MetadataField;
         let policy_set = FfiPermissionPolicySet {
-            add_member_policy: membership_policy_to_i32(&ps.add_member_policy),
-            remove_member_policy: membership_policy_to_i32(&ps.remove_member_policy),
-            add_admin_policy: permissions_policy_to_i32(&ps.add_admin_policy),
-            remove_admin_policy: permissions_policy_to_i32(&ps.remove_admin_policy),
+            add_member_policy: membership_policy_to_ffi(&ps.add_member_policy),
+            remove_member_policy: membership_policy_to_ffi(&ps.remove_member_policy),
+            add_admin_policy: permissions_policy_to_ffi(&ps.add_admin_policy),
+            remove_admin_policy: permissions_policy_to_ffi(&ps.remove_admin_policy),
             update_group_name_policy: get_meta(MetadataField::GroupName.as_str()),
             update_group_description_policy: get_meta(MetadataField::Description.as_str()),
             update_group_image_url_square_policy: get_meta(
@@ -1655,8 +1662,17 @@ pub(crate) fn decoded_to_enriched(
         sender_installation_id: to_c_string(&hex::encode(&msg.metadata.sender_installation_id)),
         sent_at_ns: msg.metadata.sent_at_ns,
         inserted_at_ns: msg.metadata.inserted_at_ns,
-        kind: msg.metadata.kind as i32,
-        delivery_status: msg.metadata.delivery_status as i32,
+        kind: match msg.metadata.kind {
+            xmtp_db::group_message::GroupMessageKind::Application => FfiMessageKind::Application,
+            xmtp_db::group_message::GroupMessageKind::MembershipChange => {
+                FfiMessageKind::MembershipChange
+            }
+        },
+        delivery_status: match msg.metadata.delivery_status {
+            xmtp_db::group_message::DeliveryStatus::Unpublished => FfiDeliveryStatus::Unpublished,
+            xmtp_db::group_message::DeliveryStatus::Published => FfiDeliveryStatus::Published,
+            xmtp_db::group_message::DeliveryStatus::Failed => FfiDeliveryStatus::Failed,
+        },
         content_type: to_c_string(&ct_str),
         fallback_text: match &msg.fallback_text {
             Some(t) => to_c_string(t),

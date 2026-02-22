@@ -428,31 +428,27 @@ pub struct FfiInboxUpdateCountList {
 pub struct FfiGroupMetadata {
     /// Creator inbox ID (owned string).
     pub creator_inbox_id: *mut c_char,
-    /// Conversation type: 0=Group, 1=DM, 2=Sync.
-    pub conversation_type: i32,
+    pub conversation_type: FfiConversationType,
 }
 
 /// Permission policy set for a conversation.
-/// Each field is an i32 encoding:
-///   0=Allow, 1=Deny, 2=Admin, 3=SuperAdmin, 4=DoesNotExist, 5=Other
 #[repr(C)]
 pub struct FfiPermissionPolicySet {
-    pub add_member_policy: i32,
-    pub remove_member_policy: i32,
-    pub add_admin_policy: i32,
-    pub remove_admin_policy: i32,
-    pub update_group_name_policy: i32,
-    pub update_group_description_policy: i32,
-    pub update_group_image_url_square_policy: i32,
-    pub update_message_disappearing_policy: i32,
-    pub update_app_data_policy: i32,
+    pub add_member_policy: FfiPermissionPolicy,
+    pub remove_member_policy: FfiPermissionPolicy,
+    pub add_admin_policy: FfiPermissionPolicy,
+    pub remove_admin_policy: FfiPermissionPolicy,
+    pub update_group_name_policy: FfiPermissionPolicy,
+    pub update_group_description_policy: FfiPermissionPolicy,
+    pub update_group_image_url_square_policy: FfiPermissionPolicy,
+    pub update_message_disappearing_policy: FfiPermissionPolicy,
+    pub update_app_data_policy: FfiPermissionPolicy,
 }
 
 /// Group permissions (policy type + policy set).
 #[repr(C)]
 pub struct FfiGroupPermissions {
-    /// 0=Default(AllMembers), 1=AdminOnly, 2=CustomPolicy.
-    pub policy_type: i32,
+    pub policy_type: FfiGroupPermissionsPreset,
     pub policy_set: FfiPermissionPolicySet,
 }
 
@@ -472,10 +468,8 @@ pub struct FfiEnrichedMessage {
     pub sent_at_ns: i64,
     /// Inserted-into-DB timestamp in nanoseconds.
     pub inserted_at_ns: i64,
-    /// Message kind: 1=Application, 2=MembershipChange.
-    pub kind: i32,
-    /// Delivery status: 1=Unpublished, 2=Published, 3=Failed.
-    pub delivery_status: i32,
+    pub kind: FfiMessageKind,
+    pub delivery_status: FfiDeliveryStatus,
     /// Content type ID string (e.g. "xmtp.org/text:1.0", owned).
     pub content_type: *mut c_char,
     /// Fallback text (nullable, owned).
@@ -564,7 +558,10 @@ where
     F: FnOnce() -> Result<(), Box<dyn std::error::Error>>,
 {
     match std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)) {
-        Ok(Ok(())) => 0,
+        Ok(Ok(())) => {
+            LAST_ERROR.with(|e| e.borrow_mut().clear());
+            0
+        }
         Ok(Err(e)) => {
             set_last_error(e.to_string());
             -1

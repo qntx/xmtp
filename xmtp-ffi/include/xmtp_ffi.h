@@ -11,6 +11,58 @@
 #include <stdlib.h>
 
 /**
+ * Conversation type.
+ */
+enum XmtpFfiConversationType
+#ifdef __cplusplus
+  : int32_t
+#endif // __cplusplus
+ {
+    XMTP_FFI_CONVERSATION_TYPE_DM = 0,
+    XMTP_FFI_CONVERSATION_TYPE_GROUP = 1,
+    XMTP_FFI_CONVERSATION_TYPE_SYNC = 2,
+    XMTP_FFI_CONVERSATION_TYPE_ONESHOT = 3,
+};
+#ifndef __cplusplus
+typedef int32_t XmtpFfiConversationType;
+#endif // __cplusplus
+
+/**
+ * Group permissions preset.
+ */
+enum XmtpFfiGroupPermissionsPreset
+#ifdef __cplusplus
+  : int32_t
+#endif // __cplusplus
+ {
+    XMTP_FFI_GROUP_PERMISSIONS_PRESET_ALL_MEMBERS = 0,
+    XMTP_FFI_GROUP_PERMISSIONS_PRESET_ADMIN_ONLY = 1,
+    XMTP_FFI_GROUP_PERMISSIONS_PRESET_CUSTOM = 2,
+};
+#ifndef __cplusplus
+typedef int32_t XmtpFfiGroupPermissionsPreset;
+#endif // __cplusplus
+
+/**
+ * Permission policy value.
+ */
+enum XmtpFfiPermissionPolicy
+#ifdef __cplusplus
+  : int32_t
+#endif // __cplusplus
+ {
+    XMTP_FFI_PERMISSION_POLICY_ALLOW = 0,
+    XMTP_FFI_PERMISSION_POLICY_DENY = 1,
+    XMTP_FFI_PERMISSION_POLICY_ADMIN = 2,
+    XMTP_FFI_PERMISSION_POLICY_SUPER_ADMIN = 3,
+    XMTP_FFI_PERMISSION_POLICY_DOES_NOT_EXIST = 4,
+    XMTP_FFI_PERMISSION_POLICY_OTHER = 5,
+};
+#ifndef __cplusplus
+typedef int32_t XmtpFfiPermissionPolicy;
+#endif // __cplusplus
+
+/**
  * Consent entity type.
  */
 enum XmtpFfiConsentEntityType
@@ -374,37 +426,29 @@ typedef struct XmtpFfiGroupMetadata {
      * Creator inbox ID (owned string).
      */
     char *creator_inbox_id;
-    /**
-     * Conversation type: 0=Group, 1=DM, 2=Sync.
-     */
-    int32_t conversation_type;
+    XmtpFfiConversationType conversation_type;
 } XmtpFfiGroupMetadata;
 
 /**
  * Permission policy set for a conversation.
- * Each field is an i32 encoding:
- *   0=Allow, 1=Deny, 2=Admin, 3=SuperAdmin, 4=DoesNotExist, 5=Other
  */
 typedef struct XmtpFfiPermissionPolicySet {
-    int32_t add_member_policy;
-    int32_t remove_member_policy;
-    int32_t add_admin_policy;
-    int32_t remove_admin_policy;
-    int32_t update_group_name_policy;
-    int32_t update_group_description_policy;
-    int32_t update_group_image_url_square_policy;
-    int32_t update_message_disappearing_policy;
-    int32_t update_app_data_policy;
+    XmtpFfiPermissionPolicy add_member_policy;
+    XmtpFfiPermissionPolicy remove_member_policy;
+    XmtpFfiPermissionPolicy add_admin_policy;
+    XmtpFfiPermissionPolicy remove_admin_policy;
+    XmtpFfiPermissionPolicy update_group_name_policy;
+    XmtpFfiPermissionPolicy update_group_description_policy;
+    XmtpFfiPermissionPolicy update_group_image_url_square_policy;
+    XmtpFfiPermissionPolicy update_message_disappearing_policy;
+    XmtpFfiPermissionPolicy update_app_data_policy;
 } XmtpFfiPermissionPolicySet;
 
 /**
  * Group permissions (policy type + policy set).
  */
 typedef struct XmtpFfiGroupPermissions {
-    /**
-     * 0=Default(AllMembers), 1=AdminOnly, 2=CustomPolicy.
-     */
-    int32_t policy_type;
+    XmtpFfiGroupPermissionsPreset policy_type;
     struct XmtpFfiPermissionPolicySet policy_set;
 } XmtpFfiGroupPermissions;
 
