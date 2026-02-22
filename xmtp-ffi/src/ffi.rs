@@ -251,6 +251,38 @@ pub struct XmtpAuthHandle {
     pub(crate) inner: xmtp_api_d14n::AuthHandle,
 }
 
+/// Key package status for an installation.
+#[repr(C)]
+pub struct XmtpKeyPackageStatus {
+    /// Installation ID as hex string (owned).
+    pub installation_id: *mut c_char,
+    /// 1 if valid, 0 if validation error.
+    pub valid: i32,
+    /// not_before timestamp (0 if unavailable).
+    pub not_before: u64,
+    /// not_after timestamp (0 if unavailable).
+    pub not_after: u64,
+    /// Validation error message (null if no error, owned).
+    pub validation_error: *mut c_char,
+}
+
+/// A list of key package statuses.
+pub struct XmtpKeyPackageStatusList {
+    pub(crate) items: Vec<XmtpKeyPackageStatus>,
+}
+
+/// Inbox update count entry (inbox_id → count).
+#[repr(C)]
+pub struct XmtpInboxUpdateCount {
+    pub inbox_id: *mut c_char,
+    pub count: u32,
+}
+
+/// A list of inbox update counts.
+pub struct XmtpInboxUpdateCountList {
+    pub(crate) items: Vec<XmtpInboxUpdateCount>,
+}
+
 // ---------------------------------------------------------------------------
 // Thread-local error
 // ---------------------------------------------------------------------------

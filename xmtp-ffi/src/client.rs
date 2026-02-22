@@ -821,3 +821,216 @@ pub unsafe extern "C" fn xmtp_auth_handle_free(handle: *mut XmtpAuthHandle) {
         drop(unsafe { Box::from_raw(handle) });
     }
 }
+
+// ---------------------------------------------------------------------------
+// Inbox updates count
+// ---------------------------------------------------------------------------
+
+/// Fetch the number of identity updates for multiple inbox IDs.
+/// Caller must free the result with [`xmtp_inbox_update_count_list_free`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn xmtp_client_fetch_inbox_updates_count(
+    client: *const XmtpClient,
+    inbox_ids: *const *const c_char,
+    inbox_ids_count: i32,
+    refresh: i32,
+    out: *mut *mut XmtpInboxUpdateCountList,
+) -> i32 {
+    catch_async(|| async {
+        let c = unsafe { ref_from(client)? };
+        if out.is_null() {
+            return Err("null output pointer".into());
+        }
+        let ids = unsafe { collect_strings(inbox_ids, inbox_ids_count)? };
+        let id_refs: Vec<&str> = ids.iter().map(|s: &String| s.as_str()).collect();
+        let counts = c
+            .inner
+            .fetch_inbox_updates_count(refresh != 0, id_refs)
+            .await?;
+        let items: Vec<XmtpInboxUpdateCount> = counts
+            .into_iter()
+            .map(|(id, cnt)| XmtpInboxUpdateCount {
+                inbox_id: to_c_string(&id),
+                count: cnt,
+            })
+            .collect();
+        let list = Box::new(XmtpInboxUpdateCountList { items });
+        unsafe { *out = Box::into_raw(list) };
+        Ok(())
+    })
+}
+
+/// Fetch the number of identity updates for the client's own inbox.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn xmtp_client_fetch_own_inbox_updates_count(
+    client: *const XmtpClient,
+    refresh: i32,
+    out: *mut u32,
+) -> i32 {
+    catch_async(|| async {
+        let c = unsafe { ref_from(client)? };
+        if out.is_null() {
+            return Err("null output pointer".into());
+        }
+        let count = c.inner.fetch_own_inbox_updates_count(refresh != 0).await?;
+        unsafe { *out = count };
+        Ok(())
+    })
+}
+
+/// Get the number of entries in an inbox update count list.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn xmtp_inbox_update_count_list_len(
+    list: *const XmtpInboxUpdateCountList,
+) -> i32 {
+    match unsafe { ref_from(list) } {
+        Ok(l) => l.items.len() as i32,
+        Err(_) => 0,
+    }
+}
+
+/// Get an entry from the inbox update count list by index.
+/// `out_inbox_id` receives a borrowed pointer (valid as long as the list is alive).
+/// `out_count` receives the count value.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn xmtp_inbox_update_count_list_get(
+    list: *const XmtpInboxUpdateCountList,
+    index: i32,
+    out_inbox_id: *mut *const c_char,
+    out_count: *mut u32,
+) -> i32 {
+    catch(|| {
+        let l = unsafe { ref_from(list)? };
+        let i = index as usize;
+        if i >= l.items.len() {
+            return Err("index out of bounds".into());
+        }
+        if !out_inbox_id.is_null() {
+            unsafe { *out_inbox_id = l.items[i].inbox_id };
+        }
+        if !out_count.is_null() {
+            unsafe { *out_count = l.items[i].count };
+        }
+        Ok(())
+    })
+}
+
+/// Free an inbox update count list.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn xmtp_inbox_update_count_list_free(list: *mut XmtpInboxUpdateCountList) {
+    if list.is_null() {
+        return;
+    }
+    let l = unsafe { Box::from_raw(list) };
+    for item in &l.items {
+        if !item.inbox_id.is_null() {
+            drop(unsafe { std::ffi::CString::from_raw(item.inbox_id) });
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Key package statuses
+// ---------------------------------------------------------------------------
+
+/// Fetch key package statuses for a list of installation IDs (hex-encoded).
+/// Caller must free with [`xmtp_key_package_status_list_free`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn xmtp_client_fetch_key_package_statuses(
+    client: *const XmtpClient,
+    installation_ids: *const *const c_char,
+    installation_ids_count: i32,
+    out: *mut *mut XmtpKeyPackageStatusList,
+) -> i32 {
+    catch_async(|| async {
+        let c = unsafe { ref_from(client)? };
+        if out.is_null() {
+            return Err("null output pointer".into());
+        }
+        let id_strs = unsafe { collect_strings(installation_ids, installation_ids_count)? };
+        let id_bytes: Vec<Vec<u8>> = id_strs
+            .iter()
+            .map(|s| hex::decode(s).map_err(|e| e.into()))
+            .collect::<Result<Vec<_>, Box<dyn std::error::Error>>>()?;
+
+        let results = c
+            .inner
+            .get_key_packages_for_installation_ids(id_bytes)
+            .await?;
+
+        let items: Vec<XmtpKeyPackageStatus> = results
+            .into_iter()
+            .map(|(id, result)| match result {
+                Ok(kp) => {
+                    let lifetime = kp.life_time();
+                    XmtpKeyPackageStatus {
+                        installation_id: to_c_string(&hex::encode(&id)),
+                        valid: 1,
+                        not_before: lifetime.as_ref().map(|l| l.not_before).unwrap_or(0),
+                        not_after: lifetime.as_ref().map(|l| l.not_after).unwrap_or(0),
+                        validation_error: std::ptr::null_mut(),
+                    }
+                }
+                Err(e) => XmtpKeyPackageStatus {
+                    installation_id: to_c_string(&hex::encode(&id)),
+                    valid: 0,
+                    not_before: 0,
+                    not_after: 0,
+                    validation_error: to_c_string(&e.to_string()),
+                },
+            })
+            .collect();
+
+        let list = Box::new(XmtpKeyPackageStatusList { items });
+        unsafe { *out = Box::into_raw(list) };
+        Ok(())
+    })
+}
+
+/// Get the number of entries in a key package status list.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn xmtp_key_package_status_list_len(
+    list: *const XmtpKeyPackageStatusList,
+) -> i32 {
+    match unsafe { ref_from(list) } {
+        Ok(l) => l.items.len() as i32,
+        Err(_) => 0,
+    }
+}
+
+/// Get a key package status entry by index.
+/// Returns a borrowed pointer to the XmtpKeyPackageStatus (valid while list is alive).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn xmtp_key_package_status_list_get(
+    list: *const XmtpKeyPackageStatusList,
+    index: i32,
+) -> *const XmtpKeyPackageStatus {
+    match unsafe { ref_from(list) } {
+        Ok(l) => {
+            let i = index as usize;
+            if i < l.items.len() {
+                &l.items[i] as *const _
+            } else {
+                std::ptr::null()
+            }
+        }
+        Err(_) => std::ptr::null(),
+    }
+}
+
+/// Free a key package status list (including all owned strings).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn xmtp_key_package_status_list_free(list: *mut XmtpKeyPackageStatusList) {
+    if list.is_null() {
+        return;
+    }
+    let l = unsafe { Box::from_raw(list) };
+    for item in &l.items {
+        if !item.installation_id.is_null() {
+            drop(unsafe { std::ffi::CString::from_raw(item.installation_id) });
+        }
+        if !item.validation_error.is_null() {
+            drop(unsafe { std::ffi::CString::from_raw(item.validation_error) });
+        }
+    }
+}

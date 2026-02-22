@@ -53,6 +53,16 @@ typedef struct XmtpXmtpHmacKeyMap XmtpXmtpHmacKeyMap;
 typedef struct XmtpXmtpInboxStateList XmtpXmtpInboxStateList;
 
 /**
+ * A list of inbox update counts.
+ */
+typedef struct XmtpXmtpInboxUpdateCountList XmtpXmtpInboxUpdateCountList;
+
+/**
+ * A list of key package statuses.
+ */
+typedef struct XmtpXmtpKeyPackageStatusList XmtpXmtpKeyPackageStatusList;
+
+/**
  * A stored message exposed to C.
  */
 typedef struct XmtpXmtpMessage XmtpXmtpMessage;
@@ -136,6 +146,32 @@ typedef struct XmtpXmtpIdentityStats {
     int64_t get_inbox_ids;
     int64_t verify_smart_contract_wallet_signature;
 } XmtpXmtpIdentityStats;
+
+/**
+ * Key package status for an installation.
+ */
+typedef struct XmtpXmtpKeyPackageStatus {
+    /**
+     * Installation ID as hex string (owned).
+     */
+    char *installation_id;
+    /**
+     * 1 if valid, 0 if validation error.
+     */
+    int32_t valid;
+    /**
+     * not_before timestamp (0 if unavailable).
+     */
+    uint64_t not_before;
+    /**
+     * not_after timestamp (0 if unavailable).
+     */
+    uint64_t not_after;
+    /**
+     * Validation error message (null if no error, owned).
+     */
+    char *validation_error;
+} XmtpXmtpKeyPackageStatus;
 
 /**
  * Options for sending a message.
@@ -639,6 +675,74 @@ xmtp_ uintptr_t xmtp_auth_handle_id(const struct XmtpXmtpAuthHandle *handle);
  * Free an auth handle.
  */
 xmtp_ void xmtp_auth_handle_free(struct XmtpXmtpAuthHandle *handle);
+
+/**
+ * Fetch the number of identity updates for multiple inbox IDs.
+ * Caller must free the result with [`xmtp_inbox_update_count_list_free`].
+ */
+xmtp_
+int32_t xmtp_client_fetch_inbox_updates_count(const struct XmtpXmtpClient *client,
+                                              const char *const *inbox_ids,
+                                              int32_t inbox_ids_count,
+                                              int32_t refresh,
+                                              struct XmtpXmtpInboxUpdateCountList **out);
+
+/**
+ * Fetch the number of identity updates for the client's own inbox.
+ */
+xmtp_
+int32_t xmtp_client_fetch_own_inbox_updates_count(const struct XmtpXmtpClient *client,
+                                                  int32_t refresh,
+                                                  uint32_t *out);
+
+/**
+ * Get the number of entries in an inbox update count list.
+ */
+xmtp_ int32_t xmtp_inbox_update_count_list_len(const struct XmtpXmtpInboxUpdateCountList *list);
+
+/**
+ * Get an entry from the inbox update count list by index.
+ * `out_inbox_id` receives a borrowed pointer (valid as long as the list is alive).
+ * `out_count` receives the count value.
+ */
+xmtp_
+int32_t xmtp_inbox_update_count_list_get(const struct XmtpXmtpInboxUpdateCountList *list,
+                                         int32_t index,
+                                         const char **out_inbox_id,
+                                         uint32_t *out_count);
+
+/**
+ * Free an inbox update count list.
+ */
+xmtp_ void xmtp_inbox_update_count_list_free(struct XmtpXmtpInboxUpdateCountList *list);
+
+/**
+ * Fetch key package statuses for a list of installation IDs (hex-encoded).
+ * Caller must free with [`xmtp_key_package_status_list_free`].
+ */
+xmtp_
+int32_t xmtp_client_fetch_key_package_statuses(const struct XmtpXmtpClient *client,
+                                               const char *const *installation_ids,
+                                               int32_t installation_ids_count,
+                                               struct XmtpXmtpKeyPackageStatusList **out);
+
+/**
+ * Get the number of entries in a key package status list.
+ */
+xmtp_ int32_t xmtp_key_package_status_list_len(const struct XmtpXmtpKeyPackageStatusList *list);
+
+/**
+ * Get a key package status entry by index.
+ * Returns a borrowed pointer to the XmtpKeyPackageStatus (valid while list is alive).
+ */
+xmtp_
+const struct XmtpXmtpKeyPackageStatus *xmtp_key_package_status_list_get(const struct XmtpXmtpKeyPackageStatusList *list,
+                                                                        int32_t index);
+
+/**
+ * Free a key package status list (including all owned strings).
+ */
+xmtp_ void xmtp_key_package_status_list_free(struct XmtpXmtpKeyPackageStatusList *list);
 
 /**
  * Free a conversation handle.
@@ -1309,6 +1413,29 @@ int32_t xmtp_device_sync_sync_all(const struct XmtpXmtpClient *client,
  * `nonce` defaults to 1 if 0 is passed.
  */
 xmtp_ char *xmtp_generate_inbox_id(const char *identifier, int32_t identifier_kind, uint64_t nonce);
+
+/**
+ * Check whether an installation (by its public key bytes) belongs to an inbox.
+ * Returns 1 = authorized, 0 = not authorized. Sets last error on failure.
+ */
+xmtp_
+int32_t xmtp_is_installation_authorized(const char *api_url,
+                                        int32_t is_secure,
+                                        const char *inbox_id,
+                                        const uint8_t *installation_id,
+                                        int32_t installation_id_len,
+                                        int32_t *out);
+
+/**
+ * Check whether an Ethereum address belongs to an inbox.
+ * Returns 1 = authorized, 0 = not authorized. Sets last error on failure.
+ */
+xmtp_
+int32_t xmtp_is_address_authorized(const char *api_url,
+                                   int32_t is_secure,
+                                   const char *inbox_id,
+                                   const char *address,
+                                   int32_t *out);
 
 /**
  * Get the inbox ID for an identifier by querying the network.

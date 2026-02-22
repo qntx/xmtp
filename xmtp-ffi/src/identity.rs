@@ -32,6 +32,81 @@ pub unsafe extern "C" fn xmtp_generate_inbox_id(
     }
 }
 
+/// Check whether an installation (by its public key bytes) belongs to an inbox.
+/// Returns 1 = authorized, 0 = not authorized. Sets last error on failure.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn xmtp_is_installation_authorized(
+    api_url: *const c_char,
+    is_secure: i32,
+    inbox_id: *const c_char,
+    installation_id: *const u8,
+    installation_id_len: i32,
+    out: *mut i32,
+) -> i32 {
+    catch_async(|| async {
+        if out.is_null() {
+            return Err("null output pointer".into());
+        }
+        let url = unsafe { c_str_to_string(api_url)? };
+        let inbox = unsafe { c_str_to_string(inbox_id)? };
+        let id_bytes = unsafe {
+            std::slice::from_raw_parts(installation_id, installation_id_len as usize).to_vec()
+        };
+
+        let member = xmtp_id::associations::MemberIdentifier::installation(id_bytes);
+
+        let backend = xmtp_api_d14n::MessageBackendBuilder::default()
+            .v3_host(&url)
+            .is_secure(is_secure != 0)
+            .build()?;
+        let backend = xmtp_api_d14n::TrackedStatsClient::new(backend);
+        let api = xmtp_api::ApiClientWrapper::new(std::sync::Arc::new(backend), Default::default());
+
+        let authorized =
+            xmtp_mls::identity_updates::is_member_of_association_state(&api, &inbox, &member, None)
+                .await?;
+
+        unsafe { *out = if authorized { 1 } else { 0 } };
+        Ok(())
+    })
+}
+
+/// Check whether an Ethereum address belongs to an inbox.
+/// Returns 1 = authorized, 0 = not authorized. Sets last error on failure.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn xmtp_is_address_authorized(
+    api_url: *const c_char,
+    is_secure: i32,
+    inbox_id: *const c_char,
+    address: *const c_char,
+    out: *mut i32,
+) -> i32 {
+    catch_async(|| async {
+        if out.is_null() {
+            return Err("null output pointer".into());
+        }
+        let url = unsafe { c_str_to_string(api_url)? };
+        let inbox = unsafe { c_str_to_string(inbox_id)? };
+        let addr = unsafe { c_str_to_string(address)? };
+
+        let member = xmtp_id::associations::MemberIdentifier::eth(addr)?;
+
+        let backend = xmtp_api_d14n::MessageBackendBuilder::default()
+            .v3_host(&url)
+            .is_secure(is_secure != 0)
+            .build()?;
+        let backend = xmtp_api_d14n::TrackedStatsClient::new(backend);
+        let api = xmtp_api::ApiClientWrapper::new(std::sync::Arc::new(backend), Default::default());
+
+        let authorized =
+            xmtp_mls::identity_updates::is_member_of_association_state(&api, &inbox, &member, None)
+                .await?;
+
+        unsafe { *out = if authorized { 1 } else { 0 } };
+        Ok(())
+    })
+}
+
 /// Get the inbox ID for an identifier by querying the network.
 /// `api_url` is the gRPC host, `is_secure` controls TLS.
 /// Writes the inbox ID to `out` (caller must free with [`xmtp_free_string`]).
