@@ -380,6 +380,60 @@ pub unsafe extern "C" fn xmtp_client_sync_preferences(
 }
 
 // ---------------------------------------------------------------------------
+// HMAC keys (all conversations)
+// ---------------------------------------------------------------------------
+
+/// Get HMAC keys for all conversations (including duplicate DMs).
+/// Returns a map via `out`. Caller must free with [`xmtp_hmac_key_map_free`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn xmtp_client_hmac_keys(
+    client: *const XmtpClient,
+    out: *mut *mut XmtpHmacKeyMap,
+) -> i32 {
+    catch(|| {
+        let c = unsafe { ref_from(client)? };
+        if out.is_null() {
+            return Err("null output pointer".into());
+        }
+        let conversations = c.inner.find_groups(GroupQueryArgs {
+            include_duplicate_dms: true,
+            ..Default::default()
+        })?;
+
+        let mut entries = Vec::new();
+        for conv in conversations {
+            if let Ok(keys) = conv.hmac_keys(-1..=1) {
+                let mut c_keys: Vec<XmtpHmacKey> = keys
+                    .into_iter()
+                    .map(|k| {
+                        let mut key_vec = k.key.to_vec();
+                        let len = key_vec.len() as i32;
+                        let ptr = key_vec.as_mut_ptr();
+                        std::mem::forget(key_vec);
+                        XmtpHmacKey {
+                            key: ptr,
+                            key_len: len,
+                            epoch: k.epoch,
+                        }
+                    })
+                    .collect();
+                let keys_count = c_keys.len() as i32;
+                let keys_ptr = c_keys.as_mut_ptr();
+                std::mem::forget(c_keys);
+                entries.push(XmtpHmacKeyEntry {
+                    group_id: to_c_string(&hex::encode(&conv.group_id)),
+                    keys: keys_ptr,
+                    keys_count,
+                });
+            }
+        }
+
+        unsafe { write_out(out, XmtpHmacKeyMap { entries })? };
+        Ok(())
+    })
+}
+
+// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 

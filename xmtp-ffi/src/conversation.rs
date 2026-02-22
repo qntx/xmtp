@@ -1188,3 +1188,210 @@ pub unsafe extern "C" fn xmtp_conversation_paused_for_version(
         Ok(())
     })
 }
+
+// ---------------------------------------------------------------------------
+// Debug info
+// ---------------------------------------------------------------------------
+
+/// Get debug info for this conversation.
+/// Caller must free string fields with [`xmtp_free_string`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn xmtp_conversation_debug_info(
+    conv: *const XmtpConversation,
+    out: *mut XmtpConversationDebugInfo,
+) -> i32 {
+    catch_async(|| async {
+        let c = unsafe { ref_from(conv)? };
+        if out.is_null() {
+            return Err("null output pointer".into());
+        }
+        let info = c.inner.debug_info().await?;
+        unsafe {
+            *out = XmtpConversationDebugInfo {
+                epoch: info.epoch,
+                maybe_forked: i32::from(info.maybe_forked),
+                fork_details: to_c_string(&info.fork_details),
+                is_commit_log_forked: match info.is_commit_log_forked {
+                    Some(true) => 1,
+                    Some(false) => 0,
+                    None => -1,
+                },
+                local_commit_log: to_c_string(&info.local_commit_log),
+                remote_commit_log: to_c_string(&info.remote_commit_log),
+            };
+        }
+        Ok(())
+    })
+}
+
+/// Free a conversation debug info struct (its string fields).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn xmtp_conversation_debug_info_free(info: *mut XmtpConversationDebugInfo) {
+    if info.is_null() {
+        return;
+    }
+    let i = unsafe { &mut *info };
+    if !i.fork_details.is_null() {
+        drop(unsafe { CString::from_raw(i.fork_details) });
+        i.fork_details = std::ptr::null_mut();
+    }
+    if !i.local_commit_log.is_null() {
+        drop(unsafe { CString::from_raw(i.local_commit_log) });
+        i.local_commit_log = std::ptr::null_mut();
+    }
+    if !i.remote_commit_log.is_null() {
+        drop(unsafe { CString::from_raw(i.remote_commit_log) });
+        i.remote_commit_log = std::ptr::null_mut();
+    }
+}
+
+// ---------------------------------------------------------------------------
+// HMAC keys
+// ---------------------------------------------------------------------------
+
+/// Get HMAC keys for this conversation (including duplicate DMs).
+/// Returns a map via `out`. Caller must free with [`xmtp_hmac_key_map_free`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn xmtp_conversation_hmac_keys(
+    conv: *const XmtpConversation,
+    out: *mut *mut XmtpHmacKeyMap,
+) -> i32 {
+    catch(|| {
+        let c = unsafe { ref_from(conv)? };
+        if out.is_null() {
+            return Err("null output pointer".into());
+        }
+
+        let mut entries = Vec::new();
+
+        // Include duplicate DMs
+        if let Ok(dups) = c.inner.find_duplicate_dms() {
+            for dup in dups {
+                if let Ok(keys) = dup.hmac_keys(-1..=1) {
+                    entries.push(hmac_keys_to_entry(&dup.group_id, keys));
+                }
+            }
+        }
+
+        // Include this conversation
+        let keys = c.inner.hmac_keys(-1..=1)?;
+        entries.push(hmac_keys_to_entry(&c.inner.group_id, keys));
+
+        unsafe { write_out(out, XmtpHmacKeyMap { entries })? };
+        Ok(())
+    })
+}
+
+/// Convert a Vec<HmacKey> into a C-compatible XmtpHmacKeyEntry.
+fn hmac_keys_to_entry(
+    group_id: &[u8],
+    keys: Vec<xmtp_db::user_preferences::HmacKey>,
+) -> XmtpHmacKeyEntry {
+    let mut c_keys: Vec<XmtpHmacKey> = keys
+        .into_iter()
+        .map(|k| {
+            let mut key_vec = k.key.to_vec();
+            let len = key_vec.len() as i32;
+            let ptr = key_vec.as_mut_ptr();
+            std::mem::forget(key_vec);
+            XmtpHmacKey {
+                key: ptr,
+                key_len: len,
+                epoch: k.epoch,
+            }
+        })
+        .collect();
+    let keys_count = c_keys.len() as i32;
+    let keys_ptr = c_keys.as_mut_ptr();
+    std::mem::forget(c_keys);
+    XmtpHmacKeyEntry {
+        group_id: to_c_string(&hex::encode(group_id)),
+        keys: keys_ptr,
+        keys_count,
+    }
+}
+
+/// Get the number of entries in an HMAC key map.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn xmtp_hmac_key_map_len(map: *const XmtpHmacKeyMap) -> i32 {
+    match unsafe { ref_from(map) } {
+        Ok(m) => m.entries.len() as i32,
+        Err(_) => 0,
+    }
+}
+
+/// Get the group ID (hex) at index. Returns a borrowed pointer; do NOT free.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn xmtp_hmac_key_map_group_id(
+    map: *const XmtpHmacKeyMap,
+    index: i32,
+) -> *const c_char {
+    let m = match unsafe { ref_from(map) } {
+        Ok(m) => m,
+        Err(_) => return std::ptr::null(),
+    };
+    match m.entries.get(index as usize) {
+        Some(e) => e.group_id as *const c_char,
+        None => std::ptr::null(),
+    }
+}
+
+/// Get the HMAC keys at index. Writes count to `out_count`.
+/// Returns a borrowed pointer to the key array; do NOT free individual keys.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn xmtp_hmac_key_map_keys(
+    map: *const XmtpHmacKeyMap,
+    index: i32,
+    out_count: *mut i32,
+) -> *const XmtpHmacKey {
+    if out_count.is_null() {
+        return std::ptr::null();
+    }
+    let m = match unsafe { ref_from(map) } {
+        Ok(m) => m,
+        Err(_) => {
+            unsafe { *out_count = 0 };
+            return std::ptr::null();
+        }
+    };
+    match m.entries.get(index as usize) {
+        Some(e) => {
+            unsafe { *out_count = e.keys_count };
+            e.keys as *const XmtpHmacKey
+        }
+        None => {
+            unsafe { *out_count = 0 };
+            std::ptr::null()
+        }
+    }
+}
+
+/// Free an HMAC key map (including all owned data).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn xmtp_hmac_key_map_free(map: *mut XmtpHmacKeyMap) {
+    if map.is_null() {
+        return;
+    }
+    let m = unsafe { Box::from_raw(map) };
+    for entry in &m.entries {
+        if !entry.group_id.is_null() {
+            drop(unsafe { CString::from_raw(entry.group_id) });
+        }
+        if !entry.keys.is_null() && entry.keys_count > 0 {
+            let keys = unsafe {
+                Vec::from_raw_parts(
+                    entry.keys,
+                    entry.keys_count as usize,
+                    entry.keys_count as usize,
+                )
+            };
+            for k in &keys {
+                if !k.key.is_null() && k.key_len > 0 {
+                    drop(unsafe {
+                        Vec::from_raw_parts(k.key, k.key_len as usize, k.key_len as usize)
+                    });
+                }
+            }
+        }
+    }
+}

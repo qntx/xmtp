@@ -12,6 +12,7 @@ mod ffi;
 pub mod client;
 pub mod conversation;
 pub mod conversations;
+pub mod device_sync;
 pub mod identity;
 pub mod signature;
 pub mod stream;

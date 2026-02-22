@@ -28,8 +28,10 @@ xmtp_cryptography = { path = "../3rdparty/libxmtp/crates/xmtp_cryptography" }
 xmtp_content_types = { path = "../3rdparty/libxmtp/crates/xmtp_content_types" }
 xmtp_configuration = { path = "../3rdparty/libxmtp/crates/xmtp_configuration" }
 xmtp_mls_common = { path = "../3rdparty/libxmtp/crates/xmtp_mls_common" }
+xmtp_archive = { path = "../3rdparty/libxmtp/crates/xmtp_archive" }
 
 # Runtime & utilities
+http = "1"
 tokio = { version = "1", features = ["full"] }
 prost = "0.14"
 hex = { package = "const-hex", version = "1.14" }

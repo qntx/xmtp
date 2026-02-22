@@ -159,6 +159,98 @@ pub struct XmtpSendOpts {
     pub should_push: i32,
 }
 
+/// MLS API call statistics (request counts).
+#[repr(C)]
+pub struct XmtpApiStats {
+    pub upload_key_package: i64,
+    pub fetch_key_package: i64,
+    pub send_group_messages: i64,
+    pub send_welcome_messages: i64,
+    pub query_group_messages: i64,
+    pub query_welcome_messages: i64,
+    pub subscribe_messages: i64,
+    pub subscribe_welcomes: i64,
+    pub publish_commit_log: i64,
+    pub query_commit_log: i64,
+    pub get_newest_group_message: i64,
+}
+
+/// Identity API call statistics (request counts).
+#[repr(C)]
+pub struct XmtpIdentityStats {
+    pub publish_identity_update: i64,
+    pub get_identity_updates_v2: i64,
+    pub get_inbox_ids: i64,
+    pub verify_smart_contract_wallet_signature: i64,
+}
+
+/// Conversation debug info (epoch, fork status, commit logs).
+#[repr(C)]
+pub struct XmtpConversationDebugInfo {
+    pub epoch: u64,
+    pub maybe_forked: i32,
+    pub fork_details: *mut c_char,
+    /// -1 = unknown, 0 = no, 1 = yes
+    pub is_commit_log_forked: i32,
+    pub local_commit_log: *mut c_char,
+    pub remote_commit_log: *mut c_char,
+}
+
+/// A single HMAC key (42-byte key + epoch).
+#[repr(C)]
+pub struct XmtpHmacKey {
+    pub key: *mut u8,
+    pub key_len: i32,
+    pub epoch: i64,
+}
+
+/// A list of HMAC keys for one conversation.
+#[repr(C)]
+pub struct XmtpHmacKeyEntry {
+    /// Hex-encoded group ID.
+    pub group_id: *mut c_char,
+    pub keys: *mut XmtpHmacKey,
+    pub keys_count: i32,
+}
+
+/// A map of conversation ID → HMAC keys.
+pub struct XmtpHmacKeyMap {
+    pub(crate) entries: Vec<XmtpHmacKeyEntry>,
+}
+
+/// Options for device sync archive operations.
+#[repr(C)]
+pub struct XmtpArchiveOptions {
+    /// Bitmask of element selections: bit 0 = Messages, bit 1 = Consent.
+    pub elements: i32,
+    /// Start timestamp filter (ns). 0 = no filter.
+    pub start_ns: i64,
+    /// End timestamp filter (ns). 0 = no filter.
+    pub end_ns: i64,
+    /// Whether to exclude disappearing messages. 0 = include, 1 = exclude.
+    pub exclude_disappearing_messages: i32,
+}
+
+/// Info about an available archive in the sync group.
+#[repr(C)]
+pub struct XmtpAvailableArchive {
+    pub pin: *mut c_char,
+    pub backup_version: u16,
+    pub exported_at_ns: i64,
+    pub sent_by_installation: *mut u8,
+    pub sent_by_installation_len: i32,
+}
+
+/// A list of available archives.
+pub struct XmtpAvailableArchiveList {
+    pub(crate) items: Vec<XmtpAvailableArchive>,
+}
+
+/// Opaque handle for gateway authentication credentials.
+pub struct XmtpAuthHandle {
+    pub(crate) inner: xmtp_api_d14n::AuthHandle,
+}
+
 // ---------------------------------------------------------------------------
 // Thread-local error
 // ---------------------------------------------------------------------------

@@ -26,6 +26,8 @@ pub struct XmtpClientOptions {
     pub account_identifier: *const c_char,
     /// Identifier kind: 0 = Ethereum, 1 = Passkey.
     pub identifier_kind: i32,
+    /// Optional auth handle for gateway authentication. Null = no auth.
+    pub auth_handle: *const XmtpAuthHandle,
 }
 
 /// Create a new XMTP client. Caller must free with [`xmtp_client_free`].
@@ -55,6 +57,12 @@ pub unsafe extern "C" fn xmtp_client_create(
         // Build API backend
         let mut backend = xmtp_api_d14n::MessageBackendBuilder::default();
         backend.v3_host(&host).is_secure(is_secure);
+
+        // Optional gateway auth handle
+        if !opts.auth_handle.is_null() {
+            let ah = unsafe { ref_from(opts.auth_handle)? };
+            backend.maybe_auth_handle(Some(ah.inner.clone()));
+        }
 
         // Build database
         let db_path = unsafe { c_str_to_option(opts.db_path)? };
@@ -466,6 +474,93 @@ pub extern "C" fn xmtp_libxmtp_version() -> *mut c_char {
 }
 
 // ---------------------------------------------------------------------------
+// API Statistics
+// ---------------------------------------------------------------------------
+
+/// Get MLS API call statistics. Writes to `out`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn xmtp_client_api_statistics(
+    client: *const XmtpClient,
+    out: *mut XmtpApiStats,
+) -> i32 {
+    catch(|| {
+        let c = unsafe { ref_from(client)? };
+        if out.is_null() {
+            return Err("null output pointer".into());
+        }
+        let stats = c.inner.api_stats();
+        unsafe {
+            *out = XmtpApiStats {
+                upload_key_package: stats.upload_key_package.get_count() as i64,
+                fetch_key_package: stats.fetch_key_package.get_count() as i64,
+                send_group_messages: stats.send_group_messages.get_count() as i64,
+                send_welcome_messages: stats.send_welcome_messages.get_count() as i64,
+                query_group_messages: stats.query_group_messages.get_count() as i64,
+                query_welcome_messages: stats.query_welcome_messages.get_count() as i64,
+                subscribe_messages: stats.subscribe_messages.get_count() as i64,
+                subscribe_welcomes: stats.subscribe_welcomes.get_count() as i64,
+                publish_commit_log: stats.publish_commit_log.get_count() as i64,
+                query_commit_log: stats.query_commit_log.get_count() as i64,
+                get_newest_group_message: stats.get_newest_group_message.get_count() as i64,
+            };
+        }
+        Ok(())
+    })
+}
+
+/// Get identity API call statistics. Writes to `out`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn xmtp_client_api_identity_statistics(
+    client: *const XmtpClient,
+    out: *mut XmtpIdentityStats,
+) -> i32 {
+    catch(|| {
+        let c = unsafe { ref_from(client)? };
+        if out.is_null() {
+            return Err("null output pointer".into());
+        }
+        let stats = c.inner.identity_api_stats();
+        unsafe {
+            *out = XmtpIdentityStats {
+                publish_identity_update: stats.publish_identity_update.get_count() as i64,
+                get_identity_updates_v2: stats.get_identity_updates_v2.get_count() as i64,
+                get_inbox_ids: stats.get_inbox_ids.get_count() as i64,
+                verify_smart_contract_wallet_signature: stats
+                    .verify_smart_contract_wallet_signature
+                    .get_count() as i64,
+            };
+        }
+        Ok(())
+    })
+}
+
+/// Get aggregate statistics as a debug string. Caller must free with [`xmtp_free_string`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn xmtp_client_api_aggregate_statistics(
+    client: *const XmtpClient,
+) -> *mut c_char {
+    match unsafe { ref_from(client) } {
+        Ok(c) => {
+            let api = c.inner.api_stats();
+            let identity = c.inner.identity_api_stats();
+            let aggregate = xmtp_proto::api_client::AggregateStats { mls: api, identity };
+            to_c_string(&format!("{:?}", aggregate))
+        }
+        Err(_) => std::ptr::null_mut(),
+    }
+}
+
+/// Clear all API call statistics.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn xmtp_client_clear_all_statistics(client: *const XmtpClient) -> i32 {
+    catch(|| {
+        let c = unsafe { ref_from(client)? };
+        c.inner.clear_stats();
+        Ok(())
+    })
+}
+
+// ---------------------------------------------------------------------------
 // Inbox ID lookup (client-bound)
 // ---------------------------------------------------------------------------
 
@@ -655,5 +750,74 @@ pub unsafe extern "C" fn xmtp_inbox_state_list_free(list: *mut XmtpInboxStateLis
         }
         free_c_string_array(item.identifiers, item.identifiers_count);
         free_c_string_array(item.installation_ids, item.installation_ids_count);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Gateway Auth
+// ---------------------------------------------------------------------------
+
+/// Create a new gateway auth handle. Caller must free with [`xmtp_auth_handle_free`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn xmtp_auth_handle_create(out: *mut *mut XmtpAuthHandle) -> i32 {
+    catch(|| {
+        if out.is_null() {
+            return Err("null output pointer".into());
+        }
+        let handle = XmtpAuthHandle {
+            inner: xmtp_api_d14n::AuthHandle::new(),
+        };
+        unsafe { write_out(out, handle)? };
+        Ok(())
+    })
+}
+
+/// Set a credential on an auth handle.
+/// `name` is an optional HTTP header name (null = "authorization").
+/// `value` is the header value (required).
+/// `expires_at_seconds` is the Unix timestamp when the credential expires.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn xmtp_auth_handle_set(
+    handle: *const XmtpAuthHandle,
+    name: *const c_char,
+    value: *const c_char,
+    expires_at_seconds: i64,
+) -> i32 {
+    catch_async(|| async {
+        let h = unsafe { ref_from(handle)? };
+        let value_str = unsafe { c_str_to_string(value)? };
+        let name_opt = unsafe { c_str_to_option(name)? };
+        let header_name = if let Some(n) = name_opt {
+            Some(
+                n.parse::<http::header::HeaderName>()
+                    .map_err(|_| "invalid header name")?,
+            )
+        } else {
+            None
+        };
+        let header_value = value_str
+            .parse::<http::header::HeaderValue>()
+            .map_err(|_| "invalid header value")?;
+        let credential =
+            xmtp_api_d14n::Credential::new(header_name, header_value, expires_at_seconds);
+        h.inner.set(credential).await;
+        Ok(())
+    })
+}
+
+/// Get the unique ID of an auth handle.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn xmtp_auth_handle_id(handle: *const XmtpAuthHandle) -> usize {
+    match unsafe { ref_from(handle) } {
+        Ok(h) => h.inner.id(),
+        Err(_) => 0,
+    }
+}
+
+/// Free an auth handle.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn xmtp_auth_handle_free(handle: *mut XmtpAuthHandle) {
+    if !handle.is_null() {
+        drop(unsafe { Box::from_raw(handle) });
     }
 }

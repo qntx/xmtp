@@ -13,6 +13,16 @@
 typedef struct XmtpOption_FnOnCloseCallback XmtpOption_FnOnCloseCallback;
 
 /**
+ * Opaque handle for gateway authentication credentials.
+ */
+typedef struct XmtpXmtpAuthHandle XmtpXmtpAuthHandle;
+
+/**
+ * A list of available archives.
+ */
+typedef struct XmtpXmtpAvailableArchiveList XmtpXmtpAvailableArchiveList;
+
+/**
  * Opaque client handle.
  */
 typedef struct XmtpXmtpClient XmtpXmtpClient;
@@ -31,6 +41,11 @@ typedef struct XmtpXmtpConversationList XmtpXmtpConversationList;
  * A list of group members.
  */
 typedef struct XmtpXmtpGroupMemberList XmtpXmtpGroupMemberList;
+
+/**
+ * A map of conversation ID → HMAC keys.
+ */
+typedef struct XmtpXmtpHmacKeyMap XmtpXmtpHmacKeyMap;
 
 /**
  * A list of inbox states.
@@ -89,7 +104,38 @@ typedef struct XmtpXmtpClientOptions {
      * Identifier kind: 0 = Ethereum, 1 = Passkey.
      */
     int32_t identifier_kind;
+    /**
+     * Optional auth handle for gateway authentication. Null = no auth.
+     */
+    const struct XmtpXmtpAuthHandle *auth_handle;
 } XmtpXmtpClientOptions;
+
+/**
+ * MLS API call statistics (request counts).
+ */
+typedef struct XmtpXmtpApiStats {
+    int64_t upload_key_package;
+    int64_t fetch_key_package;
+    int64_t send_group_messages;
+    int64_t send_welcome_messages;
+    int64_t query_group_messages;
+    int64_t query_welcome_messages;
+    int64_t subscribe_messages;
+    int64_t subscribe_welcomes;
+    int64_t publish_commit_log;
+    int64_t query_commit_log;
+    int64_t get_newest_group_message;
+} XmtpXmtpApiStats;
+
+/**
+ * Identity API call statistics (request counts).
+ */
+typedef struct XmtpXmtpIdentityStats {
+    int64_t publish_identity_update;
+    int64_t get_identity_updates_v2;
+    int64_t get_inbox_ids;
+    int64_t verify_smart_contract_wallet_signature;
+} XmtpXmtpIdentityStats;
 
 /**
  * Options for sending a message.
@@ -140,6 +186,30 @@ typedef struct XmtpXmtpDisappearingSettings {
      */
     int64_t in_ns;
 } XmtpXmtpDisappearingSettings;
+
+/**
+ * Conversation debug info (epoch, fork status, commit logs).
+ */
+typedef struct XmtpXmtpConversationDebugInfo {
+    uint64_t epoch;
+    int32_t maybe_forked;
+    char *fork_details;
+    /**
+     * -1 = unknown, 0 = no, 1 = yes
+     */
+    int32_t is_commit_log_forked;
+    char *local_commit_log;
+    char *remote_commit_log;
+} XmtpXmtpConversationDebugInfo;
+
+/**
+ * A single HMAC key (42-byte key + epoch).
+ */
+typedef struct XmtpXmtpHmacKey {
+    uint8_t *key;
+    int32_t key_len;
+    int64_t epoch;
+} XmtpXmtpHmacKey;
 
 /**
  * Options for creating a new group conversation.
@@ -213,6 +283,28 @@ typedef struct XmtpXmtpListConversationsOptions {
      */
     int32_t include_duplicate_dms;
 } XmtpXmtpListConversationsOptions;
+
+/**
+ * Options for device sync archive operations.
+ */
+typedef struct XmtpXmtpArchiveOptions {
+    /**
+     * Bitmask of element selections: bit 0 = Messages, bit 1 = Consent.
+     */
+    int32_t elements;
+    /**
+     * Start timestamp filter (ns). 0 = no filter.
+     */
+    int64_t start_ns;
+    /**
+     * End timestamp filter (ns). 0 = no filter.
+     */
+    int64_t end_ns;
+    /**
+     * Whether to exclude disappearing messages. 0 = include, 1 = exclude.
+     */
+    int32_t exclude_disappearing_messages;
+} XmtpXmtpArchiveOptions;
 
 /**
  * Callback for conversation stream events.
@@ -439,6 +531,30 @@ int32_t xmtp_client_delete_message_by_id(const struct XmtpXmtpClient *client,
 xmtp_ char *xmtp_libxmtp_version(void);
 
 /**
+ * Get MLS API call statistics. Writes to `out`.
+ */
+xmtp_
+int32_t xmtp_client_api_statistics(const struct XmtpXmtpClient *client,
+                                   struct XmtpXmtpApiStats *out);
+
+/**
+ * Get identity API call statistics. Writes to `out`.
+ */
+xmtp_
+int32_t xmtp_client_api_identity_statistics(const struct XmtpXmtpClient *client,
+                                            struct XmtpXmtpIdentityStats *out);
+
+/**
+ * Get aggregate statistics as a debug string. Caller must free with [`xmtp_free_string`].
+ */
+xmtp_ char *xmtp_client_api_aggregate_statistics(const struct XmtpXmtpClient *client);
+
+/**
+ * Clear all API call statistics.
+ */
+xmtp_ int32_t xmtp_client_clear_all_statistics(const struct XmtpXmtpClient *client);
+
+/**
  * Look up an inbox ID by account identifier using the client's connection.
  * Returns null if not found. Caller must free with [`xmtp_free_string`].
  */
@@ -496,6 +612,33 @@ char *const *xmtp_inbox_state_installation_ids(const struct XmtpXmtpInboxStateLi
  * Free an inbox state list (including all owned strings).
  */
 xmtp_ void xmtp_inbox_state_list_free(struct XmtpXmtpInboxStateList *list);
+
+/**
+ * Create a new gateway auth handle. Caller must free with [`xmtp_auth_handle_free`].
+ */
+xmtp_ int32_t xmtp_auth_handle_create(struct XmtpXmtpAuthHandle **out);
+
+/**
+ * Set a credential on an auth handle.
+ * `name` is an optional HTTP header name (null = "authorization").
+ * `value` is the header value (required).
+ * `expires_at_seconds` is the Unix timestamp when the credential expires.
+ */
+xmtp_
+int32_t xmtp_auth_handle_set(const struct XmtpXmtpAuthHandle *handle,
+                             const char *name,
+                             const char *value,
+                             int64_t expires_at_seconds);
+
+/**
+ * Get the unique ID of an auth handle.
+ */
+xmtp_ uintptr_t xmtp_auth_handle_id(const struct XmtpXmtpAuthHandle *handle);
+
+/**
+ * Free an auth handle.
+ */
+xmtp_ void xmtp_auth_handle_free(struct XmtpXmtpAuthHandle *handle);
 
 /**
  * Free a conversation handle.
@@ -899,6 +1042,51 @@ int32_t xmtp_conversation_paused_for_version(const struct XmtpXmtpConversation *
                                              char **out);
 
 /**
+ * Get debug info for this conversation.
+ * Caller must free string fields with [`xmtp_free_string`].
+ */
+xmtp_
+int32_t xmtp_conversation_debug_info(const struct XmtpXmtpConversation *conv,
+                                     struct XmtpXmtpConversationDebugInfo *out);
+
+/**
+ * Free a conversation debug info struct (its string fields).
+ */
+xmtp_ void xmtp_conversation_debug_info_free(struct XmtpXmtpConversationDebugInfo *info);
+
+/**
+ * Get HMAC keys for this conversation (including duplicate DMs).
+ * Returns a map via `out`. Caller must free with [`xmtp_hmac_key_map_free`].
+ */
+xmtp_
+int32_t xmtp_conversation_hmac_keys(const struct XmtpXmtpConversation *conv,
+                                    struct XmtpXmtpHmacKeyMap **out);
+
+/**
+ * Get the number of entries in an HMAC key map.
+ */
+xmtp_ int32_t xmtp_hmac_key_map_len(const struct XmtpXmtpHmacKeyMap *map);
+
+/**
+ * Get the group ID (hex) at index. Returns a borrowed pointer; do NOT free.
+ */
+xmtp_ const char *xmtp_hmac_key_map_group_id(const struct XmtpXmtpHmacKeyMap *map, int32_t index);
+
+/**
+ * Get the HMAC keys at index. Writes count to `out_count`.
+ * Returns a borrowed pointer to the key array; do NOT free individual keys.
+ */
+xmtp_
+const struct XmtpXmtpHmacKey *xmtp_hmac_key_map_keys(const struct XmtpXmtpHmacKeyMap *map,
+                                                     int32_t index,
+                                                     int32_t *out_count);
+
+/**
+ * Free an HMAC key map (including all owned data).
+ */
+xmtp_ void xmtp_hmac_key_map_free(struct XmtpXmtpHmacKeyMap *map);
+
+/**
  * Create a new group conversation, optionally adding members by inbox ID.
  * Pass null/0 for `member_inbox_ids`/`member_count` to create an empty group.
  * Caller must free result with [`xmtp_conversation_free`].
@@ -1007,6 +1195,114 @@ xmtp_
 int32_t xmtp_client_sync_preferences(const struct XmtpXmtpClient *client,
                                      int32_t *out_synced,
                                      int32_t *out_eligible);
+
+/**
+ * Get HMAC keys for all conversations (including duplicate DMs).
+ * Returns a map via `out`. Caller must free with [`xmtp_hmac_key_map_free`].
+ */
+xmtp_
+int32_t xmtp_client_hmac_keys(const struct XmtpXmtpClient *client,
+                              struct XmtpXmtpHmacKeyMap **out);
+
+/**
+ * Send a device sync request to retrieve records from another installation.
+ */
+xmtp_
+int32_t xmtp_device_sync_send_request(const struct XmtpXmtpClient *client,
+                                      const struct XmtpXmtpArchiveOptions *opts,
+                                      const char *server_url);
+
+/**
+ * Send a sync archive to the sync group with the given pin.
+ */
+xmtp_
+int32_t xmtp_device_sync_send_archive(const struct XmtpXmtpClient *client,
+                                      const struct XmtpXmtpArchiveOptions *opts,
+                                      const char *server_url,
+                                      const char *pin);
+
+/**
+ * Process a sync archive matching the given pin.
+ * Pass null for `pin` to process the latest archive.
+ */
+xmtp_
+int32_t xmtp_device_sync_process_archive(const struct XmtpXmtpClient *client,
+                                         const char *pin);
+
+/**
+ * List archives available for import in the sync group.
+ * `days_cutoff` limits how far back to look.
+ * Caller must free with [`xmtp_available_archive_list_free`].
+ */
+xmtp_
+int32_t xmtp_device_sync_list_available_archives(const struct XmtpXmtpClient *client,
+                                                 int64_t days_cutoff,
+                                                 struct XmtpXmtpAvailableArchiveList **out);
+
+/**
+ * Get the number of available archives.
+ */
+xmtp_ int32_t xmtp_available_archive_list_len(const struct XmtpXmtpAvailableArchiveList *list);
+
+/**
+ * Get the pin string at index. Returns a borrowed pointer; do NOT free.
+ */
+xmtp_
+const char *xmtp_available_archive_pin(const struct XmtpXmtpAvailableArchiveList *list,
+                                       int32_t index);
+
+/**
+ * Get the exported_at_ns at index.
+ */
+xmtp_
+int64_t xmtp_available_archive_exported_at_ns(const struct XmtpXmtpAvailableArchiveList *list,
+                                              int32_t index);
+
+/**
+ * Free an available archive list.
+ */
+xmtp_ void xmtp_available_archive_list_free(struct XmtpXmtpAvailableArchiveList *list);
+
+/**
+ * Export an archive to a local file.
+ * `key` must be at least 32 bytes (encryption key).
+ */
+xmtp_
+int32_t xmtp_device_sync_create_archive(const struct XmtpXmtpClient *client,
+                                        const char *path,
+                                        const struct XmtpXmtpArchiveOptions *opts,
+                                        const uint8_t *key,
+                                        int32_t key_len);
+
+/**
+ * Import a previously exported archive from a file.
+ * `key` must be at least 32 bytes (encryption key).
+ */
+xmtp_
+int32_t xmtp_device_sync_import_archive(const struct XmtpXmtpClient *client,
+                                        const char *path,
+                                        const uint8_t *key,
+                                        int32_t key_len);
+
+/**
+ * Read metadata from an archive file without loading its full contents.
+ * Writes `backup_version` and `exported_at_ns` to the output pointers.
+ */
+xmtp_
+int32_t xmtp_device_sync_archive_metadata(const char *path,
+                                          const uint8_t *key,
+                                          int32_t key_len,
+                                          uint16_t *out_version,
+                                          int64_t *out_exported_at_ns);
+
+/**
+ * Manually sync all device sync groups.
+ * Writes the number of synced/eligible groups to the output pointers.
+ */
+xmtp_
+int32_t xmtp_device_sync_sync_all(const struct XmtpXmtpClient *client,
+                                  int32_t *out_synced,
+                                  int32_t *out_eligible);
 
 /**
  * Generate an inbox ID from an identifier. Caller must free with [`xmtp_free_string`].
