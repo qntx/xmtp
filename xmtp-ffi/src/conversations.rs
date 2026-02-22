@@ -41,6 +41,10 @@ pub struct XmtpListConversationsOptions {
     pub created_after_ns: i64,
     /// Only include conversations created before this timestamp (ns). 0 = no filter.
     pub created_before_ns: i64,
+    /// Only include conversations with last activity after this timestamp (ns). 0 = no filter.
+    pub last_activity_after_ns: i64,
+    /// Only include conversations with last activity before this timestamp (ns). 0 = no filter.
+    pub last_activity_before_ns: i64,
     /// Consent state filter (parallel array with `consent_states_count`).
     /// Values: 0 = Unknown, 1 = Allowed, 2 = Denied.
     pub consent_states: *const i32,
@@ -245,6 +249,16 @@ pub unsafe extern "C" fn xmtp_client_list_conversations(
                 },
                 created_before_ns: if o.created_before_ns > 0 {
                     Some(o.created_before_ns)
+                } else {
+                    None
+                },
+                last_activity_after_ns: if o.last_activity_after_ns > 0 {
+                    Some(o.last_activity_after_ns)
+                } else {
+                    None
+                },
+                last_activity_before_ns: if o.last_activity_before_ns > 0 {
+                    Some(o.last_activity_before_ns)
                 } else {
                     None
                 },

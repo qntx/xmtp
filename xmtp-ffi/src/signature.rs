@@ -263,13 +263,7 @@ pub unsafe extern "C" fn xmtp_client_apply_signature_request(
     })
 }
 
-/// Free a signature request handle.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn xmtp_signature_request_free(req: *mut XmtpSignatureRequest) {
-    if !req.is_null() {
-        drop(unsafe { Box::from_raw(req) });
-    }
-}
+free_opaque!(xmtp_signature_request_free, XmtpSignatureRequest);
 
 // ---------------------------------------------------------------------------
 // Revoke specific installations

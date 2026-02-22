@@ -195,22 +195,10 @@ pub unsafe extern "C" fn xmtp_client_can_message(
 ) -> i32 {
     catch_async(|| async {
         let c = unsafe { ref_from(client)? };
-        if identifiers.is_null() || kinds.is_null() || out_results.is_null() || count <= 0 {
-            return Err("null pointer or invalid count".into());
+        if out_results.is_null() {
+            return Err("null output pointer".into());
         }
-
-        let mut idents = Vec::with_capacity(count as usize);
-        for i in 0..count as usize {
-            let s = unsafe { c_str_to_string(*identifiers.add(i))? };
-            let kind = unsafe { *kinds.add(i) };
-            let ident = match kind {
-                0 => xmtp_id::associations::Identifier::eth(s)?,
-                1 => xmtp_id::associations::Identifier::passkey_str(&s, None)?,
-                _ => return Err("invalid identifier kind".into()),
-            };
-            idents.push(ident);
-        }
-
+        let idents = unsafe { collect_identifiers(identifiers, kinds, count)? };
         let results = c.inner.can_message(&idents).await?;
         for (i, ident) in idents.iter().enumerate() {
             let can = results.get(ident).copied().unwrap_or(false);

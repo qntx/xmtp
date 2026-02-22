@@ -357,6 +357,14 @@ typedef struct XmtpXmtpListConversationsOptions {
      */
     int64_t created_before_ns;
     /**
+     * Only include conversations with last activity after this timestamp (ns). 0 = no filter.
+     */
+    int64_t last_activity_after_ns;
+    /**
+     * Only include conversations with last activity before this timestamp (ns). 0 = no filter.
+     */
+    int64_t last_activity_before_ns;
+    /**
      * Consent state filter (parallel array with `consent_states_count`).
      * Values: 0 = Unknown, 1 = Allowed, 2 = Denied.
      */
@@ -1616,11 +1624,6 @@ int32_t xmtp_signature_request_add_scw(const struct XmtpXmtpSignatureRequest *re
 xmtp_
 int32_t xmtp_client_apply_signature_request(const struct XmtpXmtpClient *client,
                                             const struct XmtpXmtpSignatureRequest *req);
-
-/**
- * Free a signature request handle.
- */
-xmtp_ void xmtp_signature_request_free(struct XmtpXmtpSignatureRequest *req);
 
 /**
  * Create a signature request to revoke specific installations by their IDs.
