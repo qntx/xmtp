@@ -20,6 +20,7 @@ At build time, the build script:
 | --- | --- |
 | `XMTP_FFI_DIR` | Path to a local FFI build directory. Skips downloading. |
 | `XMTP_FFI_VERSION` | Override the FFI release version (default: crate version). |
+| `XMTP_UPDATE_BINDINGS` | When set with `regenerate` feature, copy generated bindings back to `src/bindings.rs`. |
 
 ## Features
 

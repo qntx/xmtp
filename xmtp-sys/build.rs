@@ -12,6 +12,10 @@
 //!
 //! - `XMTP_FFI_VERSION` — Override the FFI release version to download.
 //!   Defaults to the crate version from `Cargo.toml`.
+//!
+//! - `XMTP_UPDATE_BINDINGS` — When set (any value) alongside the `regenerate`
+//!   feature, the freshly generated `bindings.rs` is copied back to
+//!   `src/bindings.rs` so it can be committed to the repository.
 
 use std::env;
 use std::fs;
@@ -24,6 +28,7 @@ const GITHUB_REPO: &str = "qntx/xmtp";
 fn main() {
     println!("cargo:rerun-if-env-changed=XMTP_FFI_DIR");
     println!("cargo:rerun-if-env-changed=XMTP_FFI_VERSION");
+    println!("cargo:rerun-if-env-changed=XMTP_UPDATE_BINDINGS");
 
     let target = env::var("TARGET").expect("TARGET not set");
     let out_dir = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR not set"));
@@ -235,6 +240,19 @@ fn generate_bindings(header: &Path, out_dir: &Path) {
     bindings
         .write_to_file(&out_file)
         .expect("Failed to write bindings.rs");
+
+    // When XMTP_UPDATE_BINDINGS is set, copy the freshly generated bindings
+    // back to src/bindings.rs so they can be committed to the repository.
+    if env::var("XMTP_UPDATE_BINDINGS").is_ok() {
+        let manifest_dir =
+            PathBuf::from(env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR not set"));
+        let committed = manifest_dir.join("src").join("bindings.rs");
+        fs::copy(&out_file, &committed).expect("Failed to copy bindings.rs to src/");
+        println!(
+            "cargo:warning=Updated committed bindings: {}",
+            committed.display()
+        );
+    }
 }
 
 /// Strip `typedef int32_t XmtpFfi...;` lines from the header to prevent
