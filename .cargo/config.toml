@@ -1,8 +1,14 @@
 # Workspace-wide Cargo configuration.
 #
-# On Windows (MSVC), suppress duplicate Rust runtime symbols (e.g.
-# rust_eh_personality) that arise from statically linking the xmtp_ffi
-# Rust staticlib into other Rust targets (bins, tests, examples).
+# Suppress duplicate Rust runtime symbols (e.g. rust_eh_personality) that arise
+# from statically linking the xmtp_ffi Rust staticlib into other Rust targets
+# (bins, tests, examples). Each platform needs its own linker flag.
 
-[target.x86_64-pc-windows-msvc]
+[target.'cfg(all(target_os = "windows", target_env = "msvc"))']
 rustflags = ["-C", "link-arg=/FORCE:MULTIPLE"]
+
+[target.'cfg(target_os = "linux")']
+rustflags = ["-C", "link-arg=-Wl,--allow-multiple-definition"]
+
+[target.'cfg(target_os = "macos")']
+rustflags = ["-C", "link-arg=-Wl,-multiply_defined,suppress"]
