@@ -11,13 +11,7 @@ use crate::ffi::*;
 // Lifecycle
 // ---------------------------------------------------------------------------
 
-/// Free a conversation handle.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn xmtp_conversation_free(conv: *mut XmtpConversation) {
-    if !conv.is_null() {
-        drop(unsafe { Box::from_raw(conv) });
-    }
-}
+free_opaque!(xmtp_conversation_free, XmtpConversation);
 
 // ---------------------------------------------------------------------------
 // Properties
@@ -305,14 +299,7 @@ pub unsafe extern "C" fn xmtp_conversation_count_messages(
 
 // --- Message list accessors ---
 
-/// Get the number of messages in a list.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn xmtp_message_list_len(list: *const XmtpMessageList) -> i32 {
-    match unsafe { ref_from(list) } {
-        Ok(l) => l.items.len() as i32,
-        Err(_) => 0,
-    }
-}
+ffi_list_len!(xmtp_message_list_len, XmtpMessageList);
 
 /// Helper to safely access a message at index.
 unsafe fn msg_at(
@@ -405,21 +392,8 @@ pub unsafe extern "C" fn xmtp_message_content_bytes(
     }
 }
 
-/// Free a message list.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn xmtp_message_list_free(list: *mut XmtpMessageList) {
-    if !list.is_null() {
-        drop(unsafe { Box::from_raw(list) });
-    }
-}
-
-/// Free a single message.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn xmtp_message_free(msg: *mut XmtpMessage) {
-    if !msg.is_null() {
-        drop(unsafe { Box::from_raw(msg) });
-    }
-}
+free_opaque!(xmtp_message_list_free, XmtpMessageList);
+free_opaque!(xmtp_message_free, XmtpMessage);
 
 // ---------------------------------------------------------------------------
 // Members
@@ -468,19 +442,12 @@ pub unsafe extern "C" fn xmtp_conversation_list_members(
                 }
             })
             .collect();
-        unsafe { write_out(out, XmtpGroupMemberList { members })? };
+        unsafe { write_out(out, XmtpGroupMemberList { items: members })? };
         Ok(())
     })
 }
 
-/// Get number of members in a list.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn xmtp_group_member_list_len(list: *const XmtpGroupMemberList) -> i32 {
-    match unsafe { ref_from(list) } {
-        Ok(l) => l.members.len() as i32,
-        Err(_) => 0,
-    }
-}
+ffi_list_len!(xmtp_group_member_list_len, XmtpGroupMemberList);
 
 /// Get member inbox ID at index. Caller must free with [`xmtp_free_string`].
 #[unsafe(no_mangle)]
@@ -492,7 +459,7 @@ pub unsafe extern "C" fn xmtp_group_member_inbox_id(
         Ok(l) => l,
         Err(_) => return std::ptr::null_mut(),
     };
-    match l.members.get(index as usize) {
+    match l.items.get(index as usize) {
         // Return a copy; original owned by the list
         Some(m) if !m.inbox_id.is_null() => {
             let s = unsafe { CStr::from_ptr(m.inbox_id) };
@@ -512,7 +479,7 @@ pub unsafe extern "C" fn xmtp_group_member_permission_level(
         Ok(l) => l,
         Err(_) => return -1,
     };
-    l.members
+    l.items
         .get(index as usize)
         .map_or(-1, |m| m.permission_level)
 }
@@ -527,9 +494,7 @@ pub unsafe extern "C" fn xmtp_group_member_consent_state(
         Ok(l) => l,
         Err(_) => return -1,
     };
-    l.members
-        .get(index as usize)
-        .map_or(-1, |m| m.consent_state)
+    l.items.get(index as usize).map_or(-1, |m| m.consent_state)
 }
 
 /// Get member account identifiers at index.
@@ -551,7 +516,7 @@ pub unsafe extern "C" fn xmtp_group_member_account_identifiers(
             return std::ptr::null();
         }
     };
-    match l.members.get(index as usize) {
+    match l.items.get(index as usize) {
         Some(m) => {
             unsafe { *out_count = m.account_identifiers_count };
             m.account_identifiers as *const *mut c_char
@@ -581,7 +546,7 @@ pub unsafe extern "C" fn xmtp_group_member_installation_ids(
             return std::ptr::null();
         }
     };
-    match l.members.get(index as usize) {
+    match l.items.get(index as usize) {
         Some(m) => {
             unsafe { *out_count = m.installation_ids_count };
             m.installation_ids as *const *mut c_char
@@ -600,7 +565,7 @@ pub unsafe extern "C" fn xmtp_group_member_list_free(list: *mut XmtpGroupMemberL
         return;
     }
     let l = unsafe { Box::from_raw(list) };
-    for m in &l.members {
+    for m in &l.items {
         if !m.inbox_id.is_null() {
             drop(unsafe { CString::from_raw(m.inbox_id) });
         }
@@ -1191,10 +1156,7 @@ pub unsafe extern "C" fn xmtp_conversation_duplicate_dms(
             return Err("null output pointer".into());
         }
         let dups = c.inner.find_duplicate_dms()?;
-        let items: Vec<XmtpConversationListItem> = dups
-            .into_iter()
-            .map(|g| XmtpConversationListItem { group: g })
-            .collect();
+        let items: Vec<InnerGroup> = dups.into_iter().collect();
         unsafe { write_out(out, XmtpConversationList { items })? };
         Ok(())
     })
@@ -1576,13 +1538,7 @@ pub unsafe extern "C" fn xmtp_conversation_group_permissions(
     })
 }
 
-/// Free a group permissions struct.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn xmtp_group_permissions_free(perms: *mut XmtpGroupPermissions) {
-    if !perms.is_null() {
-        drop(unsafe { Box::from_raw(perms) });
-    }
-}
+free_opaque!(xmtp_group_permissions_free, XmtpGroupPermissions);
 
 // ---------------------------------------------------------------------------
 // Enriched messages + last read times
@@ -1638,37 +1594,10 @@ pub unsafe extern "C" fn xmtp_conversation_list_enriched_messages(
     })
 }
 
-/// Get the number of entries in an enriched message list.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn xmtp_enriched_message_list_len(
-    list: *const XmtpEnrichedMessageList,
-) -> i32 {
-    match unsafe { ref_from(list) } {
-        Ok(l) => l.items.len() as i32,
-        Err(_) => 0,
-    }
-}
+ffi_list_len!(xmtp_enriched_message_list_len, XmtpEnrichedMessageList);
+ffi_list_get!(xmtp_enriched_message_list_get, XmtpEnrichedMessageList, XmtpEnrichedMessage);
 
-/// Get a borrowed pointer to an enriched message by index.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn xmtp_enriched_message_list_get(
-    list: *const XmtpEnrichedMessageList,
-    index: i32,
-) -> *const XmtpEnrichedMessage {
-    match unsafe { ref_from(list) } {
-        Ok(l) => {
-            let i = index as usize;
-            if i < l.items.len() {
-                &l.items[i] as *const _
-            } else {
-                std::ptr::null()
-            }
-        }
-        Err(_) => std::ptr::null(),
-    }
-}
-
-/// Free an enriched message list (including all owned strings).
+/// Free an enriched message list.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn xmtp_enriched_message_list_free(list: *mut XmtpEnrichedMessageList) {
     if list.is_null() {
@@ -1676,18 +1605,10 @@ pub unsafe extern "C" fn xmtp_enriched_message_list_free(list: *mut XmtpEnriched
     }
     let l = unsafe { Box::from_raw(list) };
     for item in &l.items {
-        for ptr in [
-            item.id,
-            item.group_id,
-            item.sender_inbox_id,
-            item.sender_installation_id,
-            item.content_type,
-            item.fallback_text,
-        ] {
-            if !ptr.is_null() {
-                drop(unsafe { CString::from_raw(ptr) });
-            }
-        }
+        free_c_strings!(
+            item, id, group_id, sender_inbox_id, sender_installation_id, content_type,
+            fallback_text,
+        );
     }
 }
 
@@ -1717,38 +1638,8 @@ pub unsafe extern "C" fn xmtp_conversation_last_read_times(
     })
 }
 
-/// Get the number of entries in a last-read-time list.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn xmtp_last_read_time_list_len(list: *const XmtpLastReadTimeList) -> i32 {
-    match unsafe { ref_from(list) } {
-        Ok(l) => l.items.len() as i32,
-        Err(_) => 0,
-    }
-}
-
-/// Get a borrowed pointer to a last-read-time entry by index.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn xmtp_last_read_time_list_get(
-    list: *const XmtpLastReadTimeList,
-    index: i32,
-    out_inbox_id: *mut *const c_char,
-    out_timestamp_ns: *mut i64,
-) -> i32 {
-    catch(|| {
-        let l = unsafe { ref_from(list)? };
-        let i = index as usize;
-        if i >= l.items.len() {
-            return Err("index out of bounds".into());
-        }
-        if !out_inbox_id.is_null() {
-            unsafe { *out_inbox_id = l.items[i].inbox_id };
-        }
-        if !out_timestamp_ns.is_null() {
-            unsafe { *out_timestamp_ns = l.items[i].timestamp_ns };
-        }
-        Ok(())
-    })
-}
+ffi_list_len!(xmtp_last_read_time_list_len, XmtpLastReadTimeList);
+ffi_list_get!(xmtp_last_read_time_list_get, XmtpLastReadTimeList, XmtpLastReadTimeEntry);
 
 /// Free a last-read-time list.
 #[unsafe(no_mangle)]
@@ -1758,9 +1649,7 @@ pub unsafe extern "C" fn xmtp_last_read_time_list_free(list: *mut XmtpLastReadTi
     }
     let l = unsafe { Box::from_raw(list) };
     for item in &l.items {
-        if !item.inbox_id.is_null() {
-            drop(unsafe { CString::from_raw(item.inbox_id) });
-        }
+        free_c_strings!(item, inbox_id);
     }
 }
 

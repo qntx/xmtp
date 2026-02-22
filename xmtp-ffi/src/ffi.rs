@@ -96,11 +96,7 @@ pub struct XmtpMessageList {
 
 /// A list of conversations returned from queries.
 pub struct XmtpConversationList {
-    pub(crate) items: Vec<XmtpConversationListItem>,
-}
-
-pub struct XmtpConversationListItem {
-    pub(crate) group: InnerGroup,
+    pub(crate) items: Vec<InnerGroup>,
 }
 
 /// A single group member.
@@ -118,7 +114,7 @@ pub struct XmtpGroupMember {
 
 /// A list of group members.
 pub struct XmtpGroupMemberList {
-    pub(crate) members: Vec<XmtpGroupMember>,
+    pub(crate) items: Vec<XmtpGroupMember>,
 }
 
 /// A single inbox state entry (batch query result).
@@ -622,6 +618,67 @@ pub(crate) fn free_c_string_array(arr: *mut *mut c_char, count: i32) {
 pub unsafe extern "C" fn xmtp_free_string_array(arr: *mut *mut c_char, count: i32) {
     free_c_string_array(arr, count);
 }
+
+// ---------------------------------------------------------------------------
+// DRY macros for FFI list types
+// ---------------------------------------------------------------------------
+
+/// Generate a `_len` function for a list type with an `items` field.
+macro_rules! ffi_list_len {
+    ($fn_name:ident, $list_ty:ty) => {
+        #[unsafe(no_mangle)]
+        pub unsafe extern "C" fn $fn_name(list: *const $list_ty) -> i32 {
+            match unsafe { $crate::ffi::ref_from(list) } {
+                Ok(l) => l.items.len() as i32,
+                Err(_) => 0,
+            }
+        }
+    };
+}
+
+/// Generate a `_get` function returning `*const Item` by index.
+macro_rules! ffi_list_get {
+    ($fn_name:ident, $list_ty:ty, $item_ty:ty) => {
+        #[unsafe(no_mangle)]
+        pub unsafe extern "C" fn $fn_name(list: *const $list_ty, index: i32) -> *const $item_ty {
+            match unsafe { $crate::ffi::ref_from(list) } {
+                Ok(l) => l
+                    .items
+                    .get(index as usize)
+                    .map_or(std::ptr::null(), |item| item as *const _),
+                Err(_) => std::ptr::null(),
+            }
+        }
+    };
+}
+
+/// Generate a `_free` function for a boxed type (no inner cleanup needed).
+macro_rules! free_opaque {
+    ($fn_name:ident, $ty:ty) => {
+        #[unsafe(no_mangle)]
+        pub unsafe extern "C" fn $fn_name(ptr: *mut $ty) {
+            if !ptr.is_null() {
+                drop(unsafe { Box::from_raw(ptr) });
+            }
+        }
+    };
+}
+
+/// Free multiple nullable `*mut c_char` fields on a struct expression.
+macro_rules! free_c_strings {
+    ($item:expr, $($field:ident),+ $(,)?) => {
+        $(
+            if !$item.$field.is_null() {
+                drop(unsafe { std::ffi::CString::from_raw($item.$field) });
+            }
+        )+
+    };
+}
+
+pub(crate) use ffi_list_get;
+pub(crate) use ffi_list_len;
+pub(crate) use free_c_strings;
+pub(crate) use free_opaque;
 
 // ---------------------------------------------------------------------------
 // Enum mapping helpers (shared across modules)

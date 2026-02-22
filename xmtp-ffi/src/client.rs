@@ -123,13 +123,7 @@ pub unsafe extern "C" fn xmtp_client_create(
     })
 }
 
-/// Free a client handle.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn xmtp_client_free(client: *mut XmtpClient) {
-    if !client.is_null() {
-        drop(unsafe { Box::from_raw(client) });
-    }
-}
+free_opaque!(xmtp_client_free, XmtpClient);
 
 // ---------------------------------------------------------------------------
 // Properties
@@ -816,13 +810,7 @@ pub unsafe extern "C" fn xmtp_auth_handle_id(handle: *const XmtpAuthHandle) -> u
     }
 }
 
-/// Free an auth handle.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn xmtp_auth_handle_free(handle: *mut XmtpAuthHandle) {
-    if !handle.is_null() {
-        drop(unsafe { Box::from_raw(handle) });
-    }
-}
+free_opaque!(xmtp_auth_handle_free, XmtpAuthHandle);
 
 // ---------------------------------------------------------------------------
 // Inbox updates count
@@ -880,42 +868,12 @@ pub unsafe extern "C" fn xmtp_client_fetch_own_inbox_updates_count(
     })
 }
 
-/// Get the number of entries in an inbox update count list.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn xmtp_inbox_update_count_list_len(
-    list: *const XmtpInboxUpdateCountList,
-) -> i32 {
-    match unsafe { ref_from(list) } {
-        Ok(l) => l.items.len() as i32,
-        Err(_) => 0,
-    }
-}
-
-/// Get an entry from the inbox update count list by index.
-/// `out_inbox_id` receives a borrowed pointer (valid as long as the list is alive).
-/// `out_count` receives the count value.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn xmtp_inbox_update_count_list_get(
-    list: *const XmtpInboxUpdateCountList,
-    index: i32,
-    out_inbox_id: *mut *const c_char,
-    out_count: *mut u32,
-) -> i32 {
-    catch(|| {
-        let l = unsafe { ref_from(list)? };
-        let i = index as usize;
-        if i >= l.items.len() {
-            return Err("index out of bounds".into());
-        }
-        if !out_inbox_id.is_null() {
-            unsafe { *out_inbox_id = l.items[i].inbox_id };
-        }
-        if !out_count.is_null() {
-            unsafe { *out_count = l.items[i].count };
-        }
-        Ok(())
-    })
-}
+ffi_list_len!(xmtp_inbox_update_count_list_len, XmtpInboxUpdateCountList);
+ffi_list_get!(
+    xmtp_inbox_update_count_list_get,
+    XmtpInboxUpdateCountList,
+    XmtpInboxUpdateCount
+);
 
 /// Free an inbox update count list.
 #[unsafe(no_mangle)]
@@ -925,9 +883,7 @@ pub unsafe extern "C" fn xmtp_inbox_update_count_list_free(list: *mut XmtpInboxU
     }
     let l = unsafe { Box::from_raw(list) };
     for item in &l.items {
-        if !item.inbox_id.is_null() {
-            drop(unsafe { std::ffi::CString::from_raw(item.inbox_id) });
-        }
+        free_c_strings!(item, inbox_id);
     }
 }
 
@@ -989,38 +945,14 @@ pub unsafe extern "C" fn xmtp_client_fetch_key_package_statuses(
     })
 }
 
-/// Get the number of entries in a key package status list.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn xmtp_key_package_status_list_len(
-    list: *const XmtpKeyPackageStatusList,
-) -> i32 {
-    match unsafe { ref_from(list) } {
-        Ok(l) => l.items.len() as i32,
-        Err(_) => 0,
-    }
-}
+ffi_list_len!(xmtp_key_package_status_list_len, XmtpKeyPackageStatusList);
+ffi_list_get!(
+    xmtp_key_package_status_list_get,
+    XmtpKeyPackageStatusList,
+    XmtpKeyPackageStatus
+);
 
-/// Get a key package status entry by index.
-/// Returns a borrowed pointer to the XmtpKeyPackageStatus (valid while list is alive).
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn xmtp_key_package_status_list_get(
-    list: *const XmtpKeyPackageStatusList,
-    index: i32,
-) -> *const XmtpKeyPackageStatus {
-    match unsafe { ref_from(list) } {
-        Ok(l) => {
-            let i = index as usize;
-            if i < l.items.len() {
-                &l.items[i] as *const _
-            } else {
-                std::ptr::null()
-            }
-        }
-        Err(_) => std::ptr::null(),
-    }
-}
-
-/// Free a key package status list (including all owned strings).
+/// Free a key package status list.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn xmtp_key_package_status_list_free(list: *mut XmtpKeyPackageStatusList) {
     if list.is_null() {
@@ -1028,12 +960,7 @@ pub unsafe extern "C" fn xmtp_key_package_status_list_free(list: *mut XmtpKeyPac
     }
     let l = unsafe { Box::from_raw(list) };
     for item in &l.items {
-        if !item.installation_id.is_null() {
-            drop(unsafe { std::ffi::CString::from_raw(item.installation_id) });
-        }
-        if !item.validation_error.is_null() {
-            drop(unsafe { std::ffi::CString::from_raw(item.validation_error) });
-        }
+        free_c_strings!(item, installation_id, validation_error);
     }
 }
 

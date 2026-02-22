@@ -158,32 +158,6 @@ typedef struct XmtpXmtpIdentityStats {
 } XmtpXmtpIdentityStats;
 
 /**
- * Key package status for an installation.
- */
-typedef struct XmtpXmtpKeyPackageStatus {
-    /**
-     * Installation ID as hex string (owned).
-     */
-    char *installation_id;
-    /**
-     * 1 if valid, 0 if validation error.
-     */
-    int32_t valid;
-    /**
-     * not_before timestamp (0 if unavailable).
-     */
-    uint64_t not_before;
-    /**
-     * not_after timestamp (0 if unavailable).
-     */
-    uint64_t not_after;
-    /**
-     * Validation error message (null if no error, owned).
-     */
-    char *validation_error;
-} XmtpXmtpKeyPackageStatus;
-
-/**
  * Options for sending a message.
  */
 typedef struct XmtpXmtpSendOpts {
@@ -298,61 +272,6 @@ typedef struct XmtpXmtpGroupPermissions {
     int32_t policy_type;
     struct XmtpXmtpPermissionPolicySet policy_set;
 } XmtpXmtpGroupPermissions;
-
-/**
- * An enriched (decoded) message exposed to C.
- * Contains metadata + the original encoded content bytes for upper-layer decoding.
- */
-typedef struct XmtpXmtpEnrichedMessage {
-    /**
-     * Message ID (hex string, owned).
-     */
-    char *id;
-    /**
-     * Group ID (hex string, owned).
-     */
-    char *group_id;
-    /**
-     * Sender inbox ID (owned string).
-     */
-    char *sender_inbox_id;
-    /**
-     * Sender installation ID (hex string, owned).
-     */
-    char *sender_installation_id;
-    /**
-     * Sent timestamp in nanoseconds.
-     */
-    int64_t sent_at_ns;
-    /**
-     * Inserted-into-DB timestamp in nanoseconds.
-     */
-    int64_t inserted_at_ns;
-    /**
-     * Message kind: 1=Application, 2=MembershipChange.
-     */
-    int32_t kind;
-    /**
-     * Delivery status: 1=Unpublished, 2=Published, 3=Failed.
-     */
-    int32_t delivery_status;
-    /**
-     * Content type ID string (e.g. "xmtp.org/text:1.0", owned).
-     */
-    char *content_type;
-    /**
-     * Fallback text (nullable, owned).
-     */
-    char *fallback_text;
-    /**
-     * Number of reactions.
-     */
-    int32_t num_reactions;
-    /**
-     * Number of replies.
-     */
-    int32_t num_replies;
-} XmtpXmtpEnrichedMessage;
 
 /**
  * Options for creating a new group conversation.
@@ -560,11 +479,6 @@ xmtp_ int32_t xmtp_init_logger(const char *level);
 xmtp_
 int32_t xmtp_client_create(const struct XmtpXmtpClientOptions *opts,
                            struct XmtpXmtpClient **out);
-
-/**
- * Free a client handle.
- */
-xmtp_ void xmtp_client_free(struct XmtpXmtpClient *client);
 
 /**
  * Get the client's inbox ID. Caller must free with [`xmtp_free_string`].
@@ -785,11 +699,6 @@ int32_t xmtp_auth_handle_set(const struct XmtpXmtpAuthHandle *handle,
 xmtp_ uintptr_t xmtp_auth_handle_id(const struct XmtpXmtpAuthHandle *handle);
 
 /**
- * Free an auth handle.
- */
-xmtp_ void xmtp_auth_handle_free(struct XmtpXmtpAuthHandle *handle);
-
-/**
  * Fetch the number of identity updates for multiple inbox IDs.
  * Caller must free the result with [`xmtp_inbox_update_count_list_free`].
  */
@@ -809,22 +718,6 @@ int32_t xmtp_client_fetch_own_inbox_updates_count(const struct XmtpXmtpClient *c
                                                   uint32_t *out);
 
 /**
- * Get the number of entries in an inbox update count list.
- */
-xmtp_ int32_t xmtp_inbox_update_count_list_len(const struct XmtpXmtpInboxUpdateCountList *list);
-
-/**
- * Get an entry from the inbox update count list by index.
- * `out_inbox_id` receives a borrowed pointer (valid as long as the list is alive).
- * `out_count` receives the count value.
- */
-xmtp_
-int32_t xmtp_inbox_update_count_list_get(const struct XmtpXmtpInboxUpdateCountList *list,
-                                         int32_t index,
-                                         const char **out_inbox_id,
-                                         uint32_t *out_count);
-
-/**
  * Free an inbox update count list.
  */
 xmtp_ void xmtp_inbox_update_count_list_free(struct XmtpXmtpInboxUpdateCountList *list);
@@ -840,20 +733,7 @@ int32_t xmtp_client_fetch_key_package_statuses(const struct XmtpXmtpClient *clie
                                                struct XmtpXmtpKeyPackageStatusList **out);
 
 /**
- * Get the number of entries in a key package status list.
- */
-xmtp_ int32_t xmtp_key_package_status_list_len(const struct XmtpXmtpKeyPackageStatusList *list);
-
-/**
- * Get a key package status entry by index.
- * Returns a borrowed pointer to the XmtpKeyPackageStatus (valid while list is alive).
- */
-xmtp_
-const struct XmtpXmtpKeyPackageStatus *xmtp_key_package_status_list_get(const struct XmtpXmtpKeyPackageStatusList *list,
-                                                                        int32_t index);
-
-/**
- * Free a key package status list (including all owned strings).
+ * Free a key package status list.
  */
 xmtp_ void xmtp_key_package_status_list_free(struct XmtpXmtpKeyPackageStatusList *list);
 
@@ -862,11 +742,6 @@ xmtp_ void xmtp_key_package_status_list_free(struct XmtpXmtpKeyPackageStatusList
  * Caller must free with [`xmtp_free_string`].
  */
 xmtp_ char *xmtp_client_account_identifier(const struct XmtpXmtpClient *client);
-
-/**
- * Free a conversation handle.
- */
-xmtp_ void xmtp_conversation_free(struct XmtpXmtpConversation *conv);
 
 /**
  * Get the conversation's hex-encoded group ID. Caller must free with [`xmtp_free_string`].
@@ -958,11 +833,6 @@ int64_t xmtp_conversation_count_messages(const struct XmtpXmtpConversation *conv
                                          const struct XmtpXmtpListMessagesOptions *opts);
 
 /**
- * Get the number of messages in a list.
- */
-xmtp_ int32_t xmtp_message_list_len(const struct XmtpXmtpMessageList *list);
-
-/**
  * Get message ID (hex) at index. Caller must free with [`xmtp_free_string`].
  */
 xmtp_ char *xmtp_message_id(const struct XmtpXmtpMessageList *list, int32_t index);
@@ -997,26 +867,11 @@ const uint8_t *xmtp_message_content_bytes(const struct XmtpXmtpMessageList *list
                                           int32_t *out_len);
 
 /**
- * Free a message list.
- */
-xmtp_ void xmtp_message_list_free(struct XmtpXmtpMessageList *list);
-
-/**
- * Free a single message.
- */
-xmtp_ void xmtp_message_free(struct XmtpXmtpMessage *msg);
-
-/**
  * List group members. Caller must free with [`xmtp_group_member_list_free`].
  */
 xmtp_
 int32_t xmtp_conversation_list_members(const struct XmtpXmtpConversation *conv,
                                        struct XmtpXmtpGroupMemberList **out);
-
-/**
- * Get number of members in a list.
- */
-xmtp_ int32_t xmtp_group_member_list_len(const struct XmtpXmtpGroupMemberList *list);
 
 /**
  * Get member inbox ID at index. Caller must free with [`xmtp_free_string`].
@@ -1347,11 +1202,6 @@ int32_t xmtp_conversation_group_permissions(const struct XmtpXmtpConversation *c
                                             struct XmtpXmtpGroupPermissions **out);
 
 /**
- * Free a group permissions struct.
- */
-xmtp_ void xmtp_group_permissions_free(struct XmtpXmtpGroupPermissions *perms);
-
-/**
  * List enriched (decoded) messages for a conversation.
  * Caller must free with [`xmtp_enriched_message_list_free`].
  */
@@ -1361,19 +1211,7 @@ int32_t xmtp_conversation_list_enriched_messages(const struct XmtpXmtpConversati
                                                  struct XmtpXmtpEnrichedMessageList **out);
 
 /**
- * Get the number of entries in an enriched message list.
- */
-xmtp_ int32_t xmtp_enriched_message_list_len(const struct XmtpXmtpEnrichedMessageList *list);
-
-/**
- * Get a borrowed pointer to an enriched message by index.
- */
-xmtp_
-const struct XmtpXmtpEnrichedMessage *xmtp_enriched_message_list_get(const struct XmtpXmtpEnrichedMessageList *list,
-                                                                     int32_t index);
-
-/**
- * Free an enriched message list (including all owned strings).
+ * Free an enriched message list.
  */
 xmtp_ void xmtp_enriched_message_list_free(struct XmtpXmtpEnrichedMessageList *list);
 
@@ -1384,20 +1222,6 @@ xmtp_ void xmtp_enriched_message_list_free(struct XmtpXmtpEnrichedMessageList *l
 xmtp_
 int32_t xmtp_conversation_last_read_times(const struct XmtpXmtpConversation *conversation,
                                           struct XmtpXmtpLastReadTimeList **out);
-
-/**
- * Get the number of entries in a last-read-time list.
- */
-xmtp_ int32_t xmtp_last_read_time_list_len(const struct XmtpXmtpLastReadTimeList *list);
-
-/**
- * Get a borrowed pointer to a last-read-time entry by index.
- */
-xmtp_
-int32_t xmtp_last_read_time_list_get(const struct XmtpXmtpLastReadTimeList *list,
-                                     int32_t index,
-                                     const char **out_inbox_id,
-                                     int64_t *out_timestamp_ns);
 
 /**
  * Free a last-read-time list.
@@ -1475,11 +1299,6 @@ xmtp_
 int32_t xmtp_client_list_conversations(const struct XmtpXmtpClient *client,
                                        const struct XmtpXmtpListConversationsOptions *opts,
                                        struct XmtpXmtpConversationList **out);
-
-/**
- * Get the number of conversations in a list.
- */
-xmtp_ int32_t xmtp_conversation_list_len(const struct XmtpXmtpConversationList *list);
 
 /**
  * Get a conversation from a list by index. Caller must free with [`xmtp_conversation_free`].

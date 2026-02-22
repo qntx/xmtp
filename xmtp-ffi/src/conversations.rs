@@ -258,11 +258,11 @@ pub unsafe extern "C" fn xmtp_client_list_conversations(
             }
         };
 
-        let items: Vec<XmtpConversationListItem> = c
+        let items: Vec<InnerGroup> = c
             .inner
             .list_conversations(args)?
             .into_iter()
-            .map(|item| XmtpConversationListItem { group: item.group })
+            .map(|item| item.group)
             .collect();
 
         unsafe { write_out(out, XmtpConversationList { items })? };
@@ -270,14 +270,7 @@ pub unsafe extern "C" fn xmtp_client_list_conversations(
     })
 }
 
-/// Get the number of conversations in a list.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn xmtp_conversation_list_len(list: *const XmtpConversationList) -> i32 {
-    match unsafe { ref_from(list) } {
-        Ok(l) => l.items.len() as i32,
-        Err(_) => 0,
-    }
-}
+ffi_list_len!(xmtp_conversation_list_len, XmtpConversationList);
 
 /// Get a conversation from a list by index. Caller must free with [`xmtp_conversation_free`].
 #[unsafe(no_mangle)]
@@ -295,7 +288,7 @@ pub unsafe extern "C" fn xmtp_conversation_list_get(
         if idx >= l.items.len() {
             return Err("index out of bounds".into());
         }
-        let src = &l.items[idx].group;
+        let src = &l.items[idx];
         let group = MlsGroup::new(
             src.context.clone(),
             src.group_id.clone(),
@@ -455,10 +448,7 @@ pub unsafe extern "C" fn xmtp_client_process_streamed_welcome_message(
             unsafe { std::slice::from_raw_parts(envelope_bytes, envelope_bytes_len as usize) }
                 .to_vec();
         let groups = c.inner.process_streamed_welcome_message(bytes).await?;
-        let items: Vec<XmtpConversationListItem> = groups
-            .into_iter()
-            .map(|g| XmtpConversationListItem { group: g })
-            .collect();
+        let items: Vec<InnerGroup> = groups.into_iter().collect();
         let list = Box::new(XmtpConversationList { items });
         unsafe { *out = Box::into_raw(list) };
         Ok(())
