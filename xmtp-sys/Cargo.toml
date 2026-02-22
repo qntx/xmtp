@@ -7,6 +7,10 @@ repository.workspace = true
 description = "Raw FFI bindings to the XMTP messaging protocol static library (libxmtp_ffi)"
 readme = "README.md"
 links = "xmtp_ffi"
+documentation = "https://docs.rs/xmtp-sys"
+categories = ["api-bindings", "cryptography", "network-programming"]
+keywords = ["xmtp", "ffi", "messaging", "e2e-encryption", "mls"]
+rust-version = "1.85"
 
 [features]
 ## Re-generate bindings from the C header at build time (requires libclang).
