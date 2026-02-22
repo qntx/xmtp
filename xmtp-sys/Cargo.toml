@@ -18,7 +18,7 @@ bindgen = { version = "0.72", optional = true }
 ureq = "2"
 flate2 = "1"
 tar = "0.4"
-zip = { version = "2", default-features = false, features = ["deflate"] }
+zip = { version = "8", default-features = false, features = ["deflate"] }
 
 [lints]
 workspace = true
