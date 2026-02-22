@@ -1371,6 +1371,29 @@ int32_t xmtp_conversation_list_get(const struct XmtpFfiConversationList *list,
                                    struct XmtpFfiConversation **out);
 
 /**
+ * Get the sent_at_ns of the last message for a conversation list item.
+ * Returns 0 if no last message exists, or -1 on error.
+ */
+int64_t xmtp_conversation_list_last_message_sent_at_ns(const struct XmtpFfiConversationList *list,
+                                                       int32_t index);
+
+/**
+ * Get the last message for a conversation list item as an opaque FfiMessage handle.
+ * Returns 0 on success (writes to `out`), -1 on error or if no last message exists.
+ * Caller must free with `xmtp_message_free`.
+ */
+int32_t xmtp_conversation_list_last_message(const struct XmtpFfiConversationList *list,
+                                            int32_t index,
+                                            struct XmtpFfiMessage **out);
+
+/**
+ * Get the commit log fork status for a conversation list item.
+ * Returns -1=unknown/error, 0=not forked, 1=forked.
+ */
+int32_t xmtp_conversation_list_is_commit_log_forked(const struct XmtpFfiConversationList *list,
+                                                    int32_t index);
+
+/**
  * Sync welcomes (process new group invitations).
  */
 int32_t xmtp_client_sync_welcomes(const struct XmtpFfiClient *client);

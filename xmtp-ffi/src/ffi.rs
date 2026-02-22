@@ -210,9 +210,16 @@ pub struct FfiMessageList {
     pub(crate) items: Vec<xmtp_db::group_message::StoredGroupMessage>,
 }
 
+/// Internal storage for a conversation list item (preserves last_message + fork status).
+pub(crate) struct FfiConversationListItemInner {
+    pub(crate) group: InnerGroup,
+    pub(crate) last_message: Option<xmtp_db::group_message::StoredGroupMessage>,
+    pub(crate) is_commit_log_forked: Option<bool>,
+}
+
 /// A list of conversations returned from queries.
 pub struct FfiConversationList {
-    pub(crate) items: Vec<InnerGroup>,
+    pub(crate) items: Vec<FfiConversationListItemInner>,
 }
 
 /// A single group member.

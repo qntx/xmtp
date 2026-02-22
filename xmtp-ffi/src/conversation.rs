@@ -1232,7 +1232,14 @@ pub unsafe extern "C" fn xmtp_conversation_duplicate_dms(
             return Err("null output pointer".into());
         }
         let dups = c.inner.find_duplicate_dms()?;
-        let items: Vec<InnerGroup> = dups.into_iter().collect();
+        let items: Vec<FfiConversationListItemInner> = dups
+            .into_iter()
+            .map(|g| FfiConversationListItemInner {
+                group: g,
+                last_message: None,
+                is_commit_log_forked: None,
+            })
+            .collect();
         unsafe { write_out(out, FfiConversationList { items })? };
         Ok(())
     })

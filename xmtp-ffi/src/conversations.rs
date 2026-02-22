@@ -299,11 +299,15 @@ pub unsafe extern "C" fn xmtp_client_list_conversations(
             }
         };
 
-        let items: Vec<InnerGroup> = c
+        let items: Vec<FfiConversationListItemInner> = c
             .inner
             .list_conversations(args)?
             .into_iter()
-            .map(|item| item.group)
+            .map(|item| FfiConversationListItemInner {
+                group: item.group,
+                last_message: item.last_message,
+                is_commit_log_forked: item.is_commit_log_forked,
+            })
             .collect();
 
         unsafe { write_out(out, FfiConversationList { items })? };
@@ -329,7 +333,7 @@ pub unsafe extern "C" fn xmtp_conversation_list_get(
         if idx >= l.items.len() {
             return Err("index out of bounds".into());
         }
-        let src = &l.items[idx];
+        let src = &l.items[idx].group;
         let group = MlsGroup::new(
             src.context.clone(),
             src.group_id.clone(),
@@ -343,6 +347,65 @@ pub unsafe extern "C" fn xmtp_conversation_list_get(
 }
 
 free_opaque!(xmtp_conversation_list_free, FfiConversationList);
+
+/// Get the sent_at_ns of the last message for a conversation list item.
+/// Returns 0 if no last message exists, or -1 on error.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn xmtp_conversation_list_last_message_sent_at_ns(
+    list: *const FfiConversationList,
+    index: i32,
+) -> i64 {
+    let l = match unsafe { ref_from(list) } {
+        Ok(l) => l,
+        Err(_) => return -1,
+    };
+    l.items
+        .get(index as usize)
+        .and_then(|item| item.last_message.as_ref())
+        .map_or(0, |msg| msg.sent_at_ns)
+}
+
+/// Get the last message for a conversation list item as an opaque FfiMessage handle.
+/// Returns 0 on success (writes to `out`), -1 on error or if no last message exists.
+/// Caller must free with `xmtp_message_free`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn xmtp_conversation_list_last_message(
+    list: *const FfiConversationList,
+    index: i32,
+    out: *mut *mut FfiMessage,
+) -> i32 {
+    catch(|| {
+        let l = unsafe { ref_from(list)? };
+        if out.is_null() {
+            return Err("null output pointer".into());
+        }
+        let idx = index as usize;
+        let item = l.items.get(idx).ok_or("index out of bounds")?;
+        let msg = item.last_message.as_ref().ok_or("no last message")?;
+        unsafe { write_out(out, FfiMessage { inner: msg.clone() })? };
+        Ok(())
+    })
+}
+
+/// Get the commit log fork status for a conversation list item.
+/// Returns -1=unknown/error, 0=not forked, 1=forked.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn xmtp_conversation_list_is_commit_log_forked(
+    list: *const FfiConversationList,
+    index: i32,
+) -> i32 {
+    let l = match unsafe { ref_from(list) } {
+        Ok(l) => l,
+        Err(_) => return -1,
+    };
+    l.items
+        .get(index as usize)
+        .map_or(-1, |item| match item.is_commit_log_forked {
+            Some(true) => 1,
+            Some(false) => 0,
+            None => -1,
+        })
+}
 
 // ---------------------------------------------------------------------------
 // Sync
@@ -481,7 +544,14 @@ pub unsafe extern "C" fn xmtp_client_process_streamed_welcome_message(
             unsafe { std::slice::from_raw_parts(envelope_bytes, envelope_bytes_len as usize) }
                 .to_vec();
         let groups = c.inner.process_streamed_welcome_message(bytes).await?;
-        let items: Vec<InnerGroup> = groups.into_iter().collect();
+        let items: Vec<FfiConversationListItemInner> = groups
+            .into_iter()
+            .map(|g| FfiConversationListItemInner {
+                group: g,
+                last_message: None,
+                is_commit_log_forked: None,
+            })
+            .collect();
         let list = Box::new(FfiConversationList { items });
         unsafe { *out = Box::into_raw(list) };
         Ok(())
