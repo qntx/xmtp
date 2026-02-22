@@ -14,8 +14,8 @@ use crate::ffi::*;
 /// Caller must free with [`xmtp_signature_request_free`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn xmtp_client_create_inbox_signature_request(
-    client: *const XmtpClient,
-    out: *mut *mut XmtpSignatureRequest,
+    client: *const FfiClient,
+    out: *mut *mut FfiSignatureRequest,
 ) -> i32 {
     catch(|| {
         let c = unsafe { ref_from(client)? };
@@ -28,7 +28,7 @@ pub unsafe extern "C" fn xmtp_client_create_inbox_signature_request(
             }
             return Ok(());
         };
-        let handle = XmtpSignatureRequest {
+        let handle = FfiSignatureRequest {
             request: Arc::new(tokio::sync::Mutex::new(sig_req)),
             scw_verifier: c.inner.scw_verifier().clone(),
         };
@@ -41,10 +41,10 @@ pub unsafe extern "C" fn xmtp_client_create_inbox_signature_request(
 /// Caller must free with [`xmtp_signature_request_free`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn xmtp_client_add_identifier_signature_request(
-    client: *const XmtpClient,
+    client: *const FfiClient,
     identifier: *const c_char,
     identifier_kind: i32,
-    out: *mut *mut XmtpSignatureRequest,
+    out: *mut *mut FfiSignatureRequest,
 ) -> i32 {
     catch_async(|| async {
         let c = unsafe { ref_from(client)? };
@@ -53,7 +53,7 @@ pub unsafe extern "C" fn xmtp_client_add_identifier_signature_request(
         }
         let ident = unsafe { parse_identifier(identifier, identifier_kind)? };
         let sig_req = c.inner.identity_updates().associate_identity(ident).await?;
-        let handle = XmtpSignatureRequest {
+        let handle = FfiSignatureRequest {
             request: Arc::new(tokio::sync::Mutex::new(sig_req)),
             scw_verifier: c.inner.scw_verifier().clone(),
         };
@@ -66,10 +66,10 @@ pub unsafe extern "C" fn xmtp_client_add_identifier_signature_request(
 /// Caller must free with [`xmtp_signature_request_free`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn xmtp_client_revoke_identifier_signature_request(
-    client: *const XmtpClient,
+    client: *const FfiClient,
     identifier: *const c_char,
     identifier_kind: i32,
-    out: *mut *mut XmtpSignatureRequest,
+    out: *mut *mut FfiSignatureRequest,
 ) -> i32 {
     catch_async(|| async {
         let c = unsafe { ref_from(client)? };
@@ -82,7 +82,7 @@ pub unsafe extern "C" fn xmtp_client_revoke_identifier_signature_request(
             .identity_updates()
             .revoke_identities(vec![ident])
             .await?;
-        let handle = XmtpSignatureRequest {
+        let handle = FfiSignatureRequest {
             request: Arc::new(tokio::sync::Mutex::new(sig_req)),
             scw_verifier: c.inner.scw_verifier().clone(),
         };
@@ -96,8 +96,8 @@ pub unsafe extern "C" fn xmtp_client_revoke_identifier_signature_request(
 /// Caller must free with [`xmtp_signature_request_free`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn xmtp_client_revoke_all_other_installations(
-    client: *const XmtpClient,
-    out: *mut *mut XmtpSignatureRequest,
+    client: *const FfiClient,
+    out: *mut *mut FfiSignatureRequest,
 ) -> i32 {
     catch_async(|| async {
         let c = unsafe { ref_from(client)? };
@@ -122,7 +122,7 @@ pub unsafe extern "C" fn xmtp_client_revoke_all_other_installations(
             .identity_updates()
             .revoke_installations(other_ids)
             .await?;
-        let handle = XmtpSignatureRequest {
+        let handle = FfiSignatureRequest {
             request: Arc::new(tokio::sync::Mutex::new(sig_req)),
             scw_verifier: c.inner.scw_verifier().clone(),
         };
@@ -138,7 +138,7 @@ pub unsafe extern "C" fn xmtp_client_revoke_all_other_installations(
 /// Get the human-readable signature text. Caller must free with [`xmtp_free_string`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn xmtp_signature_request_text(
-    req: *const XmtpSignatureRequest,
+    req: *const FfiSignatureRequest,
 ) -> *mut c_char {
     match unsafe { ref_from(req) } {
         Ok(r) => {
@@ -152,7 +152,7 @@ pub unsafe extern "C" fn xmtp_signature_request_text(
 /// Add an ECDSA signature to the request.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn xmtp_signature_request_add_ecdsa(
-    req: *const XmtpSignatureRequest,
+    req: *const FfiSignatureRequest,
     signature_bytes: *const u8,
     signature_len: i32,
 ) -> i32 {
@@ -176,7 +176,7 @@ pub unsafe extern "C" fn xmtp_signature_request_add_ecdsa(
 /// All four byte arrays are required and must not be null.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn xmtp_signature_request_add_passkey(
-    req: *const XmtpSignatureRequest,
+    req: *const FfiSignatureRequest,
     public_key: *const u8,
     public_key_len: i32,
     signature: *const u8,
@@ -212,7 +212,7 @@ pub unsafe extern "C" fn xmtp_signature_request_add_passkey(
 /// `block_number` is optional; pass 0 to omit.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn xmtp_signature_request_add_scw(
-    req: *const XmtpSignatureRequest,
+    req: *const FfiSignatureRequest,
     account_address: *const c_char,
     signature_bytes: *const u8,
     signature_len: i32,
@@ -248,8 +248,8 @@ pub unsafe extern "C" fn xmtp_signature_request_add_scw(
 /// Apply a signature request to the client.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn xmtp_client_apply_signature_request(
-    client: *const XmtpClient,
-    req: *const XmtpSignatureRequest,
+    client: *const FfiClient,
+    req: *const FfiSignatureRequest,
 ) -> i32 {
     catch_async(|| async {
         let c = unsafe { ref_from(client)? };
@@ -263,7 +263,7 @@ pub unsafe extern "C" fn xmtp_client_apply_signature_request(
     })
 }
 
-free_opaque!(xmtp_signature_request_free, XmtpSignatureRequest);
+free_opaque!(xmtp_signature_request_free, FfiSignatureRequest);
 
 // ---------------------------------------------------------------------------
 // Revoke specific installations
@@ -274,11 +274,11 @@ free_opaque!(xmtp_signature_request_free, XmtpSignatureRequest);
 /// Caller must free with [`xmtp_signature_request_free`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn xmtp_client_revoke_installations_signature_request(
-    client: *const XmtpClient,
+    client: *const FfiClient,
     installation_ids: *const *const u8,
     id_lengths: *const i32,
     count: i32,
-    out: *mut *mut XmtpSignatureRequest,
+    out: *mut *mut FfiSignatureRequest,
 ) -> i32 {
     catch_async(|| async {
         let c = unsafe { ref_from(client)? };
@@ -295,7 +295,7 @@ pub unsafe extern "C" fn xmtp_client_revoke_installations_signature_request(
             ids.push(unsafe { std::slice::from_raw_parts(ptr, len) }.to_vec());
         }
         let sig_req = c.inner.identity_updates().revoke_installations(ids).await?;
-        let handle = XmtpSignatureRequest {
+        let handle = FfiSignatureRequest {
             request: Arc::new(tokio::sync::Mutex::new(sig_req)),
             scw_verifier: c.inner.scw_verifier().clone(),
         };
@@ -308,10 +308,10 @@ pub unsafe extern "C" fn xmtp_client_revoke_installations_signature_request(
 /// Caller must free with [`xmtp_signature_request_free`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn xmtp_client_change_recovery_identifier_signature_request(
-    client: *const XmtpClient,
+    client: *const FfiClient,
     new_identifier: *const c_char,
     identifier_kind: i32,
-    out: *mut *mut XmtpSignatureRequest,
+    out: *mut *mut FfiSignatureRequest,
 ) -> i32 {
     catch_async(|| async {
         let c = unsafe { ref_from(client)? };
@@ -324,7 +324,7 @@ pub unsafe extern "C" fn xmtp_client_change_recovery_identifier_signature_reques
             .identity_updates()
             .change_recovery_identifier(ident)
             .await?;
-        let handle = XmtpSignatureRequest {
+        let handle = FfiSignatureRequest {
             request: Arc::new(tokio::sync::Mutex::new(sig_req)),
             scw_verifier: c.inner.scw_verifier().clone(),
         };
@@ -342,7 +342,7 @@ pub unsafe extern "C" fn xmtp_client_change_recovery_identifier_signature_reques
 /// Caller must free `out` with [`xmtp_free_bytes`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn xmtp_client_sign_with_installation_key(
-    client: *const XmtpClient,
+    client: *const FfiClient,
     text: *const c_char,
     out: *mut *mut u8,
     out_len: *mut i32,

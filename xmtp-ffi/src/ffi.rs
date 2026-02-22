@@ -740,7 +740,7 @@ pub(crate) fn i32_to_consent_type(
     }
 }
 
-/// Convert a `StoredConsentRecord` to a C `XmtpConsentRecord`.
+/// Convert a `StoredConsentRecord` to a C `FfiConsentRecord`.
 pub(crate) fn consent_record_to_c(
     r: &xmtp_db::consent_record::StoredConsentRecord,
 ) -> FfiConsentRecord {

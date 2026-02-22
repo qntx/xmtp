@@ -13,8 +13,8 @@ use crate::ffi::*;
 // Helpers
 // ---------------------------------------------------------------------------
 
-/// Parse C `XmtpArchiveOptions` into the native `ArchiveOptions`.
-fn parse_archive_opts(opts: *const XmtpArchiveOptions) -> NativeArchiveOptions {
+/// Parse C `FfiArchiveOptions` into the native `ArchiveOptions`.
+fn parse_archive_opts(opts: *const FfiArchiveOptions) -> NativeArchiveOptions {
     if opts.is_null() {
         return NativeArchiveOptions::default();
     }
@@ -55,8 +55,8 @@ fn check_key(key: *const u8, key_len: i32) -> Result<Vec<u8>, Box<dyn std::error
 /// Send a device sync request to retrieve records from another installation.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn xmtp_device_sync_send_request(
-    client: *const XmtpClient,
-    opts: *const XmtpArchiveOptions,
+    client: *const FfiClient,
+    opts: *const FfiArchiveOptions,
     server_url: *const c_char,
 ) -> i32 {
     catch_async(|| async {
@@ -78,8 +78,8 @@ pub unsafe extern "C" fn xmtp_device_sync_send_request(
 /// Send a sync archive to the sync group with the given pin.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn xmtp_device_sync_send_archive(
-    client: *const XmtpClient,
-    opts: *const XmtpArchiveOptions,
+    client: *const FfiClient,
+    opts: *const FfiArchiveOptions,
     server_url: *const c_char,
     pin: *const c_char,
 ) -> i32 {
@@ -104,7 +104,7 @@ pub unsafe extern "C" fn xmtp_device_sync_send_archive(
 /// Pass null for `pin` to process the latest archive.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn xmtp_device_sync_process_archive(
-    client: *const XmtpClient,
+    client: *const FfiClient,
     pin: *const c_char,
 ) -> i32 {
     catch_async(|| async {
@@ -127,9 +127,9 @@ pub unsafe extern "C" fn xmtp_device_sync_process_archive(
 /// Caller must free with [`xmtp_available_archive_list_free`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn xmtp_device_sync_list_available_archives(
-    client: *const XmtpClient,
+    client: *const FfiClient,
     days_cutoff: i64,
-    out: *mut *mut XmtpAvailableArchiveList,
+    out: *mut *mut FfiAvailableArchiveList,
 ) -> i32 {
     catch(|| {
         let c = unsafe { ref_from(client)? };
@@ -140,14 +140,14 @@ pub unsafe extern "C" fn xmtp_device_sync_list_available_archives(
             .inner
             .device_sync_client()
             .list_available_archives(days_cutoff)?;
-        let items: Vec<XmtpAvailableArchive> = archives
+        let items: Vec<FfiAvailableArchive> = archives
             .into_iter()
             .map(|a| {
                 let mut inst = a.sent_by_installation;
                 let inst_len = inst.len() as i32;
                 let inst_ptr = inst.as_mut_ptr();
                 std::mem::forget(inst);
-                XmtpAvailableArchive {
+                FfiAvailableArchive {
                     pin: to_c_string(&a.pin),
                     backup_version: a.metadata.backup_version,
                     exported_at_ns: a.metadata.exported_at_ns,
@@ -156,17 +156,17 @@ pub unsafe extern "C" fn xmtp_device_sync_list_available_archives(
                 }
             })
             .collect();
-        unsafe { write_out(out, XmtpAvailableArchiveList { items })? };
+        unsafe { write_out(out, FfiAvailableArchiveList { items })? };
         Ok(())
     })
 }
 
-ffi_list_len!(xmtp_available_archive_list_len, XmtpAvailableArchiveList);
+ffi_list_len!(xmtp_available_archive_list_len, FfiAvailableArchiveList);
 
 /// Get the pin string at index. Returns a borrowed pointer; do NOT free.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn xmtp_available_archive_pin(
-    list: *const XmtpAvailableArchiveList,
+    list: *const FfiAvailableArchiveList,
     index: i32,
 ) -> *const c_char {
     let l = match unsafe { ref_from(list) } {
@@ -182,7 +182,7 @@ pub unsafe extern "C" fn xmtp_available_archive_pin(
 /// Get the exported_at_ns at index.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn xmtp_available_archive_exported_at_ns(
-    list: *const XmtpAvailableArchiveList,
+    list: *const FfiAvailableArchiveList,
     index: i32,
 ) -> i64 {
     let l = match unsafe { ref_from(list) } {
@@ -194,7 +194,7 @@ pub unsafe extern "C" fn xmtp_available_archive_exported_at_ns(
 
 /// Free an available archive list.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn xmtp_available_archive_list_free(list: *mut XmtpAvailableArchiveList) {
+pub unsafe extern "C" fn xmtp_available_archive_list_free(list: *mut FfiAvailableArchiveList) {
     if list.is_null() {
         return;
     }
@@ -221,9 +221,9 @@ pub unsafe extern "C" fn xmtp_available_archive_list_free(list: *mut XmtpAvailab
 /// `key` must be at least 32 bytes (encryption key).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn xmtp_device_sync_create_archive(
-    client: *const XmtpClient,
+    client: *const FfiClient,
     path: *const c_char,
-    opts: *const XmtpArchiveOptions,
+    opts: *const FfiArchiveOptions,
     key: *const u8,
     key_len: i32,
 ) -> i32 {
@@ -246,7 +246,7 @@ pub unsafe extern "C" fn xmtp_device_sync_create_archive(
 /// `key` must be at least 32 bytes (encryption key).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn xmtp_device_sync_import_archive(
-    client: *const XmtpClient,
+    client: *const FfiClient,
     path: *const c_char,
     key: *const u8,
     key_len: i32,
@@ -320,7 +320,7 @@ pub unsafe extern "C" fn xmtp_device_sync_archive_metadata(
 /// Writes the number of synced/eligible groups to the output pointers.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn xmtp_device_sync_sync_all(
-    client: *const XmtpClient,
+    client: *const FfiClient,
     out_synced: *mut i32,
     out_eligible: *mut i32,
 ) -> i32 {

@@ -10,92 +10,92 @@
 #include <stdint.h>
 #include <stdlib.h>
 
-typedef struct XmtpOption_FnOnCloseCallback XmtpOption_FnOnCloseCallback;
-
 /**
  * Opaque handle for gateway authentication credentials.
  */
-typedef struct XmtpXmtpAuthHandle XmtpXmtpAuthHandle;
+typedef struct XmtpFfiAuthHandle XmtpFfiAuthHandle;
 
 /**
  * A list of available archives.
  */
-typedef struct XmtpXmtpAvailableArchiveList XmtpXmtpAvailableArchiveList;
+typedef struct XmtpFfiAvailableArchiveList XmtpFfiAvailableArchiveList;
 
 /**
  * Opaque client handle.
  */
-typedef struct XmtpXmtpClient XmtpXmtpClient;
+typedef struct XmtpFfiClient XmtpFfiClient;
 
 /**
  * Opaque conversation handle.
  */
-typedef struct XmtpXmtpConversation XmtpXmtpConversation;
+typedef struct XmtpFfiConversation XmtpFfiConversation;
 
 /**
  * A list of conversations returned from queries.
  */
-typedef struct XmtpXmtpConversationList XmtpXmtpConversationList;
+typedef struct XmtpFfiConversationList XmtpFfiConversationList;
 
 /**
  * A list of enriched messages.
  */
-typedef struct XmtpXmtpEnrichedMessageList XmtpXmtpEnrichedMessageList;
+typedef struct XmtpFfiEnrichedMessageList XmtpFfiEnrichedMessageList;
 
 /**
  * A list of group members.
  */
-typedef struct XmtpXmtpGroupMemberList XmtpXmtpGroupMemberList;
+typedef struct XmtpFfiGroupMemberList XmtpFfiGroupMemberList;
 
 /**
  * A map of conversation ID → HMAC keys.
  */
-typedef struct XmtpXmtpHmacKeyMap XmtpXmtpHmacKeyMap;
+typedef struct XmtpFfiHmacKeyMap XmtpFfiHmacKeyMap;
 
 /**
  * A list of inbox states.
  */
-typedef struct XmtpXmtpInboxStateList XmtpXmtpInboxStateList;
+typedef struct XmtpFfiInboxStateList XmtpFfiInboxStateList;
 
 /**
  * A list of inbox update counts.
  */
-typedef struct XmtpXmtpInboxUpdateCountList XmtpXmtpInboxUpdateCountList;
+typedef struct XmtpFfiInboxUpdateCountList XmtpFfiInboxUpdateCountList;
 
 /**
  * A list of key package statuses.
  */
-typedef struct XmtpXmtpKeyPackageStatusList XmtpXmtpKeyPackageStatusList;
+typedef struct XmtpFfiKeyPackageStatusList XmtpFfiKeyPackageStatusList;
 
 /**
  * A list of last-read-time entries.
  */
-typedef struct XmtpXmtpLastReadTimeList XmtpXmtpLastReadTimeList;
+typedef struct XmtpFfiLastReadTimeList XmtpFfiLastReadTimeList;
 
 /**
  * A stored message exposed to C.
  */
-typedef struct XmtpXmtpMessage XmtpXmtpMessage;
+typedef struct XmtpFfiMessage XmtpFfiMessage;
 
 /**
  * A list of messages.
  */
-typedef struct XmtpXmtpMessageList XmtpXmtpMessageList;
+typedef struct XmtpFfiMessageList XmtpFfiMessageList;
 
 /**
  * Opaque signature request handle.
  */
-typedef struct XmtpXmtpSignatureRequest XmtpXmtpSignatureRequest;
+typedef struct XmtpFfiSignatureRequest XmtpFfiSignatureRequest;
 
 /**
  * Opaque stream handle.
  */
-typedef struct XmtpXmtpStreamHandle XmtpXmtpStreamHandle;
+typedef struct XmtpFfiStreamHandle XmtpFfiStreamHandle;
+
+typedef struct XmtpOption_FnOnCloseCallback XmtpOption_FnOnCloseCallback;
 
 /**
  * Options for creating a client. All string fields are borrowed (not freed by this library).
  */
-typedef struct XmtpXmtpClientOptions {
+typedef struct XmtpFfiClientOptions {
     /**
      * gRPC v3 host URL (required).
      */
@@ -135,7 +135,7 @@ typedef struct XmtpXmtpClientOptions {
     /**
      * Optional auth handle for gateway authentication. Null = no auth.
      */
-    const struct XmtpXmtpAuthHandle *auth_handle;
+    const struct XmtpFfiAuthHandle *auth_handle;
     /**
      * Application version string (nullable).
      */
@@ -160,12 +160,12 @@ typedef struct XmtpXmtpClientOptions {
      * Minimum database connection pool size. 0 = use default.
      */
     uint32_t min_db_pool_size;
-} XmtpXmtpClientOptions;
+} XmtpFfiClientOptions;
 
 /**
  * MLS API call statistics (request counts).
  */
-typedef struct XmtpXmtpApiStats {
+typedef struct XmtpFfiApiStats {
     int64_t upload_key_package;
     int64_t fetch_key_package;
     int64_t send_group_messages;
@@ -177,32 +177,32 @@ typedef struct XmtpXmtpApiStats {
     int64_t publish_commit_log;
     int64_t query_commit_log;
     int64_t get_newest_group_message;
-} XmtpXmtpApiStats;
+} XmtpFfiApiStats;
 
 /**
  * Identity API call statistics (request counts).
  */
-typedef struct XmtpXmtpIdentityStats {
+typedef struct XmtpFfiIdentityStats {
     int64_t publish_identity_update;
     int64_t get_identity_updates_v2;
     int64_t get_inbox_ids;
     int64_t verify_smart_contract_wallet_signature;
-} XmtpXmtpIdentityStats;
+} XmtpFfiIdentityStats;
 
 /**
  * Options for sending a message.
  */
-typedef struct XmtpXmtpSendOpts {
+typedef struct XmtpFfiSendOpts {
     /**
      * Whether to send a push notification. 1 = yes (default), 0 = no.
      */
     int32_t should_push;
-} XmtpXmtpSendOpts;
+} XmtpFfiSendOpts;
 
 /**
  * Options for listing messages.
  */
-typedef struct XmtpXmtpListMessagesOptions {
+typedef struct XmtpFfiListMessagesOptions {
     /**
      * Only messages sent after this timestamp (ns). 0 = no filter.
      */
@@ -267,12 +267,12 @@ typedef struct XmtpXmtpListMessagesOptions {
      * Whether to exclude disappearing messages. 0 = include (default), 1 = exclude.
      */
     int32_t exclude_disappearing;
-} XmtpXmtpListMessagesOptions;
+} XmtpFfiListMessagesOptions;
 
 /**
  * Options for message disappearing settings.
  */
-typedef struct XmtpXmtpDisappearingSettings {
+typedef struct XmtpFfiDisappearingSettings {
     /**
      * Timestamp (ns) from which messages start disappearing.
      */
@@ -281,20 +281,20 @@ typedef struct XmtpXmtpDisappearingSettings {
      * Duration (ns) after which messages disappear.
      */
     int64_t in_ns;
-} XmtpXmtpDisappearingSettings;
+} XmtpFfiDisappearingSettings;
 
 /**
  * A single cursor entry (originator + sequence).
  */
-typedef struct XmtpXmtpCursor {
+typedef struct XmtpFfiCursor {
     uint32_t originator_id;
     uint64_t sequence_id;
-} XmtpXmtpCursor;
+} XmtpFfiCursor;
 
 /**
  * Conversation debug info (epoch, fork status, commit logs, cursors).
  */
-typedef struct XmtpXmtpConversationDebugInfo {
+typedef struct XmtpFfiConversationDebugInfo {
     uint64_t epoch;
     int32_t maybe_forked;
     char *fork_details;
@@ -307,23 +307,23 @@ typedef struct XmtpXmtpConversationDebugInfo {
     /**
      * Heap-allocated cursor array. Free with the debug_info_free function.
      */
-    struct XmtpXmtpCursor *cursors;
+    struct XmtpFfiCursor *cursors;
     int32_t cursors_count;
-} XmtpXmtpConversationDebugInfo;
+} XmtpFfiConversationDebugInfo;
 
 /**
  * A single HMAC key (42-byte key + epoch).
  */
-typedef struct XmtpXmtpHmacKey {
+typedef struct XmtpFfiHmacKey {
     uint8_t *key;
     int32_t key_len;
     int64_t epoch;
-} XmtpXmtpHmacKey;
+} XmtpFfiHmacKey;
 
 /**
  * Group metadata (creator + conversation type).
  */
-typedef struct XmtpXmtpGroupMetadata {
+typedef struct XmtpFfiGroupMetadata {
     /**
      * Creator inbox ID (owned string).
      */
@@ -332,14 +332,14 @@ typedef struct XmtpXmtpGroupMetadata {
      * Conversation type: 0=Group, 1=DM, 2=Sync.
      */
     int32_t conversation_type;
-} XmtpXmtpGroupMetadata;
+} XmtpFfiGroupMetadata;
 
 /**
  * Permission policy set for a conversation.
  * Each field is an i32 encoding:
  *   0=Allow, 1=Deny, 2=Admin, 3=SuperAdmin, 4=DoesNotExist, 5=Other
  */
-typedef struct XmtpXmtpPermissionPolicySet {
+typedef struct XmtpFfiPermissionPolicySet {
     int32_t add_member_policy;
     int32_t remove_member_policy;
     int32_t add_admin_policy;
@@ -349,23 +349,23 @@ typedef struct XmtpXmtpPermissionPolicySet {
     int32_t update_group_image_url_square_policy;
     int32_t update_message_disappearing_policy;
     int32_t update_app_data_policy;
-} XmtpXmtpPermissionPolicySet;
+} XmtpFfiPermissionPolicySet;
 
 /**
  * Group permissions (policy type + policy set).
  */
-typedef struct XmtpXmtpGroupPermissions {
+typedef struct XmtpFfiGroupPermissions {
     /**
      * 0=Default(AllMembers), 1=AdminOnly, 2=CustomPolicy.
      */
     int32_t policy_type;
-    struct XmtpXmtpPermissionPolicySet policy_set;
-} XmtpXmtpGroupPermissions;
+    struct XmtpFfiPermissionPolicySet policy_set;
+} XmtpFfiGroupPermissions;
 
 /**
  * Options for creating a new group conversation.
  */
-typedef struct XmtpXmtpCreateGroupOptions {
+typedef struct XmtpFfiCreateGroupOptions {
     /**
      * Permission preset: 0 = AllMembers (default), 1 = AdminOnly.
      */
@@ -394,12 +394,12 @@ typedef struct XmtpXmtpCreateGroupOptions {
      * Message disappearing "in" duration in ns. 0 = not set.
      */
     int64_t message_disappear_in_ns;
-} XmtpXmtpCreateGroupOptions;
+} XmtpFfiCreateGroupOptions;
 
 /**
  * Options for listing conversations.
  */
-typedef struct XmtpXmtpListConversationsOptions {
+typedef struct XmtpFfiListConversationsOptions {
     /**
      * Conversation type filter: -1 = all, 0 = DM, 1 = Group.
      */
@@ -441,12 +441,12 @@ typedef struct XmtpXmtpListConversationsOptions {
      * Whether to include duplicate DMs. 0 = no (default), 1 = yes.
      */
     int32_t include_duplicate_dms;
-} XmtpXmtpListConversationsOptions;
+} XmtpFfiListConversationsOptions;
 
 /**
  * Options for device sync archive operations.
  */
-typedef struct XmtpXmtpArchiveOptions {
+typedef struct XmtpFfiArchiveOptions {
     /**
      * Bitmask of element selections: bit 0 = Messages, bit 1 = Consent.
      */
@@ -463,22 +463,22 @@ typedef struct XmtpXmtpArchiveOptions {
      * Whether to exclude disappearing messages. 0 = include, 1 = exclude.
      */
     int32_t exclude_disappearing_messages;
-} XmtpXmtpArchiveOptions;
+} XmtpFfiArchiveOptions;
 
 /**
  * Callback for conversation stream events.
  */
-typedef void (*XmtpFnConversationCallback)(struct XmtpXmtpConversation *conversation, void *context);
+typedef void (*XmtpFnConversationCallback)(struct XmtpFfiConversation *conversation, void *context);
 
 /**
  * Callback for message stream events.
  */
-typedef void (*XmtpFnMessageCallback)(struct XmtpXmtpMessage *message, void *context);
+typedef void (*XmtpFnMessageCallback)(struct XmtpFfiMessage *message, void *context);
 
 /**
  * A consent record exposed to C.
  */
-typedef struct XmtpXmtpConsentRecord {
+typedef struct XmtpFfiConsentRecord {
     /**
      * Entity type: 0=InboxId, 1=ConversationId
      */
@@ -491,19 +491,19 @@ typedef struct XmtpXmtpConsentRecord {
      * Entity identifier string.
      */
     char *entity;
-} XmtpXmtpConsentRecord;
+} XmtpFfiConsentRecord;
 
 /**
  * Callback for consent stream events.
  */
-typedef void (*XmtpFnConsentCallback)(struct XmtpXmtpConsentRecord *records,
+typedef void (*XmtpFnConsentCallback)(struct XmtpFfiConsentRecord *records,
                                       int32_t count,
                                       void *context);
 
 /**
  * A preference update exposed to C.
  */
-typedef struct XmtpXmtpPreferenceUpdate {
+typedef struct XmtpFfiPreferenceUpdate {
     /**
      * Update kind: 0=Consent, 1=HmacKey
      */
@@ -511,18 +511,18 @@ typedef struct XmtpXmtpPreferenceUpdate {
     /**
      * For Consent: the consent record. For HmacKey: zeroed.
      */
-    struct XmtpXmtpConsentRecord consent;
+    struct XmtpFfiConsentRecord consent;
     /**
      * For HmacKey: the key bytes. For Consent: null/0.
      */
     uint8_t *hmac_key;
     int32_t hmac_key_len;
-} XmtpXmtpPreferenceUpdate;
+} XmtpFfiPreferenceUpdate;
 
 /**
  * Callback for preference stream events.
  */
-typedef void (*XmtpFnPreferenceCallback)(struct XmtpXmtpPreferenceUpdate *updates,
+typedef void (*XmtpFnPreferenceCallback)(struct XmtpFfiPreferenceUpdate *updates,
                                          int32_t count,
                                          void *context);
 
@@ -573,36 +573,36 @@ int32_t xmtp_init_logger(const char *level);
 /**
  * Create a new XMTP client. Caller must free with [`xmtp_client_free`].
  */
-int32_t xmtp_client_create(const struct XmtpXmtpClientOptions *opts, struct XmtpXmtpClient **out);
+int32_t xmtp_client_create(const struct XmtpFfiClientOptions *opts, struct XmtpFfiClient **out);
 
 /**
  * Get the client's inbox ID. Caller must free with [`xmtp_free_string`].
  */
-char *xmtp_client_inbox_id(const struct XmtpXmtpClient *client);
+char *xmtp_client_inbox_id(const struct XmtpFfiClient *client);
 
 /**
  * Get the client's installation ID (hex). Caller must free with [`xmtp_free_string`].
  */
-char *xmtp_client_installation_id(const struct XmtpXmtpClient *client);
+char *xmtp_client_installation_id(const struct XmtpFfiClient *client);
 
 /**
  * Check if the client identity is registered. Returns 1 = yes, 0 = no, -1 = error.
  */
-int32_t xmtp_client_is_registered(const struct XmtpXmtpClient *client);
+int32_t xmtp_client_is_registered(const struct XmtpFfiClient *client);
 
 /**
  * Register the client identity with an optional signature request.
  * Pass null for `sig_req` if no external signature is needed.
  */
-int32_t xmtp_client_register_identity(const struct XmtpXmtpClient *client,
-                                      const struct XmtpXmtpSignatureRequest *sig_req);
+int32_t xmtp_client_register_identity(const struct XmtpFfiClient *client,
+                                      const struct XmtpFfiSignatureRequest *sig_req);
 
 /**
  * Check which identifiers can receive messages.
  * `identifiers` is an array of C strings, `kinds` is a parallel array of identifier kinds.
  * Results are written to `out_results` (1 = can message, 0 = cannot).
  */
-int32_t xmtp_client_can_message(const struct XmtpXmtpClient *client,
+int32_t xmtp_client_can_message(const struct XmtpFfiClient *client,
                                 const char *const *identifiers,
                                 const int32_t *kinds,
                                 int32_t count,
@@ -611,19 +611,19 @@ int32_t xmtp_client_can_message(const struct XmtpXmtpClient *client,
 /**
  * Release the database connection pool.
  */
-int32_t xmtp_client_release_db_connection(const struct XmtpXmtpClient *client);
+int32_t xmtp_client_release_db_connection(const struct XmtpFfiClient *client);
 
 /**
  * Reconnect to the database.
  */
-int32_t xmtp_client_reconnect_db(const struct XmtpXmtpClient *client);
+int32_t xmtp_client_reconnect_db(const struct XmtpFfiClient *client);
 
 /**
  * Set consent states for multiple entities.
  * `entity_types`: 0 = GroupId, 1 = InboxId.
  * `states`: 0 = Unknown, 1 = Allowed, 2 = Denied.
  */
-int32_t xmtp_client_set_consent_states(const struct XmtpXmtpClient *client,
+int32_t xmtp_client_set_consent_states(const struct XmtpFfiClient *client,
                                        const int32_t *entity_types,
                                        const int32_t *states,
                                        const char *const *entities,
@@ -632,7 +632,7 @@ int32_t xmtp_client_set_consent_states(const struct XmtpXmtpClient *client,
 /**
  * Get consent state for a single entity. Result written to `out_state`.
  */
-int32_t xmtp_client_get_consent_state(const struct XmtpXmtpClient *client,
+int32_t xmtp_client_get_consent_state(const struct XmtpFfiClient *client,
                                       int32_t entity_type,
                                       const char *entity,
                                       int32_t *out_state);
@@ -641,21 +641,21 @@ int32_t xmtp_client_get_consent_state(const struct XmtpXmtpClient *client,
  * Get the inbox state for this client as a single-element list.
  * Caller must free with [`xmtp_inbox_state_list_free`].
  */
-int32_t xmtp_client_inbox_state(const struct XmtpXmtpClient *client,
+int32_t xmtp_client_inbox_state(const struct XmtpFfiClient *client,
                                 int32_t refresh,
-                                struct XmtpXmtpInboxStateList **out);
+                                struct XmtpFfiInboxStateList **out);
 
 /**
  * Get the client's installation ID as raw bytes.
  * Writes length to `out_len`. Caller must free with [`xmtp_free_bytes`].
  */
-uint8_t *xmtp_client_installation_id_bytes(const struct XmtpXmtpClient *client, int32_t *out_len);
+uint8_t *xmtp_client_installation_id_bytes(const struct XmtpFfiClient *client, int32_t *out_len);
 
 /**
  * Verify a signature produced by `xmtp_client_sign_with_installation_key`.
  * Returns 0 on success (valid), -1 on error (invalid or bad args).
  */
-int32_t xmtp_client_verify_signed_with_installation_key(const struct XmtpXmtpClient *client,
+int32_t xmtp_client_verify_signed_with_installation_key(const struct XmtpFfiClient *client,
                                                         const char *text,
                                                         const uint8_t *signature_bytes,
                                                         int32_t signature_len);
@@ -663,14 +663,14 @@ int32_t xmtp_client_verify_signed_with_installation_key(const struct XmtpXmtpCli
 /**
  * Get a message by its hex-encoded ID. Caller must free with [`xmtp_message_free`].
  */
-int32_t xmtp_client_get_message_by_id(const struct XmtpXmtpClient *client,
+int32_t xmtp_client_get_message_by_id(const struct XmtpFfiClient *client,
                                       const char *message_id_hex,
-                                      struct XmtpXmtpMessage **out);
+                                      struct XmtpFfiMessage **out);
 
 /**
  * Delete a message by its hex-encoded ID. Returns the number of deleted rows.
  */
-int32_t xmtp_client_delete_message_by_id(const struct XmtpXmtpClient *client,
+int32_t xmtp_client_delete_message_by_id(const struct XmtpFfiClient *client,
                                          const char *message_id_hex);
 
 /**
@@ -681,31 +681,30 @@ char *xmtp_libxmtp_version(void);
 /**
  * Get MLS API call statistics. Writes to `out`.
  */
-int32_t xmtp_client_api_statistics(const struct XmtpXmtpClient *client,
-                                   struct XmtpXmtpApiStats *out);
+int32_t xmtp_client_api_statistics(const struct XmtpFfiClient *client, struct XmtpFfiApiStats *out);
 
 /**
  * Get identity API call statistics. Writes to `out`.
  */
-int32_t xmtp_client_api_identity_statistics(const struct XmtpXmtpClient *client,
-                                            struct XmtpXmtpIdentityStats *out);
+int32_t xmtp_client_api_identity_statistics(const struct XmtpFfiClient *client,
+                                            struct XmtpFfiIdentityStats *out);
 
 /**
  * Get aggregate statistics as a debug string. Caller must free with [`xmtp_free_string`].
  */
-char *xmtp_client_api_aggregate_statistics(const struct XmtpXmtpClient *client);
+char *xmtp_client_api_aggregate_statistics(const struct XmtpFfiClient *client);
 
 /**
  * Clear all API call statistics.
  */
-int32_t xmtp_client_clear_all_statistics(const struct XmtpXmtpClient *client);
+int32_t xmtp_client_clear_all_statistics(const struct XmtpFfiClient *client);
 
 /**
  * Look up an inbox ID by account identifier using the client's connection.
  * `identifier_kind`: 0 = Ethereum, 1 = Passkey.
  * Returns null if not found. Caller must free with [`xmtp_free_string`].
  */
-int32_t xmtp_client_get_inbox_id_by_identifier(const struct XmtpXmtpClient *client,
+int32_t xmtp_client_get_inbox_id_by_identifier(const struct XmtpFfiClient *client,
                                                const char *identifier,
                                                int32_t identifier_kind,
                                                char **out);
@@ -713,48 +712,47 @@ int32_t xmtp_client_get_inbox_id_by_identifier(const struct XmtpXmtpClient *clie
 /**
  * Fetch inbox states for multiple inbox IDs.
  * `inbox_ids` is a null-terminated array of C strings with `count` elements.
- * Returns an opaque `XmtpInboxStateList` via `out`. Caller must free with [`xmtp_inbox_state_list_free`].
+ * Returns an opaque `FfiInboxStateList` via `out`. Caller must free with [`xmtp_inbox_state_list_free`].
  */
-int32_t xmtp_client_fetch_inbox_states(const struct XmtpXmtpClient *client,
+int32_t xmtp_client_fetch_inbox_states(const struct XmtpFfiClient *client,
                                        const char *const *inbox_ids,
                                        int32_t count,
                                        int32_t refresh_from_network,
-                                       struct XmtpXmtpInboxStateList **out);
+                                       struct XmtpFfiInboxStateList **out);
 
 /**
  * Get inbox ID at index. Caller must free with [`xmtp_free_string`].
  */
-char *xmtp_inbox_state_inbox_id(const struct XmtpXmtpInboxStateList *list, int32_t index);
+char *xmtp_inbox_state_inbox_id(const struct XmtpFfiInboxStateList *list, int32_t index);
 
 /**
  * Get recovery identifier at index. Caller must free with [`xmtp_free_string`].
  */
-char *xmtp_inbox_state_recovery_identifier(const struct XmtpXmtpInboxStateList *list,
-                                           int32_t index);
+char *xmtp_inbox_state_recovery_identifier(const struct XmtpFfiInboxStateList *list, int32_t index);
 
 /**
  * Get identifiers array at index. Returns a borrowed pointer; do NOT free.
  */
-char *const *xmtp_inbox_state_identifiers(const struct XmtpXmtpInboxStateList *list,
+char *const *xmtp_inbox_state_identifiers(const struct XmtpFfiInboxStateList *list,
                                           int32_t index,
                                           int32_t *out_count);
 
 /**
  * Get installation IDs (hex) at index. Returns a borrowed pointer; do NOT free.
  */
-char *const *xmtp_inbox_state_installation_ids(const struct XmtpXmtpInboxStateList *list,
+char *const *xmtp_inbox_state_installation_ids(const struct XmtpFfiInboxStateList *list,
                                                int32_t index,
                                                int32_t *out_count);
 
 /**
  * Free an inbox state list.
  */
-void xmtp_inbox_state_list_free(struct XmtpXmtpInboxStateList *list);
+void xmtp_inbox_state_list_free(struct XmtpFfiInboxStateList *list);
 
 /**
  * Create a new gateway auth handle. Caller must free with [`xmtp_auth_handle_free`].
  */
-int32_t xmtp_auth_handle_create(struct XmtpXmtpAuthHandle **out);
+int32_t xmtp_auth_handle_create(struct XmtpFfiAuthHandle **out);
 
 /**
  * Set a credential on an auth handle.
@@ -762,7 +760,7 @@ int32_t xmtp_auth_handle_create(struct XmtpXmtpAuthHandle **out);
  * `value` is the header value (required).
  * `expires_at_seconds` is the Unix timestamp when the credential expires.
  */
-int32_t xmtp_auth_handle_set(const struct XmtpXmtpAuthHandle *handle,
+int32_t xmtp_auth_handle_set(const struct XmtpFfiAuthHandle *handle,
                              const char *name,
                              const char *value,
                              int64_t expires_at_seconds);
@@ -770,114 +768,114 @@ int32_t xmtp_auth_handle_set(const struct XmtpXmtpAuthHandle *handle,
 /**
  * Get the unique ID of an auth handle.
  */
-uintptr_t xmtp_auth_handle_id(const struct XmtpXmtpAuthHandle *handle);
+uintptr_t xmtp_auth_handle_id(const struct XmtpFfiAuthHandle *handle);
 
 /**
  * Fetch the number of identity updates for multiple inbox IDs.
  * Caller must free the result with [`xmtp_inbox_update_count_list_free`].
  */
-int32_t xmtp_client_fetch_inbox_updates_count(const struct XmtpXmtpClient *client,
+int32_t xmtp_client_fetch_inbox_updates_count(const struct XmtpFfiClient *client,
                                               const char *const *inbox_ids,
                                               int32_t inbox_ids_count,
                                               int32_t refresh,
-                                              struct XmtpXmtpInboxUpdateCountList **out);
+                                              struct XmtpFfiInboxUpdateCountList **out);
 
 /**
  * Fetch the number of identity updates for the client's own inbox.
  */
-int32_t xmtp_client_fetch_own_inbox_updates_count(const struct XmtpXmtpClient *client,
+int32_t xmtp_client_fetch_own_inbox_updates_count(const struct XmtpFfiClient *client,
                                                   int32_t refresh,
                                                   uint32_t *out);
 
 /**
  * Free an inbox update count list.
  */
-void xmtp_inbox_update_count_list_free(struct XmtpXmtpInboxUpdateCountList *list);
+void xmtp_inbox_update_count_list_free(struct XmtpFfiInboxUpdateCountList *list);
 
 /**
  * Fetch key package statuses for a list of installation IDs (hex-encoded).
  * Caller must free with [`xmtp_key_package_status_list_free`].
  */
-int32_t xmtp_client_fetch_key_package_statuses(const struct XmtpXmtpClient *client,
+int32_t xmtp_client_fetch_key_package_statuses(const struct XmtpFfiClient *client,
                                                const char *const *installation_ids,
                                                int32_t installation_ids_count,
-                                               struct XmtpXmtpKeyPackageStatusList **out);
+                                               struct XmtpFfiKeyPackageStatusList **out);
 
 /**
  * Free a key package status list.
  */
-void xmtp_key_package_status_list_free(struct XmtpXmtpKeyPackageStatusList *list);
+void xmtp_key_package_status_list_free(struct XmtpFfiKeyPackageStatusList *list);
 
 /**
  * Get the account identifier string used to create this client.
  * Caller must free with [`xmtp_free_string`].
  */
-char *xmtp_client_account_identifier(const struct XmtpXmtpClient *client);
+char *xmtp_client_account_identifier(const struct XmtpFfiClient *client);
 
 /**
  * Get the app version string set during client creation.
  * Returns null if no app version was set. Caller must free with [`xmtp_free_string`].
  */
-char *xmtp_client_app_version(const struct XmtpXmtpClient *client);
+char *xmtp_client_app_version(const struct XmtpFfiClient *client);
 
 /**
  * Get the conversation's hex-encoded group ID. Caller must free with [`xmtp_free_string`].
  */
-char *xmtp_conversation_id(const struct XmtpXmtpConversation *conv);
+char *xmtp_conversation_id(const struct XmtpFfiConversation *conv);
 
 /**
  * Get the conversation created-at timestamp in nanoseconds.
  */
-int64_t xmtp_conversation_created_at_ns(const struct XmtpXmtpConversation *conv);
+int64_t xmtp_conversation_created_at_ns(const struct XmtpFfiConversation *conv);
 
 /**
  * Get the conversation type: 0=DM, 1=Group, 2=Sync, 3=Oneshot, -1=error.
  */
-int32_t xmtp_conversation_type(const struct XmtpXmtpConversation *conv);
+int32_t xmtp_conversation_type(const struct XmtpFfiConversation *conv);
 
 /**
  * Get the DM peer's inbox ID. Caller must free with [`xmtp_free_string`].
  * Returns null if not a DM or on error.
  */
-char *xmtp_conversation_dm_peer_inbox_id(const struct XmtpXmtpConversation *conv);
+char *xmtp_conversation_dm_peer_inbox_id(const struct XmtpFfiConversation *conv);
 
 /**
  * Sync this conversation with the network.
  */
-int32_t xmtp_conversation_sync(const struct XmtpXmtpConversation *conv);
+int32_t xmtp_conversation_sync(const struct XmtpFfiConversation *conv);
 
 /**
  * Send raw encoded content bytes. Returns the message ID (hex) via `out_id`.
  * Caller must free `out_id` with [`xmtp_free_string`].
  * Pass null for `opts` to use defaults (should_push = true).
  */
-int32_t xmtp_conversation_send(const struct XmtpXmtpConversation *conv,
+int32_t xmtp_conversation_send(const struct XmtpFfiConversation *conv,
                                const uint8_t *content_bytes,
                                int32_t content_len,
-                               const struct XmtpXmtpSendOpts *opts,
+                               const struct XmtpFfiSendOpts *opts,
                                char **out_id);
 
 /**
  * Send raw encoded content bytes optimistically (returns immediately, publishes in background).
  * Returns the message ID (hex) via `out_id`. Caller must free with [`xmtp_free_string`].
  */
-int32_t xmtp_conversation_send_optimistic(const struct XmtpXmtpConversation *conv,
+int32_t xmtp_conversation_send_optimistic(const struct XmtpFfiConversation *conv,
                                           const uint8_t *content_bytes,
                                           int32_t content_len,
-                                          const struct XmtpXmtpSendOpts *opts,
+                                          const struct XmtpFfiSendOpts *opts,
                                           char **out_id);
 
 /**
  * Publish all queued (unpublished) messages in this conversation.
  */
-int32_t xmtp_conversation_publish_messages(const struct XmtpXmtpConversation *conv);
+int32_t xmtp_conversation_publish_messages(const struct XmtpFfiConversation *conv);
 
 /**
  * Prepare a message for later publishing (optimistic send workflow).
  * Stores the message locally without publishing. Returns message ID (hex) via `out_id`.
  * Caller must free `out_id` with [`xmtp_free_string`].
  */
-int32_t xmtp_conversation_prepare_message(const struct XmtpXmtpConversation *conv,
+int32_t xmtp_conversation_prepare_message(const struct XmtpFfiConversation *conv,
                                           const uint8_t *content_bytes,
                                           int32_t content_len,
                                           int32_t should_push,
@@ -886,84 +884,84 @@ int32_t xmtp_conversation_prepare_message(const struct XmtpXmtpConversation *con
 /**
  * Publish a previously prepared message by its hex-encoded ID.
  */
-int32_t xmtp_conversation_publish_stored_message(const struct XmtpXmtpConversation *conv,
+int32_t xmtp_conversation_publish_stored_message(const struct XmtpFfiConversation *conv,
                                                  const char *message_id_hex);
 
 /**
  * List messages in this conversation. Caller must free with [`xmtp_message_list_free`].
  */
-int32_t xmtp_conversation_list_messages(const struct XmtpXmtpConversation *conv,
-                                        const struct XmtpXmtpListMessagesOptions *opts,
-                                        struct XmtpXmtpMessageList **out);
+int32_t xmtp_conversation_list_messages(const struct XmtpFfiConversation *conv,
+                                        const struct XmtpFfiListMessagesOptions *opts,
+                                        struct XmtpFfiMessageList **out);
 
 /**
  * Count messages matching the given filter options.
  * Pass null for `opts` to count all messages.
  */
-int64_t xmtp_conversation_count_messages(const struct XmtpXmtpConversation *conv,
-                                         const struct XmtpXmtpListMessagesOptions *opts);
+int64_t xmtp_conversation_count_messages(const struct XmtpFfiConversation *conv,
+                                         const struct XmtpFfiListMessagesOptions *opts);
 
 /**
  * Get message ID (hex) at index. Caller must free with [`xmtp_free_string`].
  */
-char *xmtp_message_id(const struct XmtpXmtpMessageList *list, int32_t index);
+char *xmtp_message_id(const struct XmtpFfiMessageList *list, int32_t index);
 
 /**
  * Get sender inbox ID at index. Caller must free with [`xmtp_free_string`].
  */
-char *xmtp_message_sender_inbox_id(const struct XmtpXmtpMessageList *list, int32_t index);
+char *xmtp_message_sender_inbox_id(const struct XmtpFfiMessageList *list, int32_t index);
 
 /**
  * Get sent-at timestamp (ns) at index.
  */
-int64_t xmtp_message_sent_at_ns(const struct XmtpXmtpMessageList *list, int32_t index);
+int64_t xmtp_message_sent_at_ns(const struct XmtpFfiMessageList *list, int32_t index);
 
 /**
  * Get message kind at index: 0=Application, 1=MembershipChange, -1=error.
  */
-int32_t xmtp_message_kind(const struct XmtpXmtpMessageList *list, int32_t index);
+int32_t xmtp_message_kind(const struct XmtpFfiMessageList *list, int32_t index);
 
 /**
  * Get delivery status at index: 0=Unpublished, 1=Published, 2=Failed, -1=error.
  */
-int32_t xmtp_message_delivery_status(const struct XmtpXmtpMessageList *list, int32_t index);
+int32_t xmtp_message_delivery_status(const struct XmtpFfiMessageList *list, int32_t index);
 
 /**
  * Get raw decrypted content bytes at index. Writes length to `out_len`.
  * The returned pointer is borrowed from the list — do NOT free it.
  */
-const uint8_t *xmtp_message_content_bytes(const struct XmtpXmtpMessageList *list,
+const uint8_t *xmtp_message_content_bytes(const struct XmtpFfiMessageList *list,
                                           int32_t index,
                                           int32_t *out_len);
 
 /**
  * List group members. Caller must free with [`xmtp_group_member_list_free`].
  */
-int32_t xmtp_conversation_list_members(const struct XmtpXmtpConversation *conv,
-                                       struct XmtpXmtpGroupMemberList **out);
+int32_t xmtp_conversation_list_members(const struct XmtpFfiConversation *conv,
+                                       struct XmtpFfiGroupMemberList **out);
 
 /**
  * Get member inbox ID at index. Caller must free with [`xmtp_free_string`].
  */
-char *xmtp_group_member_inbox_id(const struct XmtpXmtpGroupMemberList *list, int32_t index);
+char *xmtp_group_member_inbox_id(const struct XmtpFfiGroupMemberList *list, int32_t index);
 
 /**
  * Get member permission level at index: 0=Member, 1=Admin, 2=SuperAdmin, -1=error.
  */
-int32_t xmtp_group_member_permission_level(const struct XmtpXmtpGroupMemberList *list,
+int32_t xmtp_group_member_permission_level(const struct XmtpFfiGroupMemberList *list,
                                            int32_t index);
 
 /**
  * Get member consent state at index: 0=Unknown, 1=Allowed, 2=Denied, -1=error.
  */
-int32_t xmtp_group_member_consent_state(const struct XmtpXmtpGroupMemberList *list, int32_t index);
+int32_t xmtp_group_member_consent_state(const struct XmtpFfiGroupMemberList *list, int32_t index);
 
 /**
  * Get member account identifiers at index.
  * Returns a borrowed pointer to the internal string array. Do NOT free individual strings.
  * Use `out_count` to get the number of identifiers.
  */
-char *const *xmtp_group_member_account_identifiers(const struct XmtpXmtpGroupMemberList *list,
+char *const *xmtp_group_member_account_identifiers(const struct XmtpFfiGroupMemberList *list,
                                                    int32_t index,
                                                    int32_t *out_count);
 
@@ -971,84 +969,83 @@ char *const *xmtp_group_member_account_identifiers(const struct XmtpXmtpGroupMem
  * Get member installation IDs (hex) at index.
  * Returns a borrowed pointer to the internal string array.
  */
-char *const *xmtp_group_member_installation_ids(const struct XmtpXmtpGroupMemberList *list,
+char *const *xmtp_group_member_installation_ids(const struct XmtpFfiGroupMemberList *list,
                                                 int32_t index,
                                                 int32_t *out_count);
 
 /**
  * Free a group member list.
  */
-void xmtp_group_member_list_free(struct XmtpXmtpGroupMemberList *list);
+void xmtp_group_member_list_free(struct XmtpFfiGroupMemberList *list);
 
 /**
  * Add members by inbox IDs.
  */
-int32_t xmtp_conversation_add_members(const struct XmtpXmtpConversation *conv,
+int32_t xmtp_conversation_add_members(const struct XmtpFfiConversation *conv,
                                       const char *const *inbox_ids,
                                       int32_t count);
 
 /**
  * Remove members by inbox IDs.
  */
-int32_t xmtp_conversation_remove_members(const struct XmtpXmtpConversation *conv,
+int32_t xmtp_conversation_remove_members(const struct XmtpFfiConversation *conv,
                                          const char *const *inbox_ids,
                                          int32_t count);
 
 /**
  * Leave the group.
  */
-int32_t xmtp_conversation_leave(const struct XmtpXmtpConversation *conv);
+int32_t xmtp_conversation_leave(const struct XmtpFfiConversation *conv);
 
 /**
  * Add/remove admin or super admin. `action`: 0=AddAdmin, 1=RemoveAdmin, 2=AddSuperAdmin, 3=RemoveSuperAdmin.
  */
-int32_t xmtp_conversation_update_admin_list(const struct XmtpXmtpConversation *conv,
+int32_t xmtp_conversation_update_admin_list(const struct XmtpFfiConversation *conv,
                                             const char *inbox_id,
                                             int32_t action);
 
 /**
  * Get group name. Caller must free with [`xmtp_free_string`].
  */
-char *xmtp_conversation_group_name(const struct XmtpXmtpConversation *conv);
+char *xmtp_conversation_group_name(const struct XmtpFfiConversation *conv);
 
 /**
  * Update group name.
  */
-int32_t xmtp_conversation_update_group_name(const struct XmtpXmtpConversation *conv,
+int32_t xmtp_conversation_update_group_name(const struct XmtpFfiConversation *conv,
                                             const char *name);
 
 /**
  * Get group description. Caller must free with [`xmtp_free_string`].
  */
-char *xmtp_conversation_group_description(const struct XmtpXmtpConversation *conv);
+char *xmtp_conversation_group_description(const struct XmtpFfiConversation *conv);
 
 /**
  * Update group description.
  */
-int32_t xmtp_conversation_update_group_description(const struct XmtpXmtpConversation *conv,
+int32_t xmtp_conversation_update_group_description(const struct XmtpFfiConversation *conv,
                                                    const char *description);
 
 /**
  * Get group image URL. Caller must free with [`xmtp_free_string`].
  */
-char *xmtp_conversation_group_image_url(const struct XmtpXmtpConversation *conv);
+char *xmtp_conversation_group_image_url(const struct XmtpFfiConversation *conv);
 
 /**
  * Update group image URL.
  */
-int32_t xmtp_conversation_update_group_image_url(const struct XmtpXmtpConversation *conv,
+int32_t xmtp_conversation_update_group_image_url(const struct XmtpFfiConversation *conv,
                                                  const char *url);
 
 /**
  * Get conversation consent state. Writes to `out_state` (0=Unknown, 1=Allowed, 2=Denied).
  */
-int32_t xmtp_conversation_consent_state(const struct XmtpXmtpConversation *conv,
-                                        int32_t *out_state);
+int32_t xmtp_conversation_consent_state(const struct XmtpFfiConversation *conv, int32_t *out_state);
 
 /**
  * Update conversation consent state.
  */
-int32_t xmtp_conversation_update_consent_state(const struct XmtpXmtpConversation *conv,
+int32_t xmtp_conversation_update_consent_state(const struct XmtpFfiConversation *conv,
                                                int32_t state);
 
 /**
@@ -1057,7 +1054,7 @@ int32_t xmtp_conversation_update_consent_state(const struct XmtpXmtpConversation
  * `policy`: 1=Allow, 2=Deny, 3=AdminOnly, 4=SuperAdminOnly.
  * `metadata_field_name`: Only used when update_type=5 (e.g. "group_name"). Pass null otherwise.
  */
-int32_t xmtp_conversation_update_permission_policy(const struct XmtpXmtpConversation *conv,
+int32_t xmtp_conversation_update_permission_policy(const struct XmtpFfiConversation *conv,
                                                    int32_t update_type,
                                                    int32_t policy,
                                                    const char *metadata_field_name);
@@ -1065,49 +1062,49 @@ int32_t xmtp_conversation_update_permission_policy(const struct XmtpXmtpConversa
 /**
  * Check if the conversation is active. Returns 1=active, 0=inactive, -1=error.
  */
-int32_t xmtp_conversation_is_active(const struct XmtpXmtpConversation *conv);
+int32_t xmtp_conversation_is_active(const struct XmtpFfiConversation *conv);
 
 /**
  * Get the membership state of the current user in this conversation.
  * 0=Allowed, 1=Rejected, 2=Pending, 3=Restored, 4=PendingRemove, -1=error.
  */
-int32_t xmtp_conversation_membership_state(const struct XmtpXmtpConversation *conv);
+int32_t xmtp_conversation_membership_state(const struct XmtpFfiConversation *conv);
 
 /**
  * Get the inbox ID of the member who added the current user.
  * Caller must free with [`xmtp_free_string`].
  */
-char *xmtp_conversation_added_by_inbox_id(const struct XmtpXmtpConversation *conv);
+char *xmtp_conversation_added_by_inbox_id(const struct XmtpFfiConversation *conv);
 
 /**
  * Get the admin list as a null-terminated array of C strings.
  * `out_count` receives the number of admins.
  * Each string and the array itself must be freed by the caller.
  */
-char **xmtp_conversation_list_admins(const struct XmtpXmtpConversation *conv, int32_t *out_count);
+char **xmtp_conversation_list_admins(const struct XmtpFfiConversation *conv, int32_t *out_count);
 
 /**
  * Get the super admin list. Same ownership semantics as [`xmtp_conversation_list_admins`].
  */
-char **xmtp_conversation_list_super_admins(const struct XmtpXmtpConversation *conv,
+char **xmtp_conversation_list_super_admins(const struct XmtpFfiConversation *conv,
                                            int32_t *out_count);
 
 /**
  * Check if an inbox ID is an admin. Returns 1=yes, 0=no, -1=error.
  */
-int32_t xmtp_conversation_is_admin(const struct XmtpXmtpConversation *conv, const char *inbox_id);
+int32_t xmtp_conversation_is_admin(const struct XmtpFfiConversation *conv, const char *inbox_id);
 
 /**
  * Check if an inbox ID is a super admin. Returns 1=yes, 0=no, -1=error.
  */
-int32_t xmtp_conversation_is_super_admin(const struct XmtpXmtpConversation *conv,
+int32_t xmtp_conversation_is_super_admin(const struct XmtpFfiConversation *conv,
                                          const char *inbox_id);
 
 /**
  * Add members by external identifiers (address/passkey).
  * `identifiers` and `kinds` are parallel arrays of length `count`.
  */
-int32_t xmtp_conversation_add_members_by_identity(const struct XmtpXmtpConversation *conv,
+int32_t xmtp_conversation_add_members_by_identity(const struct XmtpFfiConversation *conv,
                                                   const char *const *identifiers,
                                                   const int32_t *kinds,
                                                   int32_t count);
@@ -1115,7 +1112,7 @@ int32_t xmtp_conversation_add_members_by_identity(const struct XmtpXmtpConversat
 /**
  * Remove members by external identifiers (address/passkey).
  */
-int32_t xmtp_conversation_remove_members_by_identity(const struct XmtpXmtpConversation *conv,
+int32_t xmtp_conversation_remove_members_by_identity(const struct XmtpFfiConversation *conv,
                                                      const char *const *identifiers,
                                                      const int32_t *kinds,
                                                      int32_t count);
@@ -1123,44 +1120,44 @@ int32_t xmtp_conversation_remove_members_by_identity(const struct XmtpXmtpConver
 /**
  * Update the message disappearing settings for this conversation.
  */
-int32_t xmtp_conversation_update_disappearing_settings(const struct XmtpXmtpConversation *conv,
-                                                       const struct XmtpXmtpDisappearingSettings *settings);
+int32_t xmtp_conversation_update_disappearing_settings(const struct XmtpFfiConversation *conv,
+                                                       const struct XmtpFfiDisappearingSettings *settings);
 
 /**
  * Remove (disable) message disappearing settings for this conversation.
  */
-int32_t xmtp_conversation_remove_disappearing_settings(const struct XmtpXmtpConversation *conv);
+int32_t xmtp_conversation_remove_disappearing_settings(const struct XmtpFfiConversation *conv);
 
 /**
  * Get the current message disappearing settings.
  * Returns 0 on success (writes to `out`), -1 if not set or on error.
  */
-int32_t xmtp_conversation_disappearing_settings(const struct XmtpXmtpConversation *conv,
-                                                struct XmtpXmtpDisappearingSettings *out);
+int32_t xmtp_conversation_disappearing_settings(const struct XmtpFfiConversation *conv,
+                                                struct XmtpFfiDisappearingSettings *out);
 
 /**
  * Check if message disappearing is enabled.
  * Returns 1=enabled, 0=disabled, -1=error.
  */
-int32_t xmtp_conversation_is_disappearing_enabled(const struct XmtpXmtpConversation *conv);
+int32_t xmtp_conversation_is_disappearing_enabled(const struct XmtpFfiConversation *conv);
 
 /**
  * Get the custom app data string. Caller must free with [`xmtp_free_string`].
  */
-char *xmtp_conversation_app_data(const struct XmtpXmtpConversation *conv);
+char *xmtp_conversation_app_data(const struct XmtpFfiConversation *conv);
 
 /**
  * Update the custom app data string.
  */
-int32_t xmtp_conversation_update_app_data(const struct XmtpXmtpConversation *conv,
+int32_t xmtp_conversation_update_app_data(const struct XmtpFfiConversation *conv,
                                           const char *app_data);
 
 /**
  * Find duplicate DM conversations for this DM.
  * Returns a conversation list. Caller must free with [`xmtp_conversation_list_free`].
  */
-int32_t xmtp_conversation_duplicate_dms(const struct XmtpXmtpConversation *conv,
-                                        struct XmtpXmtpConversationList **out);
+int32_t xmtp_conversation_duplicate_dms(const struct XmtpFfiConversation *conv,
+                                        struct XmtpFfiConversationList **out);
 
 /**
  * Check if the conversation is paused for a version upgrade.
@@ -1168,185 +1165,185 @@ int32_t xmtp_conversation_duplicate_dms(const struct XmtpXmtpConversation *conv,
  * Caller must free `out` with [`xmtp_free_string`].
  * Returns 0 on success, -1 on error.
  */
-int32_t xmtp_conversation_paused_for_version(const struct XmtpXmtpConversation *conv, char **out);
+int32_t xmtp_conversation_paused_for_version(const struct XmtpFfiConversation *conv, char **out);
 
 /**
  * Get debug info for this conversation.
  * Caller must free string fields with [`xmtp_free_string`].
  */
-int32_t xmtp_conversation_debug_info(const struct XmtpXmtpConversation *conv,
-                                     struct XmtpXmtpConversationDebugInfo *out);
+int32_t xmtp_conversation_debug_info(const struct XmtpFfiConversation *conv,
+                                     struct XmtpFfiConversationDebugInfo *out);
 
 /**
  * Free a conversation debug info struct (its string fields and cursor array).
  */
-void xmtp_conversation_debug_info_free(struct XmtpXmtpConversationDebugInfo *info);
+void xmtp_conversation_debug_info_free(struct XmtpFfiConversationDebugInfo *info);
 
 /**
  * Get HMAC keys for this conversation (including duplicate DMs).
  * Returns a map via `out`. Caller must free with [`xmtp_hmac_key_map_free`].
  */
-int32_t xmtp_conversation_hmac_keys(const struct XmtpXmtpConversation *conv,
-                                    struct XmtpXmtpHmacKeyMap **out);
+int32_t xmtp_conversation_hmac_keys(const struct XmtpFfiConversation *conv,
+                                    struct XmtpFfiHmacKeyMap **out);
 
 /**
  * Get the number of entries in an HMAC key map.
  */
-int32_t xmtp_hmac_key_map_len(const struct XmtpXmtpHmacKeyMap *map);
+int32_t xmtp_hmac_key_map_len(const struct XmtpFfiHmacKeyMap *map);
 
 /**
  * Get the group ID (hex) at index. Returns a borrowed pointer; do NOT free.
  */
-const char *xmtp_hmac_key_map_group_id(const struct XmtpXmtpHmacKeyMap *map, int32_t index);
+const char *xmtp_hmac_key_map_group_id(const struct XmtpFfiHmacKeyMap *map, int32_t index);
 
 /**
  * Get the HMAC keys at index. Writes count to `out_count`.
  * Returns a borrowed pointer to the key array; do NOT free individual keys.
  */
-const struct XmtpXmtpHmacKey *xmtp_hmac_key_map_keys(const struct XmtpXmtpHmacKeyMap *map,
-                                                     int32_t index,
-                                                     int32_t *out_count);
+const struct XmtpFfiHmacKey *xmtp_hmac_key_map_keys(const struct XmtpFfiHmacKeyMap *map,
+                                                    int32_t index,
+                                                    int32_t *out_count);
 
 /**
  * Process a raw group message received via push notification.
  * Returns a list of stored messages. Caller must free with [`xmtp_message_list_free`].
  */
-int32_t xmtp_conversation_process_streamed_group_message(const struct XmtpXmtpConversation *conversation,
+int32_t xmtp_conversation_process_streamed_group_message(const struct XmtpFfiConversation *conversation,
                                                          const uint8_t *envelope_bytes,
                                                          int32_t envelope_bytes_len,
-                                                         struct XmtpXmtpMessageList **out);
+                                                         struct XmtpFfiMessageList **out);
 
 /**
  * Get the full group metadata (creator inbox ID + conversation type).
  * Caller must free with [`xmtp_group_metadata_free`].
  */
-int32_t xmtp_conversation_group_metadata(const struct XmtpXmtpConversation *conversation,
-                                         struct XmtpXmtpGroupMetadata **out);
+int32_t xmtp_conversation_group_metadata(const struct XmtpFfiConversation *conversation,
+                                         struct XmtpFfiGroupMetadata **out);
 
 /**
  * Free a group metadata struct.
  */
-void xmtp_group_metadata_free(struct XmtpXmtpGroupMetadata *meta);
+void xmtp_group_metadata_free(struct XmtpFfiGroupMetadata *meta);
 
 /**
  * Get the group permissions (policy type + full policy set).
  * Caller must free with [`xmtp_group_permissions_free`].
  */
-int32_t xmtp_conversation_group_permissions(const struct XmtpXmtpConversation *conversation,
-                                            struct XmtpXmtpGroupPermissions **out);
+int32_t xmtp_conversation_group_permissions(const struct XmtpFfiConversation *conversation,
+                                            struct XmtpFfiGroupPermissions **out);
 
 /**
  * List enriched (decoded) messages for a conversation.
  * Caller must free with [`xmtp_enriched_message_list_free`].
  */
-int32_t xmtp_conversation_list_enriched_messages(const struct XmtpXmtpConversation *conversation,
-                                                 const struct XmtpXmtpListMessagesOptions *opts,
-                                                 struct XmtpXmtpEnrichedMessageList **out);
+int32_t xmtp_conversation_list_enriched_messages(const struct XmtpFfiConversation *conversation,
+                                                 const struct XmtpFfiListMessagesOptions *opts,
+                                                 struct XmtpFfiEnrichedMessageList **out);
 
 /**
  * Free an enriched message list.
  */
-void xmtp_enriched_message_list_free(struct XmtpXmtpEnrichedMessageList *list);
+void xmtp_enriched_message_list_free(struct XmtpFfiEnrichedMessageList *list);
 
 /**
  * Get per-inbox last read times for a conversation.
  * Caller must free with [`xmtp_last_read_time_list_free`].
  */
-int32_t xmtp_conversation_last_read_times(const struct XmtpXmtpConversation *conversation,
-                                          struct XmtpXmtpLastReadTimeList **out);
+int32_t xmtp_conversation_last_read_times(const struct XmtpFfiConversation *conversation,
+                                          struct XmtpFfiLastReadTimeList **out);
 
 /**
  * Free a last-read-time list.
  */
-void xmtp_last_read_time_list_free(struct XmtpXmtpLastReadTimeList *list);
+void xmtp_last_read_time_list_free(struct XmtpFfiLastReadTimeList *list);
 
 /**
  * Free an HMAC key map (including all owned data).
  */
-void xmtp_hmac_key_map_free(struct XmtpXmtpHmacKeyMap *map);
+void xmtp_hmac_key_map_free(struct XmtpFfiHmacKeyMap *map);
 
 /**
  * Create a new group conversation, optionally adding members by inbox ID.
  * Pass null/0 for `member_inbox_ids`/`member_count` to create an empty group.
  * Caller must free result with [`xmtp_conversation_free`].
  */
-int32_t xmtp_client_create_group(const struct XmtpXmtpClient *client,
-                                 const struct XmtpXmtpCreateGroupOptions *opts,
+int32_t xmtp_client_create_group(const struct XmtpFfiClient *client,
+                                 const struct XmtpFfiCreateGroupOptions *opts,
                                  const char *const *member_inbox_ids,
                                  int32_t member_count,
-                                 struct XmtpXmtpConversation **out);
+                                 struct XmtpFfiConversation **out);
 
 /**
  * Create a new group, adding members by identity (address/passkey).
  * `identifiers` and `kinds` are parallel arrays of length `count`.
  * Caller must free result with [`xmtp_conversation_free`].
  */
-int32_t xmtp_client_create_group_by_identity(const struct XmtpXmtpClient *client,
-                                             const struct XmtpXmtpCreateGroupOptions *opts,
+int32_t xmtp_client_create_group_by_identity(const struct XmtpFfiClient *client,
+                                             const struct XmtpFfiCreateGroupOptions *opts,
                                              const char *const *identifiers,
                                              const int32_t *kinds,
                                              int32_t count,
-                                             struct XmtpXmtpConversation **out);
+                                             struct XmtpFfiConversation **out);
 
 /**
  * Find or create a DM by identifier. Caller must free result with [`xmtp_conversation_free`].
  */
-int32_t xmtp_client_create_dm(const struct XmtpXmtpClient *client,
+int32_t xmtp_client_create_dm(const struct XmtpFfiClient *client,
                               const char *identifier,
                               int32_t identifier_kind,
                               int64_t disappear_from_ns,
                               int64_t disappear_in_ns,
-                              struct XmtpXmtpConversation **out);
+                              struct XmtpFfiConversation **out);
 
 /**
  * Find or create a DM by inbox ID. Caller must free result with [`xmtp_conversation_free`].
  */
-int32_t xmtp_client_find_dm_by_inbox_id(const struct XmtpXmtpClient *client,
+int32_t xmtp_client_find_dm_by_inbox_id(const struct XmtpFfiClient *client,
                                         const char *inbox_id,
-                                        struct XmtpXmtpConversation **out);
+                                        struct XmtpFfiConversation **out);
 
 /**
  * Create a DM by target inbox ID. Caller must free result with [`xmtp_conversation_free`].
  */
-int32_t xmtp_client_create_dm_by_inbox_id(const struct XmtpXmtpClient *client,
+int32_t xmtp_client_create_dm_by_inbox_id(const struct XmtpFfiClient *client,
                                           const char *inbox_id,
                                           int64_t disappear_from_ns,
                                           int64_t disappear_in_ns,
-                                          struct XmtpXmtpConversation **out);
+                                          struct XmtpFfiConversation **out);
 
 /**
  * Get a conversation by hex-encoded group ID.
  * Caller must free result with [`xmtp_conversation_free`].
  */
-int32_t xmtp_client_get_conversation_by_id(const struct XmtpXmtpClient *client,
+int32_t xmtp_client_get_conversation_by_id(const struct XmtpFfiClient *client,
                                            const char *hex_id,
-                                           struct XmtpXmtpConversation **out);
+                                           struct XmtpFfiConversation **out);
 
 /**
  * List conversations. Caller must free result with [`xmtp_conversation_list_free`].
  */
-int32_t xmtp_client_list_conversations(const struct XmtpXmtpClient *client,
-                                       const struct XmtpXmtpListConversationsOptions *opts,
-                                       struct XmtpXmtpConversationList **out);
+int32_t xmtp_client_list_conversations(const struct XmtpFfiClient *client,
+                                       const struct XmtpFfiListConversationsOptions *opts,
+                                       struct XmtpFfiConversationList **out);
 
 /**
  * Get a conversation from a list by index. Caller must free with [`xmtp_conversation_free`].
  */
-int32_t xmtp_conversation_list_get(const struct XmtpXmtpConversationList *list,
+int32_t xmtp_conversation_list_get(const struct XmtpFfiConversationList *list,
                                    int32_t index,
-                                   struct XmtpXmtpConversation **out);
+                                   struct XmtpFfiConversation **out);
 
 /**
  * Sync welcomes (process new group invitations).
  */
-int32_t xmtp_client_sync_welcomes(const struct XmtpXmtpClient *client);
+int32_t xmtp_client_sync_welcomes(const struct XmtpFfiClient *client);
 
 /**
  * Sync all conversations, optionally filtering by consent states.
  * `consent_states` is a parallel array of consent state values (0=Unknown, 1=Allowed, 2=Denied).
  * Pass null and 0 to sync all.
  */
-int32_t xmtp_client_sync_all(const struct XmtpXmtpClient *client,
+int32_t xmtp_client_sync_all(const struct XmtpFfiClient *client,
                              const int32_t *consent_states,
                              int32_t consent_states_count,
                              int32_t *out_synced,
@@ -1355,7 +1352,7 @@ int32_t xmtp_client_sync_all(const struct XmtpXmtpClient *client,
 /**
  * Sync preferences (device sync groups only).
  */
-int32_t xmtp_client_sync_preferences(const struct XmtpXmtpClient *client,
+int32_t xmtp_client_sync_preferences(const struct XmtpFfiClient *client,
                                      int32_t *out_synced,
                                      int32_t *out_eligible);
 
@@ -1363,45 +1360,45 @@ int32_t xmtp_client_sync_preferences(const struct XmtpXmtpClient *client,
  * Get HMAC keys for all conversations (including duplicate DMs).
  * Returns a map via `out`. Caller must free with [`xmtp_hmac_key_map_free`].
  */
-int32_t xmtp_client_hmac_keys(const struct XmtpXmtpClient *client, struct XmtpXmtpHmacKeyMap **out);
+int32_t xmtp_client_hmac_keys(const struct XmtpFfiClient *client, struct XmtpFfiHmacKeyMap **out);
 
 /**
  * Process a raw welcome message received via push notification.
  * Returns a list of conversation handles. Caller must free with [`xmtp_conversation_list_free`].
  */
-int32_t xmtp_client_process_streamed_welcome_message(const struct XmtpXmtpClient *client,
+int32_t xmtp_client_process_streamed_welcome_message(const struct XmtpFfiClient *client,
                                                      const uint8_t *envelope_bytes,
                                                      int32_t envelope_bytes_len,
-                                                     struct XmtpXmtpConversationList **out);
+                                                     struct XmtpFfiConversationList **out);
 
 /**
  * Get an enriched (decoded) message by its hex-encoded ID.
  * Caller must free with [`xmtp_enriched_message_list_free`] (single-item list).
  */
-int32_t xmtp_client_get_enriched_message_by_id(const struct XmtpXmtpClient *client,
+int32_t xmtp_client_get_enriched_message_by_id(const struct XmtpFfiClient *client,
                                                const char *message_id,
-                                               struct XmtpXmtpEnrichedMessageList **out);
+                                               struct XmtpFfiEnrichedMessageList **out);
 
 /**
  * Create a group without syncing members (optimistic / offline-capable).
  * Caller must free with [`xmtp_conversation_free`].
  */
-int32_t xmtp_client_create_group_optimistic(const struct XmtpXmtpClient *client,
-                                            const struct XmtpXmtpCreateGroupOptions *opts,
-                                            struct XmtpXmtpConversation **out);
+int32_t xmtp_client_create_group_optimistic(const struct XmtpFfiClient *client,
+                                            const struct XmtpFfiCreateGroupOptions *opts,
+                                            struct XmtpFfiConversation **out);
 
 /**
  * Send a device sync request to retrieve records from another installation.
  */
-int32_t xmtp_device_sync_send_request(const struct XmtpXmtpClient *client,
-                                      const struct XmtpXmtpArchiveOptions *opts,
+int32_t xmtp_device_sync_send_request(const struct XmtpFfiClient *client,
+                                      const struct XmtpFfiArchiveOptions *opts,
                                       const char *server_url);
 
 /**
  * Send a sync archive to the sync group with the given pin.
  */
-int32_t xmtp_device_sync_send_archive(const struct XmtpXmtpClient *client,
-                                      const struct XmtpXmtpArchiveOptions *opts,
+int32_t xmtp_device_sync_send_archive(const struct XmtpFfiClient *client,
+                                      const struct XmtpFfiArchiveOptions *opts,
                                       const char *server_url,
                                       const char *pin);
 
@@ -1409,41 +1406,41 @@ int32_t xmtp_device_sync_send_archive(const struct XmtpXmtpClient *client,
  * Process a sync archive matching the given pin.
  * Pass null for `pin` to process the latest archive.
  */
-int32_t xmtp_device_sync_process_archive(const struct XmtpXmtpClient *client, const char *pin);
+int32_t xmtp_device_sync_process_archive(const struct XmtpFfiClient *client, const char *pin);
 
 /**
  * List archives available for import in the sync group.
  * `days_cutoff` limits how far back to look.
  * Caller must free with [`xmtp_available_archive_list_free`].
  */
-int32_t xmtp_device_sync_list_available_archives(const struct XmtpXmtpClient *client,
+int32_t xmtp_device_sync_list_available_archives(const struct XmtpFfiClient *client,
                                                  int64_t days_cutoff,
-                                                 struct XmtpXmtpAvailableArchiveList **out);
+                                                 struct XmtpFfiAvailableArchiveList **out);
 
 /**
  * Get the pin string at index. Returns a borrowed pointer; do NOT free.
  */
-const char *xmtp_available_archive_pin(const struct XmtpXmtpAvailableArchiveList *list,
+const char *xmtp_available_archive_pin(const struct XmtpFfiAvailableArchiveList *list,
                                        int32_t index);
 
 /**
  * Get the exported_at_ns at index.
  */
-int64_t xmtp_available_archive_exported_at_ns(const struct XmtpXmtpAvailableArchiveList *list,
+int64_t xmtp_available_archive_exported_at_ns(const struct XmtpFfiAvailableArchiveList *list,
                                               int32_t index);
 
 /**
  * Free an available archive list.
  */
-void xmtp_available_archive_list_free(struct XmtpXmtpAvailableArchiveList *list);
+void xmtp_available_archive_list_free(struct XmtpFfiAvailableArchiveList *list);
 
 /**
  * Export an archive to a local file.
  * `key` must be at least 32 bytes (encryption key).
  */
-int32_t xmtp_device_sync_create_archive(const struct XmtpXmtpClient *client,
+int32_t xmtp_device_sync_create_archive(const struct XmtpFfiClient *client,
                                         const char *path,
-                                        const struct XmtpXmtpArchiveOptions *opts,
+                                        const struct XmtpFfiArchiveOptions *opts,
                                         const uint8_t *key,
                                         int32_t key_len);
 
@@ -1451,7 +1448,7 @@ int32_t xmtp_device_sync_create_archive(const struct XmtpXmtpClient *client,
  * Import a previously exported archive from a file.
  * `key` must be at least 32 bytes (encryption key).
  */
-int32_t xmtp_device_sync_import_archive(const struct XmtpXmtpClient *client,
+int32_t xmtp_device_sync_import_archive(const struct XmtpFfiClient *client,
                                         const char *path,
                                         const uint8_t *key,
                                         int32_t key_len);
@@ -1474,7 +1471,7 @@ int32_t xmtp_device_sync_archive_metadata(const char *path,
  * Manually sync all device sync groups.
  * Writes the number of synced/eligible groups to the output pointers.
  */
-int32_t xmtp_device_sync_sync_all(const struct XmtpXmtpClient *client,
+int32_t xmtp_device_sync_sync_all(const struct XmtpFfiClient *client,
                                   int32_t *out_synced,
                                   int32_t *out_eligible);
 
@@ -1522,44 +1519,44 @@ int32_t xmtp_get_inbox_id_for_identifier(const char *api_url,
  * Returns null via `out` if no signature is needed.
  * Caller must free with [`xmtp_signature_request_free`].
  */
-int32_t xmtp_client_create_inbox_signature_request(const struct XmtpXmtpClient *client,
-                                                   struct XmtpXmtpSignatureRequest **out);
+int32_t xmtp_client_create_inbox_signature_request(const struct XmtpFfiClient *client,
+                                                   struct XmtpFfiSignatureRequest **out);
 
 /**
  * Create a signature request to add a new identifier.
  * Caller must free with [`xmtp_signature_request_free`].
  */
-int32_t xmtp_client_add_identifier_signature_request(const struct XmtpXmtpClient *client,
+int32_t xmtp_client_add_identifier_signature_request(const struct XmtpFfiClient *client,
                                                      const char *identifier,
                                                      int32_t identifier_kind,
-                                                     struct XmtpXmtpSignatureRequest **out);
+                                                     struct XmtpFfiSignatureRequest **out);
 
 /**
  * Create a signature request to revoke an identifier.
  * Caller must free with [`xmtp_signature_request_free`].
  */
-int32_t xmtp_client_revoke_identifier_signature_request(const struct XmtpXmtpClient *client,
+int32_t xmtp_client_revoke_identifier_signature_request(const struct XmtpFfiClient *client,
                                                         const char *identifier,
                                                         int32_t identifier_kind,
-                                                        struct XmtpXmtpSignatureRequest **out);
+                                                        struct XmtpFfiSignatureRequest **out);
 
 /**
  * Create a signature request to revoke all other installations.
  * Returns null via `out` if there are no other installations.
  * Caller must free with [`xmtp_signature_request_free`].
  */
-int32_t xmtp_client_revoke_all_other_installations(const struct XmtpXmtpClient *client,
-                                                   struct XmtpXmtpSignatureRequest **out);
+int32_t xmtp_client_revoke_all_other_installations(const struct XmtpFfiClient *client,
+                                                   struct XmtpFfiSignatureRequest **out);
 
 /**
  * Get the human-readable signature text. Caller must free with [`xmtp_free_string`].
  */
-char *xmtp_signature_request_text(const struct XmtpXmtpSignatureRequest *req);
+char *xmtp_signature_request_text(const struct XmtpFfiSignatureRequest *req);
 
 /**
  * Add an ECDSA signature to the request.
  */
-int32_t xmtp_signature_request_add_ecdsa(const struct XmtpXmtpSignatureRequest *req,
+int32_t xmtp_signature_request_add_ecdsa(const struct XmtpFfiSignatureRequest *req,
                                          const uint8_t *signature_bytes,
                                          int32_t signature_len);
 
@@ -1567,7 +1564,7 @@ int32_t xmtp_signature_request_add_ecdsa(const struct XmtpXmtpSignatureRequest *
  * Add a passkey signature to the request.
  * All four byte arrays are required and must not be null.
  */
-int32_t xmtp_signature_request_add_passkey(const struct XmtpXmtpSignatureRequest *req,
+int32_t xmtp_signature_request_add_passkey(const struct XmtpFfiSignatureRequest *req,
                                            const uint8_t *public_key,
                                            int32_t public_key_len,
                                            const uint8_t *signature,
@@ -1583,7 +1580,7 @@ int32_t xmtp_signature_request_add_passkey(const struct XmtpXmtpSignatureRequest
  * `chain_id` is the EVM chain ID (e.g. 1 for mainnet).
  * `block_number` is optional; pass 0 to omit.
  */
-int32_t xmtp_signature_request_add_scw(const struct XmtpXmtpSignatureRequest *req,
+int32_t xmtp_signature_request_add_scw(const struct XmtpFfiSignatureRequest *req,
                                        const char *account_address,
                                        const uint8_t *signature_bytes,
                                        int32_t signature_len,
@@ -1593,35 +1590,35 @@ int32_t xmtp_signature_request_add_scw(const struct XmtpXmtpSignatureRequest *re
 /**
  * Apply a signature request to the client.
  */
-int32_t xmtp_client_apply_signature_request(const struct XmtpXmtpClient *client,
-                                            const struct XmtpXmtpSignatureRequest *req);
+int32_t xmtp_client_apply_signature_request(const struct XmtpFfiClient *client,
+                                            const struct XmtpFfiSignatureRequest *req);
 
 /**
  * Create a signature request to revoke specific installations by their IDs.
  * `installation_ids` is an array of byte arrays, each `id_len` bytes long.
  * Caller must free with [`xmtp_signature_request_free`].
  */
-int32_t xmtp_client_revoke_installations_signature_request(const struct XmtpXmtpClient *client,
+int32_t xmtp_client_revoke_installations_signature_request(const struct XmtpFfiClient *client,
                                                            const uint8_t *const *installation_ids,
                                                            const int32_t *id_lengths,
                                                            int32_t count,
-                                                           struct XmtpXmtpSignatureRequest **out);
+                                                           struct XmtpFfiSignatureRequest **out);
 
 /**
  * Create a signature request to change the recovery identifier.
  * Caller must free with [`xmtp_signature_request_free`].
  */
-int32_t xmtp_client_change_recovery_identifier_signature_request(const struct XmtpXmtpClient *client,
+int32_t xmtp_client_change_recovery_identifier_signature_request(const struct XmtpFfiClient *client,
                                                                  const char *new_identifier,
                                                                  int32_t identifier_kind,
-                                                                 struct XmtpXmtpSignatureRequest **out);
+                                                                 struct XmtpFfiSignatureRequest **out);
 
 /**
  * Sign text with the client's installation key.
  * Writes signature bytes to `out` and length to `out_len`.
  * Caller must free `out` with [`xmtp_free_bytes`].
  */
-int32_t xmtp_client_sign_with_installation_key(const struct XmtpXmtpClient *client,
+int32_t xmtp_client_sign_with_installation_key(const struct XmtpFfiClient *client,
                                                const char *text,
                                                uint8_t **out,
                                                int32_t *out_len);
@@ -1639,83 +1636,83 @@ int32_t xmtp_verify_signed_with_public_key(const char *signature_text,
 
 /**
  * Stream new conversations. Calls `callback` for each new conversation.
- * The callback receives a `*mut XmtpConversation` that the caller must free.
+ * The callback receives a `*mut FfiConversation` that the caller must free.
  * `context` is an opaque pointer passed through to both callbacks.
  * `on_close` is called when the stream ends (pass null to ignore).
  *
  * Returns a stream handle via `out` that must be closed with [`xmtp_stream_close`].
  */
-int32_t xmtp_stream_conversations(const struct XmtpXmtpClient *client,
+int32_t xmtp_stream_conversations(const struct XmtpFfiClient *client,
                                   int32_t conversation_type,
                                   XmtpFnConversationCallback callback,
                                   struct XmtpOption_FnOnCloseCallback on_close,
                                   void *context,
-                                  struct XmtpXmtpStreamHandle **out);
+                                  struct XmtpFfiStreamHandle **out);
 
 /**
  * Stream all messages across conversations.
- * The callback receives a `*mut XmtpMessage` that the caller must free.
+ * The callback receives a `*mut FfiMessage` that the caller must free.
  * `consent_states` / `consent_states_count`: optional consent filter (pass null/0 for all).
  * `on_close` is called when the stream ends (pass null to ignore).
  */
-int32_t xmtp_stream_all_messages(const struct XmtpXmtpClient *client,
+int32_t xmtp_stream_all_messages(const struct XmtpFfiClient *client,
                                  int32_t conversation_type,
                                  const int32_t *consent_states,
                                  int32_t consent_states_count,
                                  XmtpFnMessageCallback callback,
                                  struct XmtpOption_FnOnCloseCallback on_close,
                                  void *context,
-                                 struct XmtpXmtpStreamHandle **out);
+                                 struct XmtpFfiStreamHandle **out);
 
 /**
  * Stream messages for a single conversation.
- * The callback receives a `*mut XmtpMessage` that the caller must free.
+ * The callback receives a `*mut FfiMessage` that the caller must free.
  * `on_close` is called when the stream ends (pass null to ignore).
  */
-int32_t xmtp_conversation_stream_messages(const struct XmtpXmtpConversation *conv,
+int32_t xmtp_conversation_stream_messages(const struct XmtpFfiConversation *conv,
                                           XmtpFnMessageCallback callback,
                                           struct XmtpOption_FnOnCloseCallback on_close,
                                           void *context,
-                                          struct XmtpXmtpStreamHandle **out);
+                                          struct XmtpFfiStreamHandle **out);
 
 /**
  * Stream consent state changes. Callback receives an array of consent records.
  * Caller must free each `entity` string in the records after processing.
  */
-int32_t xmtp_stream_consent(const struct XmtpXmtpClient *client,
+int32_t xmtp_stream_consent(const struct XmtpFfiClient *client,
                             XmtpFnConsentCallback callback,
                             struct XmtpOption_FnOnCloseCallback on_close,
                             void *context,
-                            struct XmtpXmtpStreamHandle **out);
+                            struct XmtpFfiStreamHandle **out);
 
 /**
  * Stream preference updates (consent changes + HMAC key rotations).
  * Callback receives an array of preference updates.
  */
-int32_t xmtp_stream_preferences(const struct XmtpXmtpClient *client,
+int32_t xmtp_stream_preferences(const struct XmtpFfiClient *client,
                                 XmtpFnPreferenceCallback callback,
                                 struct XmtpOption_FnOnCloseCallback on_close,
                                 void *context,
-                                struct XmtpXmtpStreamHandle **out);
+                                struct XmtpFfiStreamHandle **out);
 
 /**
  * Stream message deletion events across all conversations.
  * The callback receives the deleted message ID as a hex string (caller must free).
  */
-int32_t xmtp_stream_message_deletions(const struct XmtpXmtpClient *client,
+int32_t xmtp_stream_message_deletions(const struct XmtpFfiClient *client,
                                       XmtpFnMessageDeletionCallback callback,
                                       void *context,
-                                      struct XmtpXmtpStreamHandle **out);
+                                      struct XmtpFfiStreamHandle **out);
 
 /**
  * Close a stream and stop receiving events.
  */
-void xmtp_stream_close(struct XmtpXmtpStreamHandle *handle);
+void xmtp_stream_close(struct XmtpFfiStreamHandle *handle);
 
 /**
  * Check if a stream is closed. Returns 1 if closed, 0 if active.
  */
-int32_t xmtp_stream_is_closed(const struct XmtpXmtpStreamHandle *handle);
+int32_t xmtp_stream_is_closed(const struct XmtpFfiStreamHandle *handle);
 
 #ifdef __cplusplus
 }  // extern "C"
