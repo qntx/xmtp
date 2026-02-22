@@ -1,0 +1,3 @@
+[submodule "third_party/libxmtp"]
+	path = third_party/libxmtp
+	url = https://github.com/xmtp/libxmtp
