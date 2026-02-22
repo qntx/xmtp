@@ -1,0 +1,47 @@
+[package]
+name = "xmtp-ffi"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+publish = false
+description = "C FFI wrapper around libxmtp for xmtp-sys"
+
+# Make this crate its own workspace root so Cargo doesn't inherit from
+# the parent workspace. libxmtp crates need their own workspace root
+# at 3rdparty/libxmtp/Cargo.toml for dependency resolution.
+[workspace]
+
+[lib]
+crate-type = ["staticlib", "cdylib"]
+
+[dependencies]
+# libxmtp core crates
+xmtp_mls = { path = "../3rdparty/libxmtp/crates/xmtp_mls" }
+xmtp_api = { path = "../3rdparty/libxmtp/crates/xmtp_api" }
+xmtp_api_grpc = { path = "../3rdparty/libxmtp/crates/xmtp_api_grpc" }
+xmtp_api_d14n = { path = "../3rdparty/libxmtp/crates/xmtp_api_d14n" }
+xmtp_db = { path = "../3rdparty/libxmtp/crates/xmtp_db" }
+xmtp_id = { path = "../3rdparty/libxmtp/crates/xmtp_id" }
+xmtp_proto = { path = "../3rdparty/libxmtp/crates/xmtp_proto" }
+xmtp_common = { path = "../3rdparty/libxmtp/crates/xmtp_common", features = ["logging"] }
+xmtp_cryptography = { path = "../3rdparty/libxmtp/crates/xmtp_cryptography" }
+xmtp_content_types = { path = "../3rdparty/libxmtp/crates/xmtp_content_types" }
+xmtp_configuration = { path = "../3rdparty/libxmtp/crates/xmtp_configuration" }
+xmtp_mls_common = { path = "../3rdparty/libxmtp/crates/xmtp_mls_common" }
+
+# Runtime & utilities
+tokio = { version = "1", features = ["full"] }
+prost = "0.14"
+hex = { package = "const-hex", version = "1.14" }
+futures = "0.3"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+
+[build-dependencies]
+cbindgen = "0.29"
+
+# Replicate libxmtp workspace patches for correct dependency resolution
+[patch.crates-io]
+diesel = { git = "https://github.com/ephemerahq/diesel", branch = "coda/copy-to-sqlite" }
+diesel_migrations = { git = "https://github.com/ephemerahq/diesel", branch = "coda/copy-to-sqlite" }
+
