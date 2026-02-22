@@ -704,17 +704,9 @@ pub(crate) unsafe fn collect_identifiers(
     if ptrs.is_null() || kinds.is_null() || count <= 0 {
         return Err("null pointer or invalid count".into());
     }
-    let mut result = Vec::with_capacity(count as usize);
-    for i in 0..count as usize {
-        let s = unsafe { c_str_to_string(*ptrs.add(i))? };
-        let kind = unsafe { *kinds.add(i) };
-        result.push(match kind {
-            0 => xmtp_id::associations::Identifier::eth(s)?,
-            1 => xmtp_id::associations::Identifier::passkey_str(&s, None)?,
-            _ => return Err("invalid identifier kind".into()),
-        });
-    }
-    Ok(result)
+    (0..count as usize)
+        .map(|i| unsafe { parse_identifier(*ptrs.add(i), *kinds.add(i)) })
+        .collect()
 }
 
 /// Collect an array of C strings into `Vec<String>`.
@@ -822,6 +814,119 @@ macro_rules! free_c_strings {
     };
 }
 
+/// Generate a free function for a list type whose items only contain owned C strings.
+macro_rules! ffi_list_free {
+    ($fn_name:ident, $list_ty:ty, [$($field:ident),+ $(,)?]) => {
+        #[unsafe(no_mangle)]
+        pub unsafe extern "C" fn $fn_name(list: *mut $list_ty) {
+            if list.is_null() {
+                return;
+            }
+            let l = unsafe { Box::from_raw(list) };
+            for item in &l.items {
+                $crate::ffi::free_c_strings!(item, $($field),+);
+            }
+        }
+    };
+}
+
+/// Generate a conversation string property getter (returns `*mut c_char`).
+/// Inner method must return `Result<String, _>`.
+macro_rules! conv_string_getter {
+    ($fn_name:ident, $method:ident) => {
+        #[unsafe(no_mangle)]
+        pub unsafe extern "C" fn $fn_name(
+            conv: *const $crate::ffi::FfiConversation,
+        ) -> *mut std::ffi::c_char {
+            match unsafe { $crate::ffi::ref_from(conv) } {
+                Ok(c) => match c.inner.$method() {
+                    Ok(s) => $crate::ffi::to_c_string(&s),
+                    Err(_) => std::ptr::null_mut(),
+                },
+                Err(_) => std::ptr::null_mut(),
+            }
+        }
+    };
+}
+
+/// Generate an async conversation string property setter (returns `i32`).
+/// Inner method must be `async fn(&self, String) -> Result<(), _>`.
+macro_rules! conv_string_setter {
+    ($fn_name:ident, $method:ident) => {
+        #[unsafe(no_mangle)]
+        pub unsafe extern "C" fn $fn_name(
+            conv: *const $crate::ffi::FfiConversation,
+            value: *const std::ffi::c_char,
+        ) -> i32 {
+            $crate::ffi::catch_async(|| async {
+                let c = unsafe { $crate::ffi::ref_from(conv)? };
+                let v = unsafe { $crate::ffi::c_str_to_string(value)? };
+                c.inner.$method(v).await?;
+                Ok(())
+            })
+        }
+    };
+}
+
+/// Generate a conversation `Vec<String>` property getter (admin lists, etc.).
+/// Inner method must return `Result<Vec<String>, _>`.
+macro_rules! conv_string_list_getter {
+    ($fn_name:ident, $method:ident) => {
+        #[unsafe(no_mangle)]
+        pub unsafe extern "C" fn $fn_name(
+            conv: *const $crate::ffi::FfiConversation,
+            out_count: *mut i32,
+        ) -> *mut *mut std::ffi::c_char {
+            if out_count.is_null() {
+                return std::ptr::null_mut();
+            }
+            match unsafe { $crate::ffi::ref_from(conv) } {
+                Ok(c) => match c.inner.$method() {
+                    Ok(list) => $crate::ffi::string_vec_to_c(list, out_count),
+                    Err(_) => {
+                        unsafe { *out_count = 0 };
+                        std::ptr::null_mut()
+                    }
+                },
+                Err(_) => {
+                    unsafe { *out_count = 0 };
+                    std::ptr::null_mut()
+                }
+            }
+        }
+    };
+}
+
+/// Generate a conversation inbox-ID-in-list check (is_admin / is_super_admin).
+/// Inner method must return `Result<Vec<String>, _>`.
+macro_rules! conv_inbox_check {
+    ($fn_name:ident, $method:ident) => {
+        #[unsafe(no_mangle)]
+        pub unsafe extern "C" fn $fn_name(
+            conv: *const $crate::ffi::FfiConversation,
+            inbox_id: *const std::ffi::c_char,
+        ) -> i32 {
+            let c = match unsafe { $crate::ffi::ref_from(conv) } {
+                Ok(c) => c,
+                Err(_) => return -1,
+            };
+            let id = match unsafe { $crate::ffi::c_str_to_string(inbox_id) } {
+                Ok(s) => s,
+                Err(_) => return -1,
+            };
+            match c.inner.$method() {
+                Ok(list) => i32::from(list.contains(&id)),
+                Err(_) => -1,
+            }
+        }
+    };
+}
+
+pub(crate) use conv_inbox_check;
+pub(crate) use conv_string_getter;
+pub(crate) use conv_string_list_getter;
+pub(crate) use conv_string_setter;
+pub(crate) use ffi_list_free;
 pub(crate) use ffi_list_get;
 pub(crate) use ffi_list_len;
 pub(crate) use free_c_strings;
@@ -904,6 +1009,41 @@ pub(crate) fn i32_to_content_type(v: i32) -> Option<xmtp_db::group_message::Cont
         15 => Some(ContentType::MultiRemoteAttachment),
         16 => Some(ContentType::DeleteMessage),
         _ => None,
+    }
+}
+
+/// Parse a consent state filter from a raw int array. Shared by conversations and streams.
+pub(crate) fn parse_consent_states(
+    states: *const i32,
+    count: i32,
+) -> Option<Vec<xmtp_db::consent_record::ConsentState>> {
+    if states.is_null() || count <= 0 {
+        return None;
+    }
+    let mut result = Vec::with_capacity(count as usize);
+    for i in 0..count as usize {
+        let s = unsafe { *states.add(i) };
+        result.push(match s {
+            0 => xmtp_db::consent_record::ConsentState::Unknown,
+            1 => xmtp_db::consent_record::ConsentState::Allowed,
+            2 => xmtp_db::consent_record::ConsentState::Denied,
+            _ => continue,
+        });
+    }
+    if result.is_empty() {
+        None
+    } else {
+        Some(result)
+    }
+}
+
+/// Map `ConversationType` → `FfiConversationType`.
+pub(crate) fn conversation_type_to_ffi(t: xmtp_db::group::ConversationType) -> FfiConversationType {
+    match t {
+        xmtp_db::group::ConversationType::Dm => FfiConversationType::Dm,
+        xmtp_db::group::ConversationType::Group => FfiConversationType::Group,
+        xmtp_db::group::ConversationType::Sync => FfiConversationType::Sync,
+        xmtp_db::group::ConversationType::Oneshot => FfiConversationType::Oneshot,
     }
 }
 

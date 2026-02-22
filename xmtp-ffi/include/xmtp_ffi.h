@@ -912,7 +912,7 @@ char *xmtp_conversation_id(const struct XmtpFfiConversation *conv);
 int64_t xmtp_conversation_created_at_ns(const struct XmtpFfiConversation *conv);
 
 /**
- * Get the conversation type: 0=DM, 1=Group, 2=Sync, 3=Oneshot, -1=error.
+ * Get the conversation type. Returns `FfiConversationType` value, or -1 on error.
  */
 int32_t xmtp_conversation_type(const struct XmtpFfiConversation *conv);
 
@@ -1088,39 +1088,6 @@ int32_t xmtp_conversation_update_admin_list(const struct XmtpFfiConversation *co
                                             int32_t action);
 
 /**
- * Get group name. Caller must free with [`xmtp_free_string`].
- */
-char *xmtp_conversation_group_name(const struct XmtpFfiConversation *conv);
-
-/**
- * Update group name.
- */
-int32_t xmtp_conversation_update_group_name(const struct XmtpFfiConversation *conv,
-                                            const char *name);
-
-/**
- * Get group description. Caller must free with [`xmtp_free_string`].
- */
-char *xmtp_conversation_group_description(const struct XmtpFfiConversation *conv);
-
-/**
- * Update group description.
- */
-int32_t xmtp_conversation_update_group_description(const struct XmtpFfiConversation *conv,
-                                                   const char *description);
-
-/**
- * Get group image URL. Caller must free with [`xmtp_free_string`].
- */
-char *xmtp_conversation_group_image_url(const struct XmtpFfiConversation *conv);
-
-/**
- * Update group image URL.
- */
-int32_t xmtp_conversation_update_group_image_url(const struct XmtpFfiConversation *conv,
-                                                 const char *url);
-
-/**
  * Get conversation consent state. Writes to `out_state` (0=Unknown, 1=Allowed, 2=Denied).
  */
 int32_t xmtp_conversation_consent_state(const struct XmtpFfiConversation *conv, int32_t *out_state);
@@ -1152,36 +1119,6 @@ int32_t xmtp_conversation_is_active(const struct XmtpFfiConversation *conv);
  * 0=Allowed, 1=Rejected, 2=Pending, 3=Restored, 4=PendingRemove, -1=error.
  */
 int32_t xmtp_conversation_membership_state(const struct XmtpFfiConversation *conv);
-
-/**
- * Get the inbox ID of the member who added the current user.
- * Caller must free with [`xmtp_free_string`].
- */
-char *xmtp_conversation_added_by_inbox_id(const struct XmtpFfiConversation *conv);
-
-/**
- * Get the admin list as a null-terminated array of C strings.
- * `out_count` receives the number of admins.
- * Each string and the array itself must be freed by the caller.
- */
-char **xmtp_conversation_list_admins(const struct XmtpFfiConversation *conv, int32_t *out_count);
-
-/**
- * Get the super admin list. Same ownership semantics as [`xmtp_conversation_list_admins`].
- */
-char **xmtp_conversation_list_super_admins(const struct XmtpFfiConversation *conv,
-                                           int32_t *out_count);
-
-/**
- * Check if an inbox ID is an admin. Returns 1=yes, 0=no, -1=error.
- */
-int32_t xmtp_conversation_is_admin(const struct XmtpFfiConversation *conv, const char *inbox_id);
-
-/**
- * Check if an inbox ID is a super admin. Returns 1=yes, 0=no, -1=error.
- */
-int32_t xmtp_conversation_is_super_admin(const struct XmtpFfiConversation *conv,
-                                         const char *inbox_id);
 
 /**
  * Add members by external identifiers (address/passkey).
@@ -1223,17 +1160,6 @@ int32_t xmtp_conversation_disappearing_settings(const struct XmtpFfiConversation
  * Returns 1=enabled, 0=disabled, -1=error.
  */
 int32_t xmtp_conversation_is_disappearing_enabled(const struct XmtpFfiConversation *conv);
-
-/**
- * Get the custom app data string. Caller must free with [`xmtp_free_string`].
- */
-char *xmtp_conversation_app_data(const struct XmtpFfiConversation *conv);
-
-/**
- * Update the custom app data string.
- */
-int32_t xmtp_conversation_update_app_data(const struct XmtpFfiConversation *conv,
-                                          const char *app_data);
 
 /**
  * Find duplicate DM conversations for this DM.
@@ -1324,21 +1250,11 @@ int32_t xmtp_conversation_list_enriched_messages(const struct XmtpFfiConversatio
                                                  struct XmtpFfiEnrichedMessageList **out);
 
 /**
- * Free an enriched message list.
- */
-void xmtp_enriched_message_list_free(struct XmtpFfiEnrichedMessageList *list);
-
-/**
  * Get per-inbox last read times for a conversation.
  * Caller must free with [`xmtp_last_read_time_list_free`].
  */
 int32_t xmtp_conversation_last_read_times(const struct XmtpFfiConversation *conversation,
                                           struct XmtpFfiLastReadTimeList **out);
-
-/**
- * Free a last-read-time list.
- */
-void xmtp_last_read_time_list_free(struct XmtpFfiLastReadTimeList *list);
 
 /**
  * Free an HMAC key map (including all owned data).

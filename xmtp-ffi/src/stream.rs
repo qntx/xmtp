@@ -33,31 +33,6 @@ fn parse_conv_type(v: i32) -> Option<xmtp_db::group::ConversationType> {
     }
 }
 
-/// Parse a consent state filter from a raw int array.
-fn parse_consent_states(
-    states: *const i32,
-    count: i32,
-) -> Option<Vec<xmtp_db::consent_record::ConsentState>> {
-    if states.is_null() || count <= 0 {
-        return None;
-    }
-    let mut result = Vec::with_capacity(count as usize);
-    for i in 0..count as usize {
-        let s = unsafe { *states.add(i) };
-        result.push(match s {
-            0 => xmtp_db::consent_record::ConsentState::Unknown,
-            1 => xmtp_db::consent_record::ConsentState::Allowed,
-            2 => xmtp_db::consent_record::ConsentState::Denied,
-            _ => continue,
-        });
-    }
-    if result.is_empty() {
-        None
-    } else {
-        Some(result)
-    }
-}
-
 /// Invoke the on_close callback with a null error (normal close).
 fn invoke_on_close_ok(on_close: Option<FnOnCloseCallback>, ctx: usize) {
     if let Some(cb) = on_close {

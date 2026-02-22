@@ -105,22 +105,11 @@ pub unsafe extern "C" fn xmtp_client_create(
             xmtp_db::NativeDb::builder().ephemeral()
         };
 
-        // Pool size + encryption: use a closure to build the final NativeDb
-        // since typestate builder changes type on each call.
-        let max_pool = if opts.max_db_pool_size > 0 {
-            Some(opts.max_db_pool_size)
-        } else {
-            None
-        };
-        let min_pool = if opts.min_db_pool_size > 0 {
-            Some(opts.min_db_pool_size)
-        } else {
-            None
-        };
+        // Parse optional encryption key
         let enc_key: Option<xmtp_db::EncryptionKey> = if !opts.encryption_key.is_null() {
-            let key_slice = unsafe { std::slice::from_raw_parts(opts.encryption_key, 32) };
+            let slice = unsafe { std::slice::from_raw_parts(opts.encryption_key, 32) };
             Some(
-                key_slice
+                slice
                     .try_into()
                     .map_err(|_| "encryption key must be 32 bytes")?,
             )
@@ -128,23 +117,26 @@ pub unsafe extern "C" fn xmtp_client_create(
             None
         };
 
-        // Apply pool sizes then build
-        let db = match (max_pool, min_pool, enc_key) {
-            (Some(mx), Some(mn), Some(k)) => db_builder
-                .max_pool_size(mx)
-                .min_pool_size(mn)
-                .key(k)
-                .build()?,
-            (Some(mx), Some(mn), None) => db_builder
-                .max_pool_size(mx)
-                .min_pool_size(mn)
-                .build_unencrypted()?,
-            (Some(mx), None, Some(k)) => db_builder.max_pool_size(mx).key(k).build()?,
-            (Some(mx), None, None) => db_builder.max_pool_size(mx).build_unencrypted()?,
-            (None, Some(mn), Some(k)) => db_builder.min_pool_size(mn).key(k).build()?,
-            (None, Some(mn), None) => db_builder.min_pool_size(mn).build_unencrypted()?,
-            (None, None, Some(k)) => db_builder.key(k).build()?,
-            (None, None, None) => db_builder.build_unencrypted()?,
+        // Build NativeDb — pool size and encryption methods use typestate,
+        // so we use a macro to avoid combinatorial explosion.
+        macro_rules! build_db {
+            ($b:expr) => {
+                if let Some(k) = enc_key {
+                    $b.key(k).build()?
+                } else {
+                    $b.build_unencrypted()?
+                }
+            };
+        }
+        let db = match (opts.max_db_pool_size > 0, opts.min_db_pool_size > 0) {
+            (true, true) => build_db!(
+                db_builder
+                    .max_pool_size(opts.max_db_pool_size)
+                    .min_pool_size(opts.min_db_pool_size)
+            ),
+            (true, false) => build_db!(db_builder.max_pool_size(opts.max_db_pool_size)),
+            (false, true) => build_db!(db_builder.min_pool_size(opts.min_db_pool_size)),
+            (false, false) => build_db!(db_builder),
         };
 
         let store = xmtp_db::EncryptedMessageStore::new(db)?;
@@ -653,12 +645,7 @@ pub unsafe extern "C" fn xmtp_client_get_inbox_id_by_identifier(
         if out.is_null() {
             return Err("null output pointer".into());
         }
-        let ident_str = unsafe { c_str_to_string(identifier)? };
-        let ident = match identifier_kind {
-            0 => xmtp_id::associations::Identifier::eth(ident_str)?,
-            1 => xmtp_id::associations::Identifier::passkey_str(&ident_str, None)?,
-            _ => return Err("invalid identifier kind".into()),
-        };
+        let ident = unsafe { parse_identifier(identifier, identifier_kind)? };
         let conn = c.inner.context.store().db();
         let inbox_id = c.inner.find_inbox_id_from_identifier(&conn, ident).await?;
         unsafe {
@@ -916,8 +903,7 @@ pub unsafe extern "C" fn xmtp_client_fetch_inbox_updates_count(
                 count: cnt,
             })
             .collect();
-        let list = Box::new(FfiInboxUpdateCountList { items });
-        unsafe { *out = Box::into_raw(list) };
+        unsafe { write_out(out, FfiInboxUpdateCountList { items })? };
         Ok(())
     })
 }
@@ -1011,8 +997,7 @@ pub unsafe extern "C" fn xmtp_client_fetch_key_package_statuses(
             })
             .collect();
 
-        let list = Box::new(FfiKeyPackageStatusList { items });
-        unsafe { *out = Box::into_raw(list) };
+        unsafe { write_out(out, FfiKeyPackageStatusList { items })? };
         Ok(())
     })
 }

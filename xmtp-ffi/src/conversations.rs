@@ -158,12 +158,7 @@ pub unsafe extern "C" fn xmtp_client_create_dm(
         if out.is_null() {
             return Err("null output pointer".into());
         }
-        let ident_str = unsafe { c_str_to_string(identifier)? };
-        let ident = match identifier_kind {
-            0 => xmtp_id::associations::Identifier::eth(ident_str)?,
-            1 => xmtp_id::associations::Identifier::passkey_str(&ident_str, None)?,
-            _ => return Err("invalid identifier kind".into()),
-        };
+        let ident = unsafe { parse_identifier(identifier, identifier_kind)? };
         let dm_opts = build_dm_opts(disappear_from_ns, disappear_in_ns);
         let group = c
             .inner
@@ -261,7 +256,7 @@ pub unsafe extern "C" fn xmtp_client_list_conversations(
             GroupQueryArgs::default()
         } else {
             let o = unsafe { &*opts };
-            let consent = parse_consent_filter(o.consent_states, o.consent_states_count);
+            let consent = parse_consent_states(o.consent_states, o.consent_states_count);
             GroupQueryArgs {
                 conversation_type: match o.conversation_type {
                     0 => Some(xmtp_db::group::ConversationType::Dm),
@@ -434,7 +429,7 @@ pub unsafe extern "C" fn xmtp_client_sync_all(
 ) -> i32 {
     catch_async(|| async {
         let c = unsafe { ref_from(client)? };
-        let consents = parse_consent_filter(consent_states, consent_states_count);
+        let consents = parse_consent_states(consent_states, consent_states_count);
         let summary = c.inner.sync_all_welcomes_and_groups(consents).await?;
         if !out_synced.is_null() {
             unsafe {
@@ -494,26 +489,10 @@ pub unsafe extern "C" fn xmtp_client_hmac_keys(
         let mut entries = Vec::new();
         for conv in conversations {
             if let Ok(keys) = conv.hmac_keys(-1..=1) {
-                let c_keys: Vec<FfiHmacKey> = keys
-                    .into_iter()
-                    .map(|k| {
-                        let key_vec = k.key.to_vec();
-                        let len = key_vec.len() as i32;
-                        let (ptr, _, _) = key_vec.into_raw_parts();
-                        FfiHmacKey {
-                            key: ptr,
-                            key_len: len,
-                            epoch: k.epoch,
-                        }
-                    })
-                    .collect();
-                let keys_count = c_keys.len() as i32;
-                let (keys_ptr, _, _) = c_keys.into_raw_parts();
-                entries.push(FfiHmacKeyEntry {
-                    group_id: to_c_string(&hex::encode(&conv.group_id)),
-                    keys: keys_ptr,
-                    keys_count,
-                });
+                entries.push(crate::conversation::hmac_keys_to_entry(
+                    &conv.group_id,
+                    keys,
+                ));
             }
         }
 
@@ -552,8 +531,7 @@ pub unsafe extern "C" fn xmtp_client_process_streamed_welcome_message(
                 is_commit_log_forked: None,
             })
             .collect();
-        let list = Box::new(FfiConversationList { items });
-        unsafe { *out = Box::into_raw(list) };
+        unsafe { write_out(out, FfiConversationList { items })? };
         Ok(())
     })
 }
@@ -579,8 +557,7 @@ pub unsafe extern "C" fn xmtp_client_get_enriched_message_by_id(
         let id_bytes = hex::decode(&id_str)?;
         let msg = c.inner.message_v2(id_bytes)?;
         let item = crate::conversation::decoded_to_enriched(&msg);
-        let list = Box::new(FfiEnrichedMessageList { items: vec![item] });
-        unsafe { *out = Box::into_raw(list) };
+        unsafe { write_out(out, FfiEnrichedMessageList { items: vec![item] })? };
         Ok(())
     })
 }
@@ -646,29 +623,4 @@ unsafe fn parse_group_opts(
         );
     }
     Ok((policy, Some(meta)))
-}
-
-/// Parse a consent state filter from a raw int array.
-fn parse_consent_filter(
-    states: *const i32,
-    count: i32,
-) -> Option<Vec<xmtp_db::consent_record::ConsentState>> {
-    if states.is_null() || count <= 0 {
-        return None;
-    }
-    let mut result = Vec::with_capacity(count as usize);
-    for i in 0..count as usize {
-        let s = unsafe { *states.add(i) };
-        result.push(match s {
-            0 => xmtp_db::consent_record::ConsentState::Unknown,
-            1 => xmtp_db::consent_record::ConsentState::Allowed,
-            2 => xmtp_db::consent_record::ConsentState::Denied,
-            _ => continue,
-        });
-    }
-    if result.is_empty() {
-        None
-    } else {
-        Some(result)
-    }
 }

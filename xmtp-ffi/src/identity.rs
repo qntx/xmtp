@@ -13,12 +13,7 @@ pub unsafe extern "C" fn xmtp_generate_inbox_id(
     nonce: u64,
 ) -> *mut c_char {
     let result: Result<String, Box<dyn std::error::Error>> = (|| {
-        let val = unsafe { c_str_to_string(identifier)? };
-        let ident = match identifier_kind {
-            0 => xmtp_id::associations::Identifier::eth(val)?,
-            1 => xmtp_id::associations::Identifier::passkey_str(&val, None)?,
-            _ => return Err("invalid identifier kind".into()),
-        };
+        let ident = unsafe { parse_identifier(identifier, identifier_kind)? };
         let n = if nonce == 0 { 1 } else { nonce };
         Ok(ident.inbox_id(n)?)
     })();
@@ -124,12 +119,7 @@ pub unsafe extern "C" fn xmtp_get_inbox_id_for_identifier(
             return Err("null output pointer".into());
         }
         let url = unsafe { c_str_to_string(api_url)? };
-        let val = unsafe { c_str_to_string(identifier)? };
-        let ident = match identifier_kind {
-            0 => xmtp_id::associations::Identifier::eth(val)?,
-            1 => xmtp_id::associations::Identifier::passkey_str(&val, None)?,
-            _ => return Err("invalid identifier kind".into()),
-        };
+        let ident = unsafe { parse_identifier(identifier, identifier_kind)? };
 
         let mut backend = xmtp_api_d14n::MessageBackendBuilder::default();
         backend.v3_host(&url).is_secure(is_secure != 0);

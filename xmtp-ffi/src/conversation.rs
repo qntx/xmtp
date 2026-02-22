@@ -35,16 +35,11 @@ pub unsafe extern "C" fn xmtp_conversation_created_at_ns(conv: *const FfiConvers
     }
 }
 
-/// Get the conversation type: 0=DM, 1=Group, 2=Sync, 3=Oneshot, -1=error.
+/// Get the conversation type. Returns `FfiConversationType` value, or -1 on error.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn xmtp_conversation_type(conv: *const FfiConversation) -> i32 {
     match unsafe { ref_from(conv) } {
-        Ok(c) => match c.inner.conversation_type {
-            xmtp_db::group::ConversationType::Dm => 0,
-            xmtp_db::group::ConversationType::Group => 1,
-            xmtp_db::group::ConversationType::Sync => 2,
-            xmtp_db::group::ConversationType::Oneshot => 3,
-        },
+        Ok(c) => conversation_type_to_ffi(c.inner.conversation_type) as i32,
         Err(_) => -1,
     }
 }
@@ -724,90 +719,21 @@ pub unsafe extern "C" fn xmtp_conversation_update_admin_list(
 }
 
 // ---------------------------------------------------------------------------
-// Metadata
+// Metadata (DRY via macros)
 // ---------------------------------------------------------------------------
 
-/// Get group name. Caller must free with [`xmtp_free_string`].
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn xmtp_conversation_group_name(conv: *const FfiConversation) -> *mut c_char {
-    match unsafe { ref_from(conv) } {
-        Ok(c) => match c.inner.group_name() {
-            Ok(name) => to_c_string(&name),
-            Err(_) => std::ptr::null_mut(),
-        },
-        Err(_) => std::ptr::null_mut(),
-    }
-}
-
-/// Update group name.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn xmtp_conversation_update_group_name(
-    conv: *const FfiConversation,
-    name: *const c_char,
-) -> i32 {
-    catch_async(|| async {
-        let c = unsafe { ref_from(conv)? };
-        let name = unsafe { c_str_to_string(name)? };
-        c.inner.update_group_name(name).await?;
-        Ok(())
-    })
-}
-
-/// Get group description. Caller must free with [`xmtp_free_string`].
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn xmtp_conversation_group_description(
-    conv: *const FfiConversation,
-) -> *mut c_char {
-    match unsafe { ref_from(conv) } {
-        Ok(c) => match c.inner.group_description() {
-            Ok(desc) => to_c_string(&desc),
-            Err(_) => std::ptr::null_mut(),
-        },
-        Err(_) => std::ptr::null_mut(),
-    }
-}
-
-/// Update group description.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn xmtp_conversation_update_group_description(
-    conv: *const FfiConversation,
-    description: *const c_char,
-) -> i32 {
-    catch_async(|| async {
-        let c = unsafe { ref_from(conv)? };
-        let desc = unsafe { c_str_to_string(description)? };
-        c.inner.update_group_description(desc).await?;
-        Ok(())
-    })
-}
-
-/// Get group image URL. Caller must free with [`xmtp_free_string`].
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn xmtp_conversation_group_image_url(
-    conv: *const FfiConversation,
-) -> *mut c_char {
-    match unsafe { ref_from(conv) } {
-        Ok(c) => match c.inner.group_image_url_square() {
-            Ok(url) => to_c_string(&url),
-            Err(_) => std::ptr::null_mut(),
-        },
-        Err(_) => std::ptr::null_mut(),
-    }
-}
-
-/// Update group image URL.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn xmtp_conversation_update_group_image_url(
-    conv: *const FfiConversation,
-    url: *const c_char,
-) -> i32 {
-    catch_async(|| async {
-        let c = unsafe { ref_from(conv)? };
-        let url = unsafe { c_str_to_string(url)? };
-        c.inner.update_group_image_url_square(url).await?;
-        Ok(())
-    })
-}
+conv_string_getter!(xmtp_conversation_group_name, group_name);
+conv_string_setter!(xmtp_conversation_update_group_name, update_group_name);
+conv_string_getter!(xmtp_conversation_group_description, group_description);
+conv_string_setter!(
+    xmtp_conversation_update_group_description,
+    update_group_description
+);
+conv_string_getter!(xmtp_conversation_group_image_url, group_image_url_square);
+conv_string_setter!(
+    xmtp_conversation_update_group_image_url,
+    update_group_image_url_square
+);
 
 // ---------------------------------------------------------------------------
 // Consent
@@ -945,122 +871,16 @@ pub unsafe extern "C" fn xmtp_conversation_membership_state(conv: *const FfiConv
     }
 }
 
-/// Get the inbox ID of the member who added the current user.
-/// Caller must free with [`xmtp_free_string`].
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn xmtp_conversation_added_by_inbox_id(
-    conv: *const FfiConversation,
-) -> *mut c_char {
-    match unsafe { ref_from(conv) } {
-        Ok(c) => match c.inner.added_by_inbox_id() {
-            Ok(id) => to_c_string(&id),
-            Err(_) => std::ptr::null_mut(),
-        },
-        Err(_) => std::ptr::null_mut(),
-    }
-}
+conv_string_getter!(xmtp_conversation_added_by_inbox_id, added_by_inbox_id);
 
 // ---------------------------------------------------------------------------
 // Admin queries
 // ---------------------------------------------------------------------------
 
-/// Get the admin list as a null-terminated array of C strings.
-/// `out_count` receives the number of admins.
-/// Each string and the array itself must be freed by the caller.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn xmtp_conversation_list_admins(
-    conv: *const FfiConversation,
-    out_count: *mut i32,
-) -> *mut *mut c_char {
-    if out_count.is_null() {
-        return std::ptr::null_mut();
-    }
-    match unsafe { ref_from(conv) } {
-        Ok(c) => match c.inner.admin_list() {
-            Ok(admins) => string_vec_to_c(admins, out_count),
-            Err(_) => {
-                unsafe {
-                    *out_count = 0;
-                }
-                std::ptr::null_mut()
-            }
-        },
-        Err(_) => {
-            unsafe {
-                *out_count = 0;
-            }
-            std::ptr::null_mut()
-        }
-    }
-}
-
-/// Get the super admin list. Same ownership semantics as [`xmtp_conversation_list_admins`].
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn xmtp_conversation_list_super_admins(
-    conv: *const FfiConversation,
-    out_count: *mut i32,
-) -> *mut *mut c_char {
-    if out_count.is_null() {
-        return std::ptr::null_mut();
-    }
-    match unsafe { ref_from(conv) } {
-        Ok(c) => match c.inner.super_admin_list() {
-            Ok(admins) => string_vec_to_c(admins, out_count),
-            Err(_) => {
-                unsafe {
-                    *out_count = 0;
-                }
-                std::ptr::null_mut()
-            }
-        },
-        Err(_) => {
-            unsafe {
-                *out_count = 0;
-            }
-            std::ptr::null_mut()
-        }
-    }
-}
-
-/// Check if an inbox ID is an admin. Returns 1=yes, 0=no, -1=error.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn xmtp_conversation_is_admin(
-    conv: *const FfiConversation,
-    inbox_id: *const c_char,
-) -> i32 {
-    let c = match unsafe { ref_from(conv) } {
-        Ok(c) => c,
-        Err(_) => return -1,
-    };
-    let id = match unsafe { c_str_to_string(inbox_id) } {
-        Ok(s) => s,
-        Err(_) => return -1,
-    };
-    match c.inner.admin_list() {
-        Ok(list) => i32::from(list.contains(&id)),
-        Err(_) => -1,
-    }
-}
-
-/// Check if an inbox ID is a super admin. Returns 1=yes, 0=no, -1=error.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn xmtp_conversation_is_super_admin(
-    conv: *const FfiConversation,
-    inbox_id: *const c_char,
-) -> i32 {
-    let c = match unsafe { ref_from(conv) } {
-        Ok(c) => c,
-        Err(_) => return -1,
-    };
-    let id = match unsafe { c_str_to_string(inbox_id) } {
-        Ok(s) => s,
-        Err(_) => return -1,
-    };
-    match c.inner.super_admin_list() {
-        Ok(list) => i32::from(list.contains(&id)),
-        Err(_) => -1,
-    }
-}
+conv_string_list_getter!(xmtp_conversation_list_admins, admin_list);
+conv_string_list_getter!(xmtp_conversation_list_super_admins, super_admin_list);
+conv_inbox_check!(xmtp_conversation_is_admin, admin_list);
+conv_inbox_check!(xmtp_conversation_is_super_admin, super_admin_list);
 
 // ---------------------------------------------------------------------------
 // Membership by identity (Identifier-based)
@@ -1186,34 +1006,11 @@ pub unsafe extern "C" fn xmtp_conversation_is_disappearing_enabled(
 }
 
 // ---------------------------------------------------------------------------
-// App data
+// App data (DRY via macros)
 // ---------------------------------------------------------------------------
 
-/// Get the custom app data string. Caller must free with [`xmtp_free_string`].
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn xmtp_conversation_app_data(conv: *const FfiConversation) -> *mut c_char {
-    match unsafe { ref_from(conv) } {
-        Ok(c) => match c.inner.app_data() {
-            Ok(data) => to_c_string(&data),
-            Err(_) => std::ptr::null_mut(),
-        },
-        Err(_) => std::ptr::null_mut(),
-    }
-}
-
-/// Update the custom app data string.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn xmtp_conversation_update_app_data(
-    conv: *const FfiConversation,
-    app_data: *const c_char,
-) -> i32 {
-    catch_async(|| async {
-        let c = unsafe { ref_from(conv)? };
-        let data = unsafe { c_str_to_string(app_data)? };
-        c.inner.update_app_data(data).await?;
-        Ok(())
-    })
-}
+conv_string_getter!(xmtp_conversation_app_data, app_data);
+conv_string_setter!(xmtp_conversation_update_app_data, update_app_data);
 
 // ---------------------------------------------------------------------------
 // Duplicate DMs & paused version
@@ -1378,7 +1175,7 @@ pub unsafe extern "C" fn xmtp_conversation_hmac_keys(
 }
 
 /// Convert a Vec<HmacKey> into a C-compatible FfiHmacKeyEntry.
-fn hmac_keys_to_entry(
+pub(crate) fn hmac_keys_to_entry(
     group_id: &[u8],
     keys: Vec<xmtp_db::user_preferences::HmacKey>,
 ) -> FfiHmacKeyEntry {
@@ -1481,8 +1278,7 @@ pub unsafe extern "C" fn xmtp_conversation_process_streamed_group_message(
             unsafe { std::slice::from_raw_parts(envelope_bytes, envelope_bytes_len as usize) }
                 .to_vec();
         let messages = conv.inner.process_streamed_group_message(bytes).await?;
-        let list = Box::new(FfiMessageList { items: messages });
-        unsafe { *out = Box::into_raw(list) };
+        unsafe { write_out(out, FfiMessageList { items: messages })? };
         Ok(())
     })
 }
@@ -1504,17 +1300,15 @@ pub unsafe extern "C" fn xmtp_conversation_group_metadata(
             return Err("null output pointer".into());
         }
         let metadata = conv.inner.metadata().await?;
-        let conversation_type = match metadata.conversation_type {
-            xmtp_db::group::ConversationType::Group => FfiConversationType::Group,
-            xmtp_db::group::ConversationType::Dm => FfiConversationType::Dm,
-            xmtp_db::group::ConversationType::Sync => FfiConversationType::Sync,
-            xmtp_db::group::ConversationType::Oneshot => FfiConversationType::Oneshot,
+        unsafe {
+            write_out(
+                out,
+                FfiGroupMetadata {
+                    creator_inbox_id: to_c_string(&metadata.creator_inbox_id),
+                    conversation_type: conversation_type_to_ffi(metadata.conversation_type),
+                },
+            )?
         };
-        let result = Box::new(FfiGroupMetadata {
-            creator_inbox_id: to_c_string(&metadata.creator_inbox_id),
-            conversation_type,
-        });
-        unsafe { *out = Box::into_raw(result) };
         Ok(())
     })
 }
@@ -1631,11 +1425,15 @@ pub unsafe extern "C" fn xmtp_conversation_group_permissions(
             update_app_data_policy: get_meta(MetadataField::AppData.as_str()),
         };
 
-        let result = Box::new(FfiGroupPermissions {
-            policy_type,
-            policy_set,
-        });
-        unsafe { *out = Box::into_raw(result) };
+        unsafe {
+            write_out(
+                out,
+                FfiGroupPermissions {
+                    policy_type,
+                    policy_set,
+                },
+            )?
+        };
         Ok(())
     })
 }
@@ -1700,8 +1498,7 @@ pub unsafe extern "C" fn xmtp_conversation_list_enriched_messages(
         let args = parse_msg_query_args(opts);
         let messages = conv.inner.find_messages_v2(&args)?;
         let items: Vec<FfiEnrichedMessage> = messages.iter().map(decoded_to_enriched).collect();
-        let list = Box::new(FfiEnrichedMessageList { items });
-        unsafe { *out = Box::into_raw(list) };
+        unsafe { write_out(out, FfiEnrichedMessageList { items })? };
         Ok(())
     })
 }
@@ -1713,25 +1510,18 @@ ffi_list_get!(
     FfiEnrichedMessage
 );
 
-/// Free an enriched message list.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn xmtp_enriched_message_list_free(list: *mut FfiEnrichedMessageList) {
-    if list.is_null() {
-        return;
-    }
-    let l = unsafe { Box::from_raw(list) };
-    for item in &l.items {
-        free_c_strings!(
-            item,
-            id,
-            group_id,
-            sender_inbox_id,
-            sender_installation_id,
-            content_type,
-            fallback_text,
-        );
-    }
-}
+ffi_list_free!(
+    xmtp_enriched_message_list_free,
+    FfiEnrichedMessageList,
+    [
+        id,
+        group_id,
+        sender_inbox_id,
+        sender_installation_id,
+        content_type,
+        fallback_text
+    ]
+);
 
 /// Get per-inbox last read times for a conversation.
 /// Caller must free with [`xmtp_last_read_time_list_free`].
@@ -1753,8 +1543,7 @@ pub unsafe extern "C" fn xmtp_conversation_last_read_times(
                 timestamp_ns: ts,
             })
             .collect();
-        let list = Box::new(FfiLastReadTimeList { items });
-        unsafe { *out = Box::into_raw(list) };
+        unsafe { write_out(out, FfiLastReadTimeList { items })? };
         Ok(())
     })
 }
@@ -1766,17 +1555,11 @@ ffi_list_get!(
     FfiLastReadTimeEntry
 );
 
-/// Free a last-read-time list.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn xmtp_last_read_time_list_free(list: *mut FfiLastReadTimeList) {
-    if list.is_null() {
-        return;
-    }
-    let l = unsafe { Box::from_raw(list) };
-    for item in &l.items {
-        free_c_strings!(item, inbox_id);
-    }
-}
+ffi_list_free!(
+    xmtp_last_read_time_list_free,
+    FfiLastReadTimeList,
+    [inbox_id]
+);
 
 /// Free an HMAC key map (including all owned data).
 #[unsafe(no_mangle)]
