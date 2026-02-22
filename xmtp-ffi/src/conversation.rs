@@ -1443,9 +1443,7 @@ pub unsafe extern "C" fn xmtp_group_metadata_free(meta: *mut XmtpGroupMetadata) 
 // ---------------------------------------------------------------------------
 
 /// Map a MembershipPolicies to i32: 0=Allow, 1=Deny, 2=Admin, 3=SuperAdmin, 5=Other.
-fn membership_policy_to_i32(
-    p: &xmtp_mls::groups::group_permissions::MembershipPolicies,
-) -> i32 {
+fn membership_policy_to_i32(p: &xmtp_mls::groups::group_permissions::MembershipPolicies) -> i32 {
     use xmtp_mls::groups::group_permissions::{BasePolicies, MembershipPolicies};
     if let MembershipPolicies::Standard(base) = p {
         match base {
@@ -1461,9 +1459,7 @@ fn membership_policy_to_i32(
 }
 
 /// Map a MetadataPolicies to i32: 0=Allow, 1=Deny, 2=Admin, 3=SuperAdmin, 5=Other.
-fn metadata_policy_to_i32(
-    p: &xmtp_mls::groups::group_permissions::MetadataPolicies,
-) -> i32 {
+fn metadata_policy_to_i32(p: &xmtp_mls::groups::group_permissions::MetadataPolicies) -> i32 {
     use xmtp_mls::groups::group_permissions::{MetadataBasePolicies, MetadataPolicies};
     if let MetadataPolicies::Standard(base) = p {
         match base {
@@ -1478,9 +1474,7 @@ fn metadata_policy_to_i32(
 }
 
 /// Map a PermissionsPolicies to i32: 1=Deny, 2=Admin, 3=SuperAdmin, 5=Other.
-fn permissions_policy_to_i32(
-    p: &xmtp_mls::groups::group_permissions::PermissionsPolicies,
-) -> i32 {
+fn permissions_policy_to_i32(p: &xmtp_mls::groups::group_permissions::PermissionsPolicies) -> i32 {
     use xmtp_mls::groups::group_permissions::{PermissionsBasePolicies, PermissionsPolicies};
     if let PermissionsPolicies::Standard(base) = p {
         match base {

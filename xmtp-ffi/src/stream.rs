@@ -361,6 +361,48 @@ pub unsafe extern "C" fn xmtp_stream_preferences(
 }
 
 // ---------------------------------------------------------------------------
+// Stream message deletions
+// ---------------------------------------------------------------------------
+
+/// Stream message deletion events across all conversations.
+/// The callback receives the deleted message ID as a hex string (caller must free).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn xmtp_stream_message_deletions(
+    client: *const XmtpClient,
+    callback: FnMessageDeletionCallback,
+    context: *mut std::ffi::c_void,
+    out: *mut *mut XmtpStreamHandle,
+) -> i32 {
+    catch(|| {
+        let c = unsafe { ref_from(client)? };
+        if out.is_null() {
+            return Err("null output pointer".into());
+        }
+
+        let ctx = context as usize;
+
+        let handle =
+            MlsClient::stream_message_deletions_with_callback(c.inner.clone(), move |result| {
+                if let Ok(decoded) = result {
+                    let msg_id_hex = to_c_string(&hex::encode(&decoded.metadata.id));
+                    unsafe { callback(msg_id_hex, ctx as *mut std::ffi::c_void) };
+                }
+            });
+
+        let abort = handle.abort_handle();
+        unsafe {
+            write_out(
+                out,
+                XmtpStreamHandle {
+                    abort: Arc::new(abort),
+                },
+            )?
+        };
+        Ok(())
+    })
+}
+
+// ---------------------------------------------------------------------------
 // Stream lifecycle
 // ---------------------------------------------------------------------------
 

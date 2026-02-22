@@ -445,6 +445,12 @@ typedef void (*XmtpFnPreferenceCallback)(struct XmtpXmtpPreferenceUpdate *update
                                          int32_t count,
                                          void *context);
 
+/**
+ * Callback for message deletion stream events.
+ * Receives the message ID as a hex string (caller must free) and context.
+ */
+typedef void (*XmtpFnMessageDeletionCallback)(char *message_id, void *context);
+
 #ifdef __cplusplus
 extern "C" {
 #endif // __cplusplus
@@ -1740,6 +1746,16 @@ int32_t xmtp_stream_preferences(const struct XmtpXmtpClient *client,
                                 struct XmtpOption_FnOnCloseCallback on_close,
                                 void *context,
                                 struct XmtpXmtpStreamHandle **out);
+
+/**
+ * Stream message deletion events across all conversations.
+ * The callback receives the deleted message ID as a hex string (caller must free).
+ */
+xmtp_
+int32_t xmtp_stream_message_deletions(const struct XmtpXmtpClient *client,
+                                      XmtpFnMessageDeletionCallback callback,
+                                      void *context,
+                                      struct XmtpXmtpStreamHandle **out);
 
 /**
  * Close a stream and stop receiving events.

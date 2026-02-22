@@ -65,6 +65,11 @@ pub type FnConsentCallback = unsafe extern "C" fn(
     context: *mut std::ffi::c_void,
 );
 
+/// Callback for message deletion stream events.
+/// Receives the message ID as a hex string (caller must free) and context.
+pub type FnMessageDeletionCallback =
+    unsafe extern "C" fn(message_id: *mut c_char, context: *mut std::ffi::c_void);
+
 /// Callback for preference stream events.
 pub type FnPreferenceCallback = unsafe extern "C" fn(
     updates: *mut XmtpPreferenceUpdate,
