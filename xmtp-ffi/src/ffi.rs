@@ -22,6 +22,8 @@ pub type InnerGroup = xmtp_mls::groups::MlsGroup<xmtp_mls::MlsContext>;
 /// Opaque client handle.
 pub struct XmtpClient {
     pub(crate) inner: std::sync::Arc<InnerClient>,
+    /// The account identifier used to create this client.
+    pub(crate) account_identifier: String,
 }
 
 /// Opaque conversation handle.

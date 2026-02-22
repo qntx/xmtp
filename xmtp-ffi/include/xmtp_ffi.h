@@ -858,6 +858,12 @@ const struct XmtpXmtpKeyPackageStatus *xmtp_key_package_status_list_get(const st
 xmtp_ void xmtp_key_package_status_list_free(struct XmtpXmtpKeyPackageStatusList *list);
 
 /**
+ * Get the account identifier string used to create this client.
+ * Caller must free with [`xmtp_free_string`].
+ */
+xmtp_ char *xmtp_client_account_identifier(const struct XmtpXmtpClient *client);
+
+/**
  * Free a conversation handle.
  */
 xmtp_ void xmtp_conversation_free(struct XmtpXmtpConversation *conv);
@@ -899,6 +905,17 @@ int32_t xmtp_conversation_send(const struct XmtpXmtpConversation *conv,
                                int32_t content_len,
                                const struct XmtpXmtpSendOpts *opts,
                                char **out_id);
+
+/**
+ * Send raw encoded content bytes optimistically (returns immediately, publishes in background).
+ * Returns the message ID (hex) via `out_id`. Caller must free with [`xmtp_free_string`].
+ */
+xmtp_
+int32_t xmtp_conversation_send_optimistic(const struct XmtpXmtpConversation *conv,
+                                          const uint8_t *content_bytes,
+                                          int32_t content_len,
+                                          const struct XmtpXmtpSendOpts *opts,
+                                          char **out_id);
 
 /**
  * Publish all queued (unpublished) messages in this conversation.

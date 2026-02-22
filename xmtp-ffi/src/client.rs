@@ -45,12 +45,13 @@ pub unsafe extern "C" fn xmtp_client_create(
         let host = unsafe { c_str_to_string(opts.host)? };
         let inbox_id = unsafe { c_str_to_string(opts.inbox_id)? };
         let ident_str = unsafe { c_str_to_string(opts.account_identifier)? };
+        let ident_str_saved = ident_str.clone();
         let is_secure = opts.is_secure != 0;
 
         // Build identifier
         let identifier = match opts.identifier_kind {
             0 => xmtp_id::associations::Identifier::eth(ident_str)?,
-            1 => xmtp_id::associations::Identifier::passkey_str(&ident_str, None)?,
+            1 => xmtp_id::associations::Identifier::passkey_str(&ident_str_saved, None)?,
             _ => return Err("invalid identifier_kind".into()),
         };
 
@@ -114,6 +115,7 @@ pub unsafe extern "C" fn xmtp_client_create(
                 out,
                 XmtpClient {
                     inner: Arc::new(client),
+                    account_identifier: ident_str_saved,
                 },
             )?
         };
@@ -1032,5 +1034,19 @@ pub unsafe extern "C" fn xmtp_key_package_status_list_free(list: *mut XmtpKeyPac
         if !item.validation_error.is_null() {
             drop(unsafe { std::ffi::CString::from_raw(item.validation_error) });
         }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Client property getters
+// ---------------------------------------------------------------------------
+
+/// Get the account identifier string used to create this client.
+/// Caller must free with [`xmtp_free_string`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn xmtp_client_account_identifier(client: *const XmtpClient) -> *mut c_char {
+    match unsafe { ref_from(client) } {
+        Ok(c) => to_c_string(&c.account_identifier),
+        Err(_) => std::ptr::null_mut(),
     }
 }

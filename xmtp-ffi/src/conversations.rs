@@ -486,9 +486,7 @@ pub unsafe extern "C" fn xmtp_client_get_enriched_message_by_id(
         let id_bytes = hex::decode(&id_str)?;
         let msg = c.inner.message_v2(id_bytes)?;
         let item = crate::conversation::decoded_to_enriched(&msg);
-        let list = Box::new(XmtpEnrichedMessageList {
-            items: vec![item],
-        });
+        let list = Box::new(XmtpEnrichedMessageList { items: vec![item] });
         unsafe { *out = Box::into_raw(list) };
         Ok(())
     })

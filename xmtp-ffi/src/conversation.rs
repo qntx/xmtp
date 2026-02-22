@@ -128,6 +128,42 @@ pub unsafe extern "C" fn xmtp_conversation_send(
     })
 }
 
+/// Send raw encoded content bytes optimistically (returns immediately, publishes in background).
+/// Returns the message ID (hex) via `out_id`. Caller must free with [`xmtp_free_string`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn xmtp_conversation_send_optimistic(
+    conv: *const XmtpConversation,
+    content_bytes: *const u8,
+    content_len: i32,
+    opts: *const XmtpSendOpts,
+    out_id: *mut *mut c_char,
+) -> i32 {
+    catch(|| {
+        let c = unsafe { ref_from(conv)? };
+        if content_bytes.is_null() || content_len <= 0 {
+            return Err("null or empty content".into());
+        }
+        let bytes = unsafe { std::slice::from_raw_parts(content_bytes, content_len as usize) };
+
+        let send_opts = if opts.is_null() {
+            xmtp_mls::groups::send_message_opts::SendMessageOpts::default()
+        } else {
+            let o = unsafe { &*opts };
+            xmtp_mls::groups::send_message_opts::SendMessageOpts {
+                should_push: o.should_push != 0,
+            }
+        };
+        let msg_id = c.inner.send_message_optimistic(bytes, send_opts)?;
+
+        if !out_id.is_null() {
+            unsafe {
+                *out_id = to_c_string(&hex::encode(&msg_id));
+            }
+        }
+        Ok(())
+    })
+}
+
 /// Publish all queued (unpublished) messages in this conversation.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn xmtp_conversation_publish_messages(conv: *const XmtpConversation) -> i32 {
