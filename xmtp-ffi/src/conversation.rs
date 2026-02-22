@@ -1553,7 +1553,7 @@ pub unsafe extern "C" fn xmtp_group_permissions_free(perms: *mut XmtpGroupPermis
 // ---------------------------------------------------------------------------
 
 /// Convert a DecodedMessage to an XmtpEnrichedMessage.
-fn decoded_to_enriched(
+pub(crate) fn decoded_to_enriched(
     msg: &xmtp_mls::messages::decoded_message::DecodedMessage,
 ) -> XmtpEnrichedMessage {
     let ct = &msg.metadata.content_type;

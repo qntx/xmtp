@@ -466,6 +466,59 @@ pub unsafe extern "C" fn xmtp_client_process_streamed_welcome_message(
 }
 
 // ---------------------------------------------------------------------------
+// Enriched message by ID
+// ---------------------------------------------------------------------------
+
+/// Get an enriched (decoded) message by its hex-encoded ID.
+/// Caller must free with [`xmtp_enriched_message_list_free`] (single-item list).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn xmtp_client_get_enriched_message_by_id(
+    client: *const XmtpClient,
+    message_id: *const c_char,
+    out: *mut *mut XmtpEnrichedMessageList,
+) -> i32 {
+    catch(|| {
+        let c = unsafe { ref_from(client)? };
+        if out.is_null() {
+            return Err("null output pointer".into());
+        }
+        let id_str = unsafe { c_str_to_string(message_id)? };
+        let id_bytes = hex::decode(&id_str)?;
+        let msg = c.inner.message_v2(id_bytes)?;
+        let item = crate::conversation::decoded_to_enriched(&msg);
+        let list = Box::new(XmtpEnrichedMessageList {
+            items: vec![item],
+        });
+        unsafe { *out = Box::into_raw(list) };
+        Ok(())
+    })
+}
+
+// ---------------------------------------------------------------------------
+// Optimistic group creation
+// ---------------------------------------------------------------------------
+
+/// Create a group without syncing members (optimistic / offline-capable).
+/// Caller must free with [`xmtp_conversation_free`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn xmtp_client_create_group_optimistic(
+    client: *const XmtpClient,
+    opts: *const XmtpCreateGroupOptions,
+    out: *mut *mut XmtpConversation,
+) -> i32 {
+    catch(|| {
+        let c = unsafe { ref_from(client)? };
+        if out.is_null() {
+            return Err("null output pointer".into());
+        }
+        let (policy_set, metadata_opts) = unsafe { parse_group_opts(opts)? };
+        let group = c.inner.create_group(policy_set, metadata_opts)?;
+        unsafe { write_out(out, XmtpConversation { inner: group })? };
+        Ok(())
+    })
+}
+
+// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 

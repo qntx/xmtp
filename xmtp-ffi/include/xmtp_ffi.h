@@ -1521,6 +1521,24 @@ int32_t xmtp_client_process_streamed_welcome_message(const struct XmtpXmtpClient
                                                      struct XmtpXmtpConversationList **out);
 
 /**
+ * Get an enriched (decoded) message by its hex-encoded ID.
+ * Caller must free with [`xmtp_enriched_message_list_free`] (single-item list).
+ */
+xmtp_
+int32_t xmtp_client_get_enriched_message_by_id(const struct XmtpXmtpClient *client,
+                                               const char *message_id,
+                                               struct XmtpXmtpEnrichedMessageList **out);
+
+/**
+ * Create a group without syncing members (optimistic / offline-capable).
+ * Caller must free with [`xmtp_conversation_free`].
+ */
+xmtp_
+int32_t xmtp_client_create_group_optimistic(const struct XmtpXmtpClient *client,
+                                            const struct XmtpXmtpCreateGroupOptions *opts,
+                                            struct XmtpXmtpConversation **out);
+
+/**
  * Send a device sync request to retrieve records from another installation.
  */
 xmtp_
