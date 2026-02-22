@@ -22,6 +22,12 @@ pub struct XmtpCreateGroupOptions {
     pub description: *const c_char,
     /// Group image URL (nullable).
     pub image_url: *const c_char,
+    /// Custom app data string (nullable).
+    pub app_data: *const c_char,
+    /// Message disappearing "from" timestamp in ns. 0 = not set.
+    pub message_disappear_from_ns: i64,
+    /// Message disappearing "in" duration in ns. 0 = not set.
+    pub message_disappear_in_ns: i64,
 }
 
 /// Options for listing conversations.
@@ -334,6 +340,26 @@ pub unsafe extern "C" fn xmtp_client_sync_all(
     })
 }
 
+/// Sync preferences (device sync groups only).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn xmtp_client_sync_preferences(
+    client: *const XmtpClient,
+    out_synced: *mut i32,
+    out_eligible: *mut i32,
+) -> i32 {
+    catch_async(|| async {
+        let c = unsafe { ref_from(client)? };
+        let summary = c.inner.sync_all_welcomes_and_device_sync_groups().await?;
+        if !out_synced.is_null() {
+            unsafe { *out_synced = summary.num_synced as i32 };
+        }
+        if !out_eligible.is_null() {
+            unsafe { *out_eligible = summary.num_eligible as i32 };
+        }
+        Ok(())
+    })
+}
+
 /// Create a DM by target inbox ID. Caller must free result with [`xmtp_conversation_free`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn xmtp_client_create_dm_by_inbox_id(
@@ -380,6 +406,15 @@ unsafe fn parse_group_opts(
     meta.name = unsafe { c_str_to_option(o.name)? };
     meta.description = unsafe { c_str_to_option(o.description)? };
     meta.image_url_square = unsafe { c_str_to_option(o.image_url)? };
+    meta.app_data = unsafe { c_str_to_option(o.app_data)? };
+    if o.message_disappear_from_ns > 0 && o.message_disappear_in_ns > 0 {
+        meta.message_disappearing_settings = Some(
+            xmtp_mls_common::group_mutable_metadata::MessageDisappearingSettings::new(
+                o.message_disappear_from_ns,
+                o.message_disappear_in_ns,
+            ),
+        );
+    }
     Ok((policy, Some(meta)))
 }
 

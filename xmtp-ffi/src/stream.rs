@@ -223,6 +223,172 @@ pub unsafe extern "C" fn xmtp_conversation_stream_messages(
 }
 
 // ---------------------------------------------------------------------------
+// Stream consent updates
+// ---------------------------------------------------------------------------
+
+/// Stream consent state changes. Callback receives an array of consent records.
+/// Caller must free each `entity` string in the records after processing.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn xmtp_stream_consent(
+    client: *const XmtpClient,
+    callback: FnConsentCallback,
+    on_close: Option<FnOnCloseCallback>,
+    context: *mut std::ffi::c_void,
+    out: *mut *mut XmtpStreamHandle,
+) -> i32 {
+    catch(|| {
+        let c = unsafe { ref_from(client)? };
+        if out.is_null() {
+            return Err("null output pointer".into());
+        }
+
+        let ctx = context as usize;
+        let close_ctx = ctx;
+
+        let mut handle = MlsClient::stream_consent_with_callback(
+            c.inner.clone(),
+            move |result| {
+                if let Ok(records) = result {
+                    let mut c_records: Vec<XmtpConsentRecord> = records
+                        .into_iter()
+                        .map(|r| {
+                            use xmtp_db::consent_record::{ConsentState, ConsentType};
+                            XmtpConsentRecord {
+                                entity_type: match r.entity_type {
+                                    ConsentType::ConversationId => 1,
+                                    ConsentType::InboxId => 0,
+                                },
+                                state: match r.state {
+                                    ConsentState::Unknown => 0,
+                                    ConsentState::Allowed => 1,
+                                    ConsentState::Denied => 2,
+                                },
+                                entity: to_c_string(&r.entity),
+                            }
+                        })
+                        .collect();
+                    let count = c_records.len() as i32;
+                    let ptr = c_records.as_mut_ptr();
+                    std::mem::forget(c_records);
+                    unsafe { callback(ptr, count, ctx as *mut std::ffi::c_void) };
+                }
+            },
+            move || {
+                if let Some(cb) = on_close {
+                    unsafe { cb(close_ctx as *mut std::ffi::c_void) };
+                }
+            },
+        );
+
+        runtime().block_on(handle.wait_for_ready());
+        let abort = handle.abort_handle();
+        unsafe {
+            write_out(
+                out,
+                XmtpStreamHandle {
+                    abort: Arc::new(abort),
+                },
+            )?
+        };
+        Ok(())
+    })
+}
+
+// ---------------------------------------------------------------------------
+// Stream preference updates
+// ---------------------------------------------------------------------------
+
+/// Stream preference updates (consent changes + HMAC key rotations).
+/// Callback receives an array of preference updates.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn xmtp_stream_preferences(
+    client: *const XmtpClient,
+    callback: FnPreferenceCallback,
+    on_close: Option<FnOnCloseCallback>,
+    context: *mut std::ffi::c_void,
+    out: *mut *mut XmtpStreamHandle,
+) -> i32 {
+    catch(|| {
+        let c = unsafe { ref_from(client)? };
+        if out.is_null() {
+            return Err("null output pointer".into());
+        }
+
+        let ctx = context as usize;
+        let close_ctx = ctx;
+
+        let mut handle = MlsClient::stream_preferences_with_callback(
+            c.inner.clone(),
+            move |result| {
+                if let Ok(updates) = result {
+                    use xmtp_db::consent_record::{ConsentState, ConsentType};
+                    use xmtp_mls::groups::device_sync::preference_sync::PreferenceUpdate;
+                    let mut c_updates: Vec<XmtpPreferenceUpdate> = updates
+                        .into_iter()
+                        .map(|u| match u {
+                            PreferenceUpdate::Consent(r) => XmtpPreferenceUpdate {
+                                kind: 0,
+                                consent: XmtpConsentRecord {
+                                    entity_type: match r.entity_type {
+                                        ConsentType::ConversationId => 1,
+                                        ConsentType::InboxId => 0,
+                                    },
+                                    state: match r.state {
+                                        ConsentState::Unknown => 0,
+                                        ConsentState::Allowed => 1,
+                                        ConsentState::Denied => 2,
+                                    },
+                                    entity: to_c_string(&r.entity),
+                                },
+                                hmac_key: std::ptr::null_mut(),
+                                hmac_key_len: 0,
+                            },
+                            PreferenceUpdate::Hmac { key, .. } => {
+                                let len = key.len() as i32;
+                                let mut boxed = key.into_boxed_slice();
+                                let ptr = boxed.as_mut_ptr();
+                                std::mem::forget(boxed);
+                                XmtpPreferenceUpdate {
+                                    kind: 1,
+                                    consent: XmtpConsentRecord {
+                                        entity_type: 0,
+                                        state: 0,
+                                        entity: std::ptr::null_mut(),
+                                    },
+                                    hmac_key: ptr,
+                                    hmac_key_len: len,
+                                }
+                            }
+                        })
+                        .collect();
+                    let count = c_updates.len() as i32;
+                    let ptr = c_updates.as_mut_ptr();
+                    std::mem::forget(c_updates);
+                    unsafe { callback(ptr, count, ctx as *mut std::ffi::c_void) };
+                }
+            },
+            move || {
+                if let Some(cb) = on_close {
+                    unsafe { cb(close_ctx as *mut std::ffi::c_void) };
+                }
+            },
+        );
+
+        runtime().block_on(handle.wait_for_ready());
+        let abort = handle.abort_handle();
+        unsafe {
+            write_out(
+                out,
+                XmtpStreamHandle {
+                    abort: Arc::new(abort),
+                },
+            )?
+        };
+        Ok(())
+    })
+}
+
+// ---------------------------------------------------------------------------
 // Stream lifecycle
 // ---------------------------------------------------------------------------
 

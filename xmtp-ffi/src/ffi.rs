@@ -58,6 +58,45 @@ pub type FnMessageCallback =
 /// Receives the opaque context pointer.
 pub type FnOnCloseCallback = unsafe extern "C" fn(context: *mut std::ffi::c_void);
 
+/// Callback for consent stream events.
+/// Receives an array of `XmtpConsentRecord` and its count.
+pub type FnConsentCallback = unsafe extern "C" fn(
+    records: *mut XmtpConsentRecord,
+    count: i32,
+    context: *mut std::ffi::c_void,
+);
+
+/// Callback for preference stream events.
+/// Receives an array of `XmtpPreferenceUpdate` and its count.
+pub type FnPreferenceCallback = unsafe extern "C" fn(
+    updates: *mut XmtpPreferenceUpdate,
+    count: i32,
+    context: *mut std::ffi::c_void,
+);
+
+/// A consent record exposed to C.
+#[repr(C)]
+pub struct XmtpConsentRecord {
+    /// Entity type: 0=InboxId, 1=ConversationId, 2=Address
+    pub entity_type: i32,
+    /// Consent state: 0=Unknown, 1=Allowed, 2=Denied
+    pub state: i32,
+    /// Entity identifier string.
+    pub entity: *mut c_char,
+}
+
+/// A preference update exposed to C.
+#[repr(C)]
+pub struct XmtpPreferenceUpdate {
+    /// Update kind: 0=Consent, 1=HmacKey
+    pub kind: i32,
+    /// For Consent updates: the consent record. For HmacKey: zeroed.
+    pub consent: XmtpConsentRecord,
+    /// For HmacKey updates: the key bytes. For Consent: null/0.
+    pub hmac_key: *mut u8,
+    pub hmac_key_len: i32,
+}
+
 // ---------------------------------------------------------------------------
 // Data transfer types (flat, repr(C))
 // ---------------------------------------------------------------------------
@@ -87,11 +126,32 @@ pub struct XmtpGroupMember {
     pub(crate) inbox_id: *mut c_char,
     pub(crate) permission_level: i32, // 0=Member, 1=Admin, 2=SuperAdmin
     pub(crate) consent_state: i32,    // 0=Unknown, 1=Allowed, 2=Denied
+    /// Null-terminated array of account identifier strings. Each must be freed.
+    pub(crate) account_identifiers: *mut *mut c_char,
+    pub(crate) account_identifiers_count: i32,
+    /// Null-terminated array of hex-encoded installation ID strings. Each must be freed.
+    pub(crate) installation_ids: *mut *mut c_char,
+    pub(crate) installation_ids_count: i32,
 }
 
 /// A list of group members.
 pub struct XmtpGroupMemberList {
     pub(crate) members: Vec<XmtpGroupMember>,
+}
+
+/// A single inbox state entry (batch query result).
+pub struct XmtpInboxStateItem {
+    pub(crate) inbox_id: *mut c_char,
+    pub(crate) recovery_identifier: *mut c_char,
+    pub(crate) identifiers: *mut *mut c_char,
+    pub(crate) identifiers_count: i32,
+    pub(crate) installation_ids: *mut *mut c_char,
+    pub(crate) installation_ids_count: i32,
+}
+
+/// A list of inbox states.
+pub struct XmtpInboxStateList {
+    pub(crate) items: Vec<XmtpInboxStateItem>,
 }
 
 // ---------------------------------------------------------------------------

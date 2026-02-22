@@ -128,6 +128,60 @@ pub unsafe extern "C" fn xmtp_conversation_send(
     })
 }
 
+/// Publish all queued (unpublished) messages in this conversation.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn xmtp_conversation_publish_messages(conv: *const XmtpConversation) -> i32 {
+    catch_async(|| async {
+        let c = unsafe { ref_from(conv)? };
+        c.inner.publish_messages().await?;
+        Ok(())
+    })
+}
+
+/// Prepare a message for later publishing (optimistic send workflow).
+/// Stores the message locally without publishing. Returns message ID (hex) via `out_id`.
+/// Caller must free `out_id` with [`xmtp_free_string`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn xmtp_conversation_prepare_message(
+    conv: *const XmtpConversation,
+    content_bytes: *const u8,
+    content_len: i32,
+    should_push: i32,
+    out_id: *mut *mut c_char,
+) -> i32 {
+    catch(|| {
+        let c = unsafe { ref_from(conv)? };
+        if content_bytes.is_null() || content_len <= 0 {
+            return Err("null or empty content".into());
+        }
+        let bytes = unsafe { std::slice::from_raw_parts(content_bytes, content_len as usize) };
+        let msg_id = c
+            .inner
+            .prepare_message_for_later_publish(bytes, should_push != 0)?;
+        if !out_id.is_null() {
+            unsafe {
+                *out_id = to_c_string(&hex::encode(&msg_id));
+            }
+        }
+        Ok(())
+    })
+}
+
+/// Publish a previously prepared message by its hex-encoded ID.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn xmtp_conversation_publish_stored_message(
+    conv: *const XmtpConversation,
+    message_id_hex: *const c_char,
+) -> i32 {
+    catch_async(|| async {
+        let c = unsafe { ref_from(conv)? };
+        let id_hex = unsafe { c_str_to_string(message_id_hex)? };
+        let id_bytes = hex::decode(&id_hex)?;
+        c.inner.publish_stored_message(&id_bytes).await?;
+        Ok(())
+    })
+}
+
 // ---------------------------------------------------------------------------
 // Messages
 // ---------------------------------------------------------------------------
@@ -365,6 +419,18 @@ pub unsafe extern "C" fn xmtp_conversation_list_members(
             .into_iter()
             .map(|m| {
                 use xmtp_mls::groups::members::PermissionLevel;
+                // Build account identifiers array
+                let ident_strs: Vec<String> = m
+                    .account_identifiers
+                    .iter()
+                    .map(|i| i.to_string())
+                    .collect();
+                let mut ident_count: i32 = 0;
+                let ident_ptrs = string_vec_to_c(ident_strs, &mut ident_count);
+                // Build installation IDs array (hex-encoded)
+                let inst_strs: Vec<String> = m.installation_ids.iter().map(hex::encode).collect();
+                let mut inst_count: i32 = 0;
+                let inst_ptrs = string_vec_to_c(inst_strs, &mut inst_count);
                 XmtpGroupMember {
                     inbox_id: to_c_string(&m.inbox_id),
                     permission_level: match m.permission_level {
@@ -377,6 +443,10 @@ pub unsafe extern "C" fn xmtp_conversation_list_members(
                         xmtp_db::consent_record::ConsentState::Allowed => 1,
                         xmtp_db::consent_record::ConsentState::Denied => 2,
                     },
+                    account_identifiers: ident_ptrs,
+                    account_identifiers_count: ident_count,
+                    installation_ids: inst_ptrs,
+                    installation_ids_count: inst_count,
                 }
             })
             .collect();
@@ -444,15 +514,109 @@ pub unsafe extern "C" fn xmtp_group_member_consent_state(
         .map_or(-1, |m| m.consent_state)
 }
 
-/// Free a group member list.
+/// Get member account identifiers at index.
+/// Returns a borrowed pointer to the internal string array. Do NOT free individual strings.
+/// Use `out_count` to get the number of identifiers.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn xmtp_group_member_account_identifiers(
+    list: *const XmtpGroupMemberList,
+    index: i32,
+    out_count: *mut i32,
+) -> *const *mut c_char {
+    if out_count.is_null() {
+        return std::ptr::null();
+    }
+    let l = match unsafe { ref_from(list) } {
+        Ok(l) => l,
+        Err(_) => {
+            unsafe { *out_count = 0 };
+            return std::ptr::null();
+        }
+    };
+    match l.members.get(index as usize) {
+        Some(m) => {
+            unsafe { *out_count = m.account_identifiers_count };
+            m.account_identifiers as *const *mut c_char
+        }
+        None => {
+            unsafe { *out_count = 0 };
+            std::ptr::null()
+        }
+    }
+}
+
+/// Get member installation IDs (hex) at index.
+/// Returns a borrowed pointer to the internal string array.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn xmtp_group_member_installation_ids(
+    list: *const XmtpGroupMemberList,
+    index: i32,
+    out_count: *mut i32,
+) -> *const *mut c_char {
+    if out_count.is_null() {
+        return std::ptr::null();
+    }
+    let l = match unsafe { ref_from(list) } {
+        Ok(l) => l,
+        Err(_) => {
+            unsafe { *out_count = 0 };
+            return std::ptr::null();
+        }
+    };
+    match l.members.get(index as usize) {
+        Some(m) => {
+            unsafe { *out_count = m.installation_ids_count };
+            m.installation_ids as *const *mut c_char
+        }
+        None => {
+            unsafe { *out_count = 0 };
+            std::ptr::null()
+        }
+    }
+}
+
+/// Free a group member list (including all owned strings).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn xmtp_group_member_list_free(list: *mut XmtpGroupMemberList) {
-    if !list.is_null() {
-        let l = unsafe { Box::from_raw(list) };
-        for m in &l.members {
-            if !m.inbox_id.is_null() {
-                drop(unsafe { CString::from_raw(m.inbox_id) });
+    if list.is_null() {
+        return;
+    }
+    let l = unsafe { Box::from_raw(list) };
+    for m in &l.members {
+        if !m.inbox_id.is_null() {
+            drop(unsafe { CString::from_raw(m.inbox_id) });
+        }
+        // Free account_identifiers array
+        if !m.account_identifiers.is_null() && m.account_identifiers_count > 0 {
+            for i in 0..m.account_identifiers_count as usize {
+                let s = unsafe { *m.account_identifiers.add(i) };
+                if !s.is_null() {
+                    drop(unsafe { CString::from_raw(s) });
+                }
             }
+            drop(unsafe {
+                Vec::from_raw_parts(
+                    m.account_identifiers,
+                    m.account_identifiers_count as usize,
+                    m.account_identifiers_count as usize,
+                )
+            });
+        }
+        // Free installation_ids array
+        if !m.installation_ids.is_null() && m.installation_ids_count > 0 {
+            for i in 0..m.installation_ids_count as usize {
+                let s = unsafe { *m.installation_ids.add(i) };
+                if !s.is_null() {
+                    drop(unsafe { CString::from_raw(s) });
+                }
+            }
+            drop(unsafe {
+                Vec::from_raw_parts(
+                    m.installation_ids,
+                    m.installation_ids_count as usize,
+                    m.installation_ids_count as usize,
+                )
+            });
         }
     }
 }
@@ -935,4 +1099,171 @@ pub unsafe extern "C" fn xmtp_free_string_array(arr: *mut *mut c_char, count: i3
         }
     }
     drop(unsafe { Vec::from_raw_parts(arr, count as usize, count as usize) });
+}
+
+// ---------------------------------------------------------------------------
+// Disappearing messages
+// ---------------------------------------------------------------------------
+
+/// Options for message disappearing settings.
+#[repr(C)]
+pub struct XmtpDisappearingSettings {
+    /// Timestamp (ns) from which messages start disappearing.
+    pub from_ns: i64,
+    /// Duration (ns) after which messages disappear.
+    pub in_ns: i64,
+}
+
+/// Update the message disappearing settings for this conversation.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn xmtp_conversation_update_disappearing_settings(
+    conv: *const XmtpConversation,
+    settings: *const XmtpDisappearingSettings,
+) -> i32 {
+    catch_async(|| async {
+        let c = unsafe { ref_from(conv)? };
+        let s = unsafe { ref_from(settings)? };
+        let mds = xmtp_mls_common::group_mutable_metadata::MessageDisappearingSettings::new(
+            s.from_ns, s.in_ns,
+        );
+        c.inner
+            .update_conversation_message_disappearing_settings(mds)
+            .await?;
+        Ok(())
+    })
+}
+
+/// Remove (disable) message disappearing settings for this conversation.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn xmtp_conversation_remove_disappearing_settings(
+    conv: *const XmtpConversation,
+) -> i32 {
+    catch_async(|| async {
+        let c = unsafe { ref_from(conv)? };
+        c.inner
+            .remove_conversation_message_disappearing_settings()
+            .await?;
+        Ok(())
+    })
+}
+
+/// Get the current message disappearing settings.
+/// Returns 0 on success (writes to `out`), -1 if not set or on error.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn xmtp_conversation_disappearing_settings(
+    conv: *const XmtpConversation,
+    out: *mut XmtpDisappearingSettings,
+) -> i32 {
+    catch(|| {
+        let c = unsafe { ref_from(conv)? };
+        if out.is_null() {
+            return Err("null output pointer".into());
+        }
+        let settings = c
+            .inner
+            .disappearing_settings()?
+            .ok_or("disappearing settings not set")?;
+        unsafe {
+            (*out).from_ns = settings.from_ns;
+            (*out).in_ns = settings.in_ns;
+        }
+        Ok(())
+    })
+}
+
+/// Check if message disappearing is enabled.
+/// Returns 1=enabled, 0=disabled, -1=error.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn xmtp_conversation_is_disappearing_enabled(
+    conv: *const XmtpConversation,
+) -> i32 {
+    match unsafe { ref_from(conv) } {
+        Ok(c) => match c.inner.disappearing_settings() {
+            Ok(Some(s)) => i32::from(s.from_ns > 0 && s.in_ns > 0),
+            Ok(None) => 0,
+            Err(_) => -1,
+        },
+        Err(_) => -1,
+    }
+}
+
+// ---------------------------------------------------------------------------
+// App data
+// ---------------------------------------------------------------------------
+
+/// Get the custom app data string. Caller must free with [`xmtp_free_string`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn xmtp_conversation_app_data(conv: *const XmtpConversation) -> *mut c_char {
+    match unsafe { ref_from(conv) } {
+        Ok(c) => match c.inner.app_data() {
+            Ok(data) => to_c_string(&data),
+            Err(_) => std::ptr::null_mut(),
+        },
+        Err(_) => std::ptr::null_mut(),
+    }
+}
+
+/// Update the custom app data string.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn xmtp_conversation_update_app_data(
+    conv: *const XmtpConversation,
+    app_data: *const c_char,
+) -> i32 {
+    catch_async(|| async {
+        let c = unsafe { ref_from(conv)? };
+        let data = unsafe { c_str_to_string(app_data)? };
+        c.inner.update_app_data(data).await?;
+        Ok(())
+    })
+}
+
+// ---------------------------------------------------------------------------
+// Duplicate DMs & paused version
+// ---------------------------------------------------------------------------
+
+/// Find duplicate DM conversations for this DM.
+/// Returns a conversation list. Caller must free with [`xmtp_conversation_list_free`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn xmtp_conversation_duplicate_dms(
+    conv: *const XmtpConversation,
+    out: *mut *mut XmtpConversationList,
+) -> i32 {
+    catch(|| {
+        let c = unsafe { ref_from(conv)? };
+        if out.is_null() {
+            return Err("null output pointer".into());
+        }
+        let dups = c.inner.find_duplicate_dms()?;
+        let items: Vec<XmtpConversationListItem> = dups
+            .into_iter()
+            .map(|g| XmtpConversationListItem { group: g })
+            .collect();
+        unsafe { write_out(out, XmtpConversationList { items })? };
+        Ok(())
+    })
+}
+
+/// Check if the conversation is paused for a version upgrade.
+/// Writes the version string to `out` if paused, or null if not paused.
+/// Caller must free `out` with [`xmtp_free_string`].
+/// Returns 0 on success, -1 on error.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn xmtp_conversation_paused_for_version(
+    conv: *const XmtpConversation,
+    out: *mut *mut c_char,
+) -> i32 {
+    catch(|| {
+        let c = unsafe { ref_from(conv)? };
+        if out.is_null() {
+            return Err("null output pointer".into());
+        }
+        let version = c.inner.paused_for_version()?;
+        unsafe {
+            *out = match version {
+                Some(v) => to_c_string(&v),
+                None => std::ptr::null_mut(),
+            };
+        }
+        Ok(())
+    })
 }

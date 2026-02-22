@@ -320,22 +320,11 @@ pub unsafe extern "C" fn xmtp_client_get_consent_state(
         Ok(())
     })
 }
-
-// ---------------------------------------------------------------------------
-// Inbox state
-// ---------------------------------------------------------------------------
-
-/// Opaque inbox state handle.
-pub struct XmtpInboxState {
-    inner: xmtp_id::associations::AssociationState,
-}
-
-/// Get the inbox state for this client. Caller must free with [`xmtp_inbox_state_free`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn xmtp_client_inbox_state(
     client: *const XmtpClient,
     refresh: i32,
-    out: *mut *mut XmtpInboxState,
+    out: *mut *mut XmtpInboxStateList,
 ) -> i32 {
     catch_async(|| async {
         let c = unsafe { ref_from(client)? };
@@ -343,117 +332,29 @@ pub unsafe extern "C" fn xmtp_client_inbox_state(
             return Err("null output pointer".into());
         }
         let state = c.inner.inbox_state(refresh != 0).await?;
-        unsafe { write_out(out, XmtpInboxState { inner: state })? };
+        let item = association_state_to_item(&state);
+        unsafe { write_out(out, XmtpInboxStateList { items: vec![item] })? };
         Ok(())
     })
 }
 
-/// Get the inbox ID from an inbox state. Caller must free with [`xmtp_free_string`].
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn xmtp_inbox_state_inbox_id(state: *const XmtpInboxState) -> *mut c_char {
-    match unsafe { ref_from(state) } {
-        Ok(s) => to_c_string(s.inner.inbox_id()),
-        Err(_) => std::ptr::null_mut(),
-    }
-}
-
-/// Get the number of installations from an inbox state.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn xmtp_inbox_state_installation_count(state: *const XmtpInboxState) -> i32 {
-    match unsafe { ref_from(state) } {
-        Ok(s) => s.inner.installation_ids().len() as i32,
-        Err(_) => 0,
-    }
-}
-
-/// Get the recovery identifier string from an inbox state.
-/// Caller must free with [`xmtp_free_string`].
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn xmtp_inbox_state_recovery_identifier(
-    state: *const XmtpInboxState,
-) -> *mut c_char {
-    match unsafe { ref_from(state) } {
-        Ok(s) => to_c_string(&s.inner.recovery_identifier().to_string()),
-        Err(_) => std::ptr::null_mut(),
-    }
-}
-
-/// Get installation IDs from an inbox state as a flat byte buffer.
-/// Each installation ID is 32 bytes, concatenated. Total length = count * 32.
-/// Writes the number of installations to `out_count`.
-/// Caller must free the returned buffer with [`xmtp_free_bytes`].
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn xmtp_inbox_state_installation_ids(
-    state: *const XmtpInboxState,
-    out_count: *mut i32,
-) -> *mut u8 {
-    if out_count.is_null() {
-        return std::ptr::null_mut();
-    }
-    match unsafe { ref_from(state) } {
-        Ok(s) => {
-            let ids = s.inner.installation_ids();
-            let count = ids.len();
-            let mut buf: Vec<u8> = Vec::with_capacity(count * 32);
-            for id in &ids {
-                // Pad or truncate to 32 bytes
-                let mut padded = [0u8; 32];
-                let len = id.len().min(32);
-                padded[..len].copy_from_slice(&id[..len]);
-                buf.extend_from_slice(&padded);
-            }
-            unsafe {
-                *out_count = count as i32;
-            }
-            let ptr = buf.as_mut_ptr();
-            std::mem::forget(buf);
-            ptr
-        }
-        Err(_) => {
-            unsafe {
-                *out_count = 0;
-            }
-            std::ptr::null_mut()
-        }
-    }
-}
-
-/// Get the account identifiers associated with an inbox state.
-/// Returns a null-terminated array of C strings (the identifier values).
-/// `out_count` receives the number of identifiers.
-/// Caller must free with [`xmtp_free_string_array`].
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn xmtp_inbox_state_account_identifiers(
-    state: *const XmtpInboxState,
-    out_count: *mut i32,
-) -> *mut *mut c_char {
-    if out_count.is_null() {
-        return std::ptr::null_mut();
-    }
-    match unsafe { ref_from(state) } {
-        Ok(s) => {
-            let idents: Vec<String> = s
-                .inner
-                .identifiers()
-                .into_iter()
-                .map(|id: xmtp_id::associations::Identifier| id.to_string())
-                .collect();
-            string_vec_to_c(idents, out_count)
-        }
-        Err(_) => {
-            unsafe {
-                *out_count = 0;
-            }
-            std::ptr::null_mut()
-        }
-    }
-}
-
-/// Free an inbox state handle.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn xmtp_inbox_state_free(state: *mut XmtpInboxState) {
-    if !state.is_null() {
-        drop(unsafe { Box::from_raw(state) });
+/// Convert an AssociationState to an XmtpInboxStateItem.
+fn association_state_to_item(s: &xmtp_id::associations::AssociationState) -> XmtpInboxStateItem {
+    let inbox_id = s.inbox_id().to_string();
+    let recovery = s.recovery_identifier().to_string();
+    let identifiers: Vec<String> = s.identifiers().into_iter().map(|i| i.to_string()).collect();
+    let installations: Vec<String> = s.installation_ids().into_iter().map(hex::encode).collect();
+    let mut ident_count: i32 = 0;
+    let ident_ptrs = string_vec_to_c(identifiers, &mut ident_count);
+    let mut inst_count: i32 = 0;
+    let inst_ptrs = string_vec_to_c(installations, &mut inst_count);
+    XmtpInboxStateItem {
+        inbox_id: to_c_string(&inbox_id),
+        recovery_identifier: to_c_string(&recovery),
+        identifiers: ident_ptrs,
+        identifiers_count: ident_count,
+        installation_ids: inst_ptrs,
+        installation_ids_count: inst_count,
     }
 }
 
@@ -562,4 +463,221 @@ pub unsafe extern "C" fn xmtp_client_delete_message_by_id(
         c.inner.delete_message(id_bytes)?;
         Ok(())
     })
+}
+
+// ---------------------------------------------------------------------------
+// Version info
+// ---------------------------------------------------------------------------
+
+/// Get the libxmtp version string. Caller must free with [`xmtp_free_string`].
+#[unsafe(no_mangle)]
+pub extern "C" fn xmtp_libxmtp_version() -> *mut c_char {
+    to_c_string(env!("CARGO_PKG_VERSION"))
+}
+
+// ---------------------------------------------------------------------------
+// Inbox ID lookup (client-bound)
+// ---------------------------------------------------------------------------
+
+/// Look up an inbox ID by account identifier using the client's connection.
+/// Returns null if not found. Caller must free with [`xmtp_free_string`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn xmtp_client_get_inbox_id_by_identifier(
+    client: *const XmtpClient,
+    identifier: *const c_char,
+    out: *mut *mut c_char,
+) -> i32 {
+    catch_async(|| async {
+        let c = unsafe { ref_from(client)? };
+        if out.is_null() {
+            return Err("null output pointer".into());
+        }
+        let ident_str = unsafe { c_str_to_string(identifier)? };
+        let ident = xmtp_id::associations::Identifier::eth(&ident_str)?;
+        let conn = c.inner.context.store().db();
+        let inbox_id = c.inner.find_inbox_id_from_identifier(&conn, ident).await?;
+        unsafe {
+            *out = match inbox_id {
+                Some(id) => to_c_string(&id),
+                None => std::ptr::null_mut(),
+            };
+        }
+        Ok(())
+    })
+}
+
+// ---------------------------------------------------------------------------
+// Batch inbox state queries
+// ---------------------------------------------------------------------------
+
+/// Fetch inbox states for multiple inbox IDs.
+/// `inbox_ids` is a null-terminated array of C strings with `count` elements.
+/// Returns an opaque `XmtpInboxStateList` via `out`. Caller must free with [`xmtp_inbox_state_list_free`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn xmtp_client_fetch_inbox_states(
+    client: *const XmtpClient,
+    inbox_ids: *const *const c_char,
+    count: i32,
+    refresh_from_network: i32,
+    out: *mut *mut XmtpInboxStateList,
+) -> i32 {
+    catch_async(|| async {
+        let c = unsafe { ref_from(client)? };
+        if out.is_null() {
+            return Err("null output pointer".into());
+        }
+        let mut ids = Vec::with_capacity(count as usize);
+        for i in 0..count as usize {
+            let ptr = unsafe { *inbox_ids.add(i) };
+            ids.push(unsafe { c_str_to_string(ptr)? });
+        }
+        let states = c
+            .inner
+            .inbox_addresses(
+                refresh_from_network != 0,
+                ids.iter().map(|s| s.as_str()).collect(),
+            )
+            .await?;
+        let items: Vec<XmtpInboxStateItem> = states.iter().map(association_state_to_item).collect();
+        unsafe { write_out(out, XmtpInboxStateList { items })? };
+        Ok(())
+    })
+}
+
+/// Get the number of inbox states in the list.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn xmtp_inbox_state_list_len(list: *const XmtpInboxStateList) -> i32 {
+    match unsafe { ref_from(list) } {
+        Ok(l) => l.items.len() as i32,
+        Err(_) => 0,
+    }
+}
+
+/// Get inbox ID at index. Caller must free with [`xmtp_free_string`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn xmtp_inbox_state_inbox_id(
+    list: *const XmtpInboxStateList,
+    index: i32,
+) -> *mut c_char {
+    let l = match unsafe { ref_from(list) } {
+        Ok(l) => l,
+        Err(_) => return std::ptr::null_mut(),
+    };
+    match l.items.get(index as usize) {
+        Some(item) if !item.inbox_id.is_null() => {
+            let s = unsafe { std::ffi::CStr::from_ptr(item.inbox_id) };
+            to_c_string(s.to_str().unwrap_or(""))
+        }
+        _ => std::ptr::null_mut(),
+    }
+}
+
+/// Get recovery identifier at index. Caller must free with [`xmtp_free_string`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn xmtp_inbox_state_recovery_identifier(
+    list: *const XmtpInboxStateList,
+    index: i32,
+) -> *mut c_char {
+    let l = match unsafe { ref_from(list) } {
+        Ok(l) => l,
+        Err(_) => return std::ptr::null_mut(),
+    };
+    match l.items.get(index as usize) {
+        Some(item) if !item.recovery_identifier.is_null() => {
+            let s = unsafe { std::ffi::CStr::from_ptr(item.recovery_identifier) };
+            to_c_string(s.to_str().unwrap_or(""))
+        }
+        _ => std::ptr::null_mut(),
+    }
+}
+
+/// Get identifiers array at index. Returns a borrowed pointer; do NOT free.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn xmtp_inbox_state_identifiers(
+    list: *const XmtpInboxStateList,
+    index: i32,
+    out_count: *mut i32,
+) -> *const *mut c_char {
+    if out_count.is_null() {
+        return std::ptr::null();
+    }
+    let l = match unsafe { ref_from(list) } {
+        Ok(l) => l,
+        Err(_) => {
+            unsafe { *out_count = 0 };
+            return std::ptr::null();
+        }
+    };
+    match l.items.get(index as usize) {
+        Some(item) => {
+            unsafe { *out_count = item.identifiers_count };
+            item.identifiers as *const *mut c_char
+        }
+        None => {
+            unsafe { *out_count = 0 };
+            std::ptr::null()
+        }
+    }
+}
+
+/// Get installation IDs (hex) at index. Returns a borrowed pointer; do NOT free.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn xmtp_inbox_state_installation_ids(
+    list: *const XmtpInboxStateList,
+    index: i32,
+    out_count: *mut i32,
+) -> *const *mut c_char {
+    if out_count.is_null() {
+        return std::ptr::null();
+    }
+    let l = match unsafe { ref_from(list) } {
+        Ok(l) => l,
+        Err(_) => {
+            unsafe { *out_count = 0 };
+            return std::ptr::null();
+        }
+    };
+    match l.items.get(index as usize) {
+        Some(item) => {
+            unsafe { *out_count = item.installation_ids_count };
+            item.installation_ids as *const *mut c_char
+        }
+        None => {
+            unsafe { *out_count = 0 };
+            std::ptr::null()
+        }
+    }
+}
+
+/// Free an inbox state list (including all owned strings).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn xmtp_inbox_state_list_free(list: *mut XmtpInboxStateList) {
+    if list.is_null() {
+        return;
+    }
+    let l = unsafe { Box::from_raw(list) };
+    for item in &l.items {
+        if !item.inbox_id.is_null() {
+            drop(unsafe { std::ffi::CString::from_raw(item.inbox_id) });
+        }
+        if !item.recovery_identifier.is_null() {
+            drop(unsafe { std::ffi::CString::from_raw(item.recovery_identifier) });
+        }
+        free_c_string_array(item.identifiers, item.identifiers_count);
+        free_c_string_array(item.installation_ids, item.installation_ids_count);
+    }
+}
+
+/// Helper to free an array of C strings.
+fn free_c_string_array(arr: *mut *mut c_char, count: i32) {
+    if arr.is_null() || count <= 0 {
+        return;
+    }
+    for i in 0..count as usize {
+        let s = unsafe { *arr.add(i) };
+        if !s.is_null() {
+            drop(unsafe { std::ffi::CString::from_raw(s) });
+        }
+    }
+    drop(unsafe { Vec::from_raw_parts(arr, count as usize, count as usize) });
 }
