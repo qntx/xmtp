@@ -237,11 +237,18 @@ pub struct XmtpListMessagesOptions {
     pub direction: i32,
     /// Sort by: 0 = SentAt (default), 1 = InsertedAt.
     pub sort_by: i32,
-    /// Content type filter array (nullable). Each element is a ContentType i32 value.
-    /// See `xmtp_db::group_message::ContentType` repr(i32) for values.
+    /// Include only these content types (nullable). Each element is a ContentType i32 value.
     pub content_types: *const i32,
     /// Number of elements in `content_types`. 0 = no filter.
     pub content_types_count: i32,
+    /// Exclude these content types (nullable). Each element is a ContentType i32 value.
+    pub exclude_content_types: *const i32,
+    /// Number of elements in `exclude_content_types`. 0 = no filter.
+    pub exclude_content_types_count: i32,
+    /// Exclude messages from these sender inbox IDs (nullable C string array).
+    pub exclude_sender_inbox_ids: *const *const c_char,
+    /// Number of elements in `exclude_sender_inbox_ids`. 0 = no filter.
+    pub exclude_sender_inbox_ids_count: i32,
     /// Whether to exclude disappearing messages. 0 = include (default), 1 = exclude.
     pub exclude_disappearing: i32,
 }
@@ -301,6 +308,31 @@ fn parse_msg_query_args(
             .collect();
         if !cts.is_empty() {
             args.content_types = Some(cts);
+        }
+    }
+    if !o.exclude_content_types.is_null() && o.exclude_content_types_count > 0 {
+        let slice = unsafe {
+            std::slice::from_raw_parts(
+                o.exclude_content_types,
+                o.exclude_content_types_count as usize,
+            )
+        };
+        let cts: Vec<ContentType> = slice
+            .iter()
+            .filter_map(|&v| i32_to_content_type(v))
+            .collect();
+        if !cts.is_empty() {
+            args.exclude_content_types = Some(cts);
+        }
+    }
+    if !o.exclude_sender_inbox_ids.is_null() && o.exclude_sender_inbox_ids_count > 0 {
+        let ids = unsafe {
+            collect_strings(o.exclude_sender_inbox_ids, o.exclude_sender_inbox_ids_count)
+        };
+        if let Ok(ids) = ids {
+            if !ids.is_empty() {
+                args.exclude_sender_inbox_ids = Some(ids);
+            }
         }
     }
     args.exclude_disappearing = o.exclude_disappearing != 0;
@@ -1611,6 +1643,7 @@ pub(crate) fn decoded_to_enriched(
             Some(t) => to_c_string(t),
             None => std::ptr::null_mut(),
         },
+        expires_at_ns: msg.metadata.expires_at_ns.unwrap_or(0),
         num_reactions: msg.reactions.len() as i32,
         num_replies: msg.num_replies as i32,
     }

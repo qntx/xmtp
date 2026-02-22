@@ -12,8 +12,10 @@ use crate::ffi::*;
 /// Options for creating a client. All string fields are borrowed (not freed by this library).
 #[repr(C)]
 pub struct XmtpClientOptions {
-    /// gRPC host URL (required).
+    /// gRPC v3 host URL (required).
     pub host: *const c_char,
+    /// Gateway host URL for decentralized API (nullable, enables d14n if set).
+    pub gateway_host: *const c_char,
     /// Whether the connection is TLS-secured.
     pub is_secure: i32,
     /// Path to the SQLite database file. Null = ephemeral.
@@ -26,8 +28,22 @@ pub struct XmtpClientOptions {
     pub account_identifier: *const c_char,
     /// Identifier kind: 0 = Ethereum, 1 = Passkey.
     pub identifier_kind: i32,
+    /// Nonce for identity strategy (default 1 if 0).
+    pub nonce: u64,
     /// Optional auth handle for gateway authentication. Null = no auth.
     pub auth_handle: *const XmtpAuthHandle,
+    /// Application version string (nullable).
+    pub app_version: *const c_char,
+    /// Device sync worker mode: 0 = Enabled (default), 1 = Disabled.
+    pub device_sync_worker_mode: i32,
+    /// Allow offline mode. 0 = no (default), 1 = yes.
+    pub allow_offline: i32,
+    /// Client mode: 0 = Default, 1 = Notification (read-only).
+    pub client_mode: i32,
+    /// Maximum database connection pool size. 0 = use default.
+    pub max_db_pool_size: u32,
+    /// Minimum database connection pool size. 0 = use default.
+    pub min_db_pool_size: u32,
 }
 
 /// Create a new XMTP client. Caller must free with [`xmtp_client_free`].
@@ -47,6 +63,8 @@ pub unsafe extern "C" fn xmtp_client_create(
         let ident_str = unsafe { c_str_to_string(opts.account_identifier)? };
         let ident_str_saved = ident_str.clone();
         let is_secure = opts.is_secure != 0;
+        let app_version_str = unsafe { c_str_to_option(opts.app_version)? }.unwrap_or_default();
+        let nonce = if opts.nonce == 0 { 1 } else { opts.nonce };
 
         // Build identifier
         let identifier = match opts.identifier_kind {
@@ -59,10 +77,24 @@ pub unsafe extern "C" fn xmtp_client_create(
         let mut backend = xmtp_api_d14n::MessageBackendBuilder::default();
         backend.v3_host(&host).is_secure(is_secure);
 
+        // Optional gateway host (enables d14n)
+        let gateway_host = unsafe { c_str_to_option(opts.gateway_host)? };
+        backend.maybe_gateway_host(gateway_host);
+
+        // Optional app version
+        if !app_version_str.is_empty() {
+            backend.app_version(app_version_str.clone());
+        }
+
         // Optional gateway auth handle
         if !opts.auth_handle.is_null() {
             let ah = unsafe { ref_from(opts.auth_handle)? };
             backend.maybe_auth_handle(Some(ah.inner.clone()));
+        }
+
+        // Notification mode = read-only
+        if opts.client_mode == 1 {
+            backend.readonly(true);
         }
 
         // Build database
@@ -73,23 +105,53 @@ pub unsafe extern "C" fn xmtp_client_create(
             xmtp_db::NativeDb::builder().ephemeral()
         };
 
-        let db = if !opts.encryption_key.is_null() {
-            let key_slice = unsafe { std::slice::from_raw_parts(opts.encryption_key, 32) };
-            let key: xmtp_db::EncryptionKey = key_slice
-                .try_into()
-                .map_err(|_| "encryption key must be 32 bytes")?;
-            db_builder.key(key).build()?
+        // Pool size + encryption: use a closure to build the final NativeDb
+        // since typestate builder changes type on each call.
+        let max_pool = if opts.max_db_pool_size > 0 {
+            Some(opts.max_db_pool_size)
         } else {
-            db_builder.build_unencrypted()?
+            None
+        };
+        let min_pool = if opts.min_db_pool_size > 0 {
+            Some(opts.min_db_pool_size)
+        } else {
+            None
+        };
+        let enc_key: Option<xmtp_db::EncryptionKey> = if !opts.encryption_key.is_null() {
+            let key_slice = unsafe { std::slice::from_raw_parts(opts.encryption_key, 32) };
+            Some(
+                key_slice
+                    .try_into()
+                    .map_err(|_| "encryption key must be 32 bytes")?,
+            )
+        } else {
+            None
+        };
+
+        // Apply pool sizes then build
+        let db = match (max_pool, min_pool, enc_key) {
+            (Some(mx), Some(mn), Some(k)) => db_builder
+                .max_pool_size(mx)
+                .min_pool_size(mn)
+                .key(k)
+                .build()?,
+            (Some(mx), Some(mn), None) => db_builder
+                .max_pool_size(mx)
+                .min_pool_size(mn)
+                .build_unencrypted()?,
+            (Some(mx), None, Some(k)) => db_builder.max_pool_size(mx).key(k).build()?,
+            (Some(mx), None, None) => db_builder.max_pool_size(mx).build_unencrypted()?,
+            (None, Some(mn), Some(k)) => db_builder.min_pool_size(mn).key(k).build()?,
+            (None, Some(mn), None) => db_builder.min_pool_size(mn).build_unencrypted()?,
+            (None, None, Some(k)) => db_builder.key(k).build()?,
+            (None, None, None) => db_builder.build_unencrypted()?,
         };
 
         let store = xmtp_db::EncryptedMessageStore::new(db)?;
 
         // Identity strategy
-        let identity_strategy = xmtp_mls::identity::IdentityStrategy::new(
-            inbox_id, identifier, 1, // nonce
-            None,
-        );
+        let identity_strategy =
+            xmtp_mls::identity::IdentityStrategy::new(inbox_id, identifier, nonce, None);
 
         // Cursor store
         let cursor_store = xmtp_mls::cursor_store::SqliteCursorStore::new(store.db());
@@ -98,17 +160,25 @@ pub unsafe extern "C" fn xmtp_client_create(
         let api_client = backend.clone().build()?;
         let sync_api_client = backend.build()?;
 
-        // Build client (must call enable_api_stats + enable_api_debug_wrapper
-        // to produce the MlsContext type alias)
-        let client = xmtp_mls::Client::builder(identity_strategy)
+        // Build client
+        let mut builder = xmtp_mls::Client::builder(identity_strategy)
             .api_clients(api_client, sync_api_client)
             .enable_api_stats()?
             .enable_api_debug_wrapper()?
             .with_remote_verifier()?
-            .store(store)
-            .default_mls_store()?
-            .build()
-            .await?;
+            .with_allow_offline(if opts.allow_offline != 0 {
+                Some(true)
+            } else {
+                None
+            })
+            .store(store);
+
+        // Device sync worker mode
+        if opts.device_sync_worker_mode == 1 {
+            builder = builder.device_sync_worker_mode(xmtp_mls::builder::DeviceSyncMode::Disabled);
+        }
+
+        let client = builder.default_mls_store()?.build().await?;
 
         unsafe {
             write_out(
@@ -116,6 +186,7 @@ pub unsafe extern "C" fn xmtp_client_create(
                 XmtpClient {
                     inner: Arc::new(client),
                     account_identifier: ident_str_saved,
+                    app_version: app_version_str,
                 },
             )?
         };
@@ -549,11 +620,13 @@ pub unsafe extern "C" fn xmtp_client_clear_all_statistics(client: *const XmtpCli
 // ---------------------------------------------------------------------------
 
 /// Look up an inbox ID by account identifier using the client's connection.
+/// `identifier_kind`: 0 = Ethereum, 1 = Passkey.
 /// Returns null if not found. Caller must free with [`xmtp_free_string`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn xmtp_client_get_inbox_id_by_identifier(
     client: *const XmtpClient,
     identifier: *const c_char,
+    identifier_kind: i32,
     out: *mut *mut c_char,
 ) -> i32 {
     catch_async(|| async {
@@ -562,7 +635,11 @@ pub unsafe extern "C" fn xmtp_client_get_inbox_id_by_identifier(
             return Err("null output pointer".into());
         }
         let ident_str = unsafe { c_str_to_string(identifier)? };
-        let ident = xmtp_id::associations::Identifier::eth(&ident_str)?;
+        let ident = match identifier_kind {
+            0 => xmtp_id::associations::Identifier::eth(ident_str)?,
+            1 => xmtp_id::associations::Identifier::passkey_str(&ident_str, None)?,
+            _ => return Err("invalid identifier kind".into()),
+        };
         let conn = c.inner.context.store().db();
         let inbox_id = c.inner.find_inbox_id_from_identifier(&conn, ident).await?;
         unsafe {
@@ -951,5 +1028,15 @@ pub unsafe extern "C" fn xmtp_client_account_identifier(client: *const XmtpClien
     match unsafe { ref_from(client) } {
         Ok(c) => to_c_string(&c.account_identifier),
         Err(_) => std::ptr::null_mut(),
+    }
+}
+
+/// Get the app version string set during client creation.
+/// Returns null if no app version was set. Caller must free with [`xmtp_free_string`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn xmtp_client_app_version(client: *const XmtpClient) -> *mut c_char {
+    match unsafe { ref_from(client) } {
+        Ok(c) if !c.app_version.is_empty() => to_c_string(&c.app_version),
+        _ => std::ptr::null_mut(),
     }
 }

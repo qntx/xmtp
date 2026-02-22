@@ -97,9 +97,13 @@ typedef struct XmtpXmtpStreamHandle XmtpXmtpStreamHandle;
  */
 typedef struct XmtpXmtpClientOptions {
     /**
-     * gRPC host URL (required).
+     * gRPC v3 host URL (required).
      */
     const char *host;
+    /**
+     * Gateway host URL for decentralized API (nullable, enables d14n if set).
+     */
+    const char *gateway_host;
     /**
      * Whether the connection is TLS-secured.
      */
@@ -125,9 +129,37 @@ typedef struct XmtpXmtpClientOptions {
      */
     int32_t identifier_kind;
     /**
+     * Nonce for identity strategy (default 1 if 0).
+     */
+    uint64_t nonce;
+    /**
      * Optional auth handle for gateway authentication. Null = no auth.
      */
     const struct XmtpXmtpAuthHandle *auth_handle;
+    /**
+     * Application version string (nullable).
+     */
+    const char *app_version;
+    /**
+     * Device sync worker mode: 0 = Enabled (default), 1 = Disabled.
+     */
+    int32_t device_sync_worker_mode;
+    /**
+     * Allow offline mode. 0 = no (default), 1 = yes.
+     */
+    int32_t allow_offline;
+    /**
+     * Client mode: 0 = Default, 1 = Notification (read-only).
+     */
+    int32_t client_mode;
+    /**
+     * Maximum database connection pool size. 0 = use default.
+     */
+    uint32_t max_db_pool_size;
+    /**
+     * Minimum database connection pool size. 0 = use default.
+     */
+    uint32_t min_db_pool_size;
 } XmtpXmtpClientOptions;
 
 /**
@@ -208,14 +240,29 @@ typedef struct XmtpXmtpListMessagesOptions {
      */
     int32_t sort_by;
     /**
-     * Content type filter array (nullable). Each element is a ContentType i32 value.
-     * See `xmtp_db::group_message::ContentType` repr(i32) for values.
+     * Include only these content types (nullable). Each element is a ContentType i32 value.
      */
     const int32_t *content_types;
     /**
      * Number of elements in `content_types`. 0 = no filter.
      */
     int32_t content_types_count;
+    /**
+     * Exclude these content types (nullable). Each element is a ContentType i32 value.
+     */
+    const int32_t *exclude_content_types;
+    /**
+     * Number of elements in `exclude_content_types`. 0 = no filter.
+     */
+    int32_t exclude_content_types_count;
+    /**
+     * Exclude messages from these sender inbox IDs (nullable C string array).
+     */
+    const char *const *exclude_sender_inbox_ids;
+    /**
+     * Number of elements in `exclude_sender_inbox_ids`. 0 = no filter.
+     */
+    int32_t exclude_sender_inbox_ids_count;
     /**
      * Whether to exclude disappearing messages. 0 = include (default), 1 = exclude.
      */
@@ -656,11 +703,13 @@ xmtp_ int32_t xmtp_client_clear_all_statistics(const struct XmtpXmtpClient *clie
 
 /**
  * Look up an inbox ID by account identifier using the client's connection.
+ * `identifier_kind`: 0 = Ethereum, 1 = Passkey.
  * Returns null if not found. Caller must free with [`xmtp_free_string`].
  */
 xmtp_
 int32_t xmtp_client_get_inbox_id_by_identifier(const struct XmtpXmtpClient *client,
                                                const char *identifier,
+                                               int32_t identifier_kind,
                                                char **out);
 
 /**
@@ -774,6 +823,12 @@ xmtp_ void xmtp_key_package_status_list_free(struct XmtpXmtpKeyPackageStatusList
  * Caller must free with [`xmtp_free_string`].
  */
 xmtp_ char *xmtp_client_account_identifier(const struct XmtpXmtpClient *client);
+
+/**
+ * Get the app version string set during client creation.
+ * Returns null if no app version was set. Caller must free with [`xmtp_free_string`].
+ */
+xmtp_ char *xmtp_client_app_version(const struct XmtpXmtpClient *client);
 
 /**
  * Get the conversation's hex-encoded group ID. Caller must free with [`xmtp_free_string`].

@@ -24,6 +24,8 @@ pub struct XmtpClient {
     pub(crate) inner: std::sync::Arc<InnerClient>,
     /// The account identifier used to create this client.
     pub(crate) account_identifier: String,
+    /// The application version string passed during creation.
+    pub(crate) app_version: String,
 }
 
 /// Opaque conversation handle.
@@ -343,6 +345,8 @@ pub struct XmtpEnrichedMessage {
     pub content_type: *mut c_char,
     /// Fallback text (nullable, owned).
     pub fallback_text: *mut c_char,
+    /// Expiration timestamp in nanoseconds (0 = no expiration).
+    pub expires_at_ns: i64,
     /// Number of reactions.
     pub num_reactions: i32,
     /// Number of replies.
