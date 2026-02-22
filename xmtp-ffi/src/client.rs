@@ -361,7 +361,7 @@ pub unsafe extern "C" fn xmtp_client_get_consent_state(
         let et = i32_to_consent_type(entity_type)?;
         let state = c.inner.get_consent_state(et, entity).await?;
         unsafe {
-            *out_state = consent_state_to_i32(state);
+            *out_state = consent_state_to_ffi(state) as i32;
         }
         Ok(())
     })
@@ -429,9 +429,8 @@ pub unsafe extern "C" fn xmtp_client_installation_id_bytes(
         Ok(c) => {
             let id = c.inner.installation_public_key();
             let len = id.len();
-            let mut copy = id.to_vec();
-            let ptr = copy.as_mut_ptr();
-            std::mem::forget(copy);
+            let copy = id.to_vec();
+            let (ptr, _len, _cap) = copy.into_raw_parts();
             unsafe {
                 *out_len = len as i32;
             }

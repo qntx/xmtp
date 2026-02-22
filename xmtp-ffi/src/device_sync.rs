@@ -143,10 +143,9 @@ pub unsafe extern "C" fn xmtp_device_sync_list_available_archives(
         let items: Vec<FfiAvailableArchive> = archives
             .into_iter()
             .map(|a| {
-                let mut inst = a.sent_by_installation;
+                let inst = a.sent_by_installation;
                 let inst_len = inst.len() as i32;
-                let inst_ptr = inst.as_mut_ptr();
-                std::mem::forget(inst);
+                let (inst_ptr, _, _) = inst.into_raw_parts();
                 FfiAvailableArchive {
                     pin: to_c_string(&a.pin),
                     backup_version: a.metadata.backup_version,

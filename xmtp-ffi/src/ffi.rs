@@ -82,6 +82,120 @@ pub type FnPreferenceCallback = unsafe extern "C" fn(
 );
 
 // ---------------------------------------------------------------------------
+// C-compatible enums (replace magic numbers)
+// All enums are exported via cbindgen; suppress unused warnings.
+// ---------------------------------------------------------------------------
+
+#[allow(dead_code)]
+/// Consent state for an entity.
+#[repr(i32)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FfiConsentState {
+    Unknown = 0,
+    Allowed = 1,
+    Denied = 2,
+}
+
+/// Consent entity type.
+#[repr(i32)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FfiConsentEntityType {
+    GroupId = 0,
+    InboxId = 1,
+}
+
+/// Conversation type.
+#[repr(i32)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[allow(dead_code)]
+pub enum FfiConversationType {
+    Dm = 0,
+    Group = 1,
+    Sync = 2,
+    Oneshot = 3,
+}
+
+/// Identifier kind for account identifiers.
+#[repr(i32)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[allow(dead_code)]
+pub enum FfiIdentifierKind {
+    Ethereum = 0,
+    Passkey = 1,
+}
+
+/// Group member permission level.
+#[repr(i32)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FfiPermissionLevel {
+    Member = 0,
+    Admin = 1,
+    SuperAdmin = 2,
+}
+
+/// Message kind.
+#[repr(i32)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[allow(dead_code)]
+pub enum FfiMessageKind {
+    Application = 0,
+    MembershipChange = 1,
+}
+
+/// Message delivery status.
+#[repr(i32)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[allow(dead_code)]
+pub enum FfiDeliveryStatus {
+    Unpublished = 0,
+    Published = 1,
+    Failed = 2,
+}
+
+/// Group membership state.
+#[repr(i32)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[allow(dead_code)]
+pub enum FfiGroupMembershipState {
+    Allowed = 0,
+    Rejected = 1,
+    Pending = 2,
+    Restored = 3,
+    PendingRemove = 4,
+}
+
+/// Permission policy value.
+#[repr(i32)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[allow(dead_code)]
+pub enum FfiPermissionPolicy {
+    Allow = 0,
+    Deny = 1,
+    Admin = 2,
+    SuperAdmin = 3,
+    DoesNotExist = 4,
+    Other = 5,
+}
+
+/// Group permissions preset.
+#[repr(i32)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[allow(dead_code)]
+pub enum FfiGroupPermissionsPreset {
+    AllMembers = 0,
+    AdminOnly = 1,
+    Custom = 2,
+}
+
+/// Preference update kind.
+#[repr(i32)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FfiPreferenceUpdateKind {
+    Consent = 0,
+    HmacKey = 1,
+}
+
+// ---------------------------------------------------------------------------
 // Data transfer types (flat, repr(C))
 // ---------------------------------------------------------------------------
 
@@ -105,8 +219,8 @@ pub struct FfiConversationList {
 #[repr(C)]
 pub struct FfiGroupMember {
     pub(crate) inbox_id: *mut c_char,
-    pub(crate) permission_level: i32, // 0=Member, 1=Admin, 2=SuperAdmin
-    pub(crate) consent_state: i32,    // 0=Unknown, 1=Allowed, 2=Denied
+    pub(crate) permission_level: FfiPermissionLevel,
+    pub(crate) consent_state: FfiConsentState,
     /// Null-terminated array of account identifier strings. Each must be freed.
     pub(crate) account_identifiers: *mut *mut c_char,
     pub(crate) account_identifiers_count: i32,
@@ -139,10 +253,8 @@ pub struct FfiInboxStateList {
 /// A consent record exposed to C.
 #[repr(C)]
 pub struct FfiConsentRecord {
-    /// Entity type: 0=InboxId, 1=ConversationId
-    pub entity_type: i32,
-    /// Consent state: 0=Unknown, 1=Allowed, 2=Denied
-    pub state: i32,
+    pub entity_type: FfiConsentEntityType,
+    pub state: FfiConsentState,
     /// Entity identifier string.
     pub entity: *mut c_char,
 }
@@ -150,8 +262,7 @@ pub struct FfiConsentRecord {
 /// A preference update exposed to C.
 #[repr(C)]
 pub struct FfiPreferenceUpdate {
-    /// Update kind: 0=Consent, 1=HmacKey
-    pub kind: i32,
+    pub kind: FfiPreferenceUpdateKind,
     /// For Consent: the consent record. For HmacKey: zeroed.
     pub consent: FfiConsentRecord,
     /// For HmacKey: the key bytes. For Consent: null/0.
@@ -434,15 +545,27 @@ pub unsafe extern "C" fn xmtp_last_error_message(buf: *mut c_char, buf_len: i32)
 // Error-catching wrapper
 // ---------------------------------------------------------------------------
 
-/// Execute a closure, set thread-local error on failure, return code.
+/// Execute a closure with panic safety, set thread-local error on failure, return code.
+/// Catches both `Err` results and unwinding panics to prevent UB at the FFI boundary.
 pub(crate) fn catch<F>(f: F) -> i32
 where
     F: FnOnce() -> Result<(), Box<dyn std::error::Error>>,
 {
-    match f() {
-        Ok(()) => 0,
-        Err(e) => {
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)) {
+        Ok(Ok(())) => 0,
+        Ok(Err(e)) => {
             set_last_error(e.to_string());
+            -1
+        }
+        Err(panic) => {
+            let msg = if let Some(s) = panic.downcast_ref::<&str>() {
+                format!("panic: {s}")
+            } else if let Some(s) = panic.downcast_ref::<String>() {
+                format!("panic: {s}")
+            } else {
+                "panic: <unknown>".to_string()
+            };
+            set_last_error(msg);
             -1
         }
     }
@@ -602,9 +725,8 @@ pub(crate) unsafe fn collect_strings(
 /// Caller must free each string and the array itself.
 pub(crate) fn string_vec_to_c(v: Vec<String>, out_count: *mut i32) -> *mut *mut c_char {
     let count = v.len();
-    let mut ptrs: Vec<*mut c_char> = v.into_iter().map(|s| to_c_string(&s)).collect();
-    let ptr = ptrs.as_mut_ptr();
-    std::mem::forget(ptrs);
+    let ptrs: Vec<*mut c_char> = v.into_iter().map(|s| to_c_string(&s)).collect();
+    let (ptr, _len, _cap) = ptrs.into_raw_parts();
     unsafe {
         *out_count = count as i32;
     }
@@ -700,12 +822,12 @@ pub(crate) use free_opaque;
 // Enum mapping helpers (shared across modules)
 // ---------------------------------------------------------------------------
 
-/// Map `ConsentState` → i32. 0=Unknown, 1=Allowed, 2=Denied.
-pub(crate) fn consent_state_to_i32(s: xmtp_db::consent_record::ConsentState) -> i32 {
+/// Map `ConsentState` → `FfiConsentState`.
+pub(crate) fn consent_state_to_ffi(s: xmtp_db::consent_record::ConsentState) -> FfiConsentState {
     match s {
-        xmtp_db::consent_record::ConsentState::Unknown => 0,
-        xmtp_db::consent_record::ConsentState::Allowed => 1,
-        xmtp_db::consent_record::ConsentState::Denied => 2,
+        xmtp_db::consent_record::ConsentState::Unknown => FfiConsentState::Unknown,
+        xmtp_db::consent_record::ConsentState::Allowed => FfiConsentState::Allowed,
+        xmtp_db::consent_record::ConsentState::Denied => FfiConsentState::Denied,
     }
 }
 
@@ -721,11 +843,11 @@ pub(crate) fn i32_to_consent_state(
     }
 }
 
-/// Map `ConsentType` → i32. 0=InboxId, 1=ConversationId.
-pub(crate) fn consent_type_to_i32(t: xmtp_db::consent_record::ConsentType) -> i32 {
+/// Map `ConsentType` → `FfiConsentEntityType`.
+pub(crate) fn consent_type_to_ffi(t: xmtp_db::consent_record::ConsentType) -> FfiConsentEntityType {
     match t {
-        xmtp_db::consent_record::ConsentType::InboxId => 0,
-        xmtp_db::consent_record::ConsentType::ConversationId => 1,
+        xmtp_db::consent_record::ConsentType::ConversationId => FfiConsentEntityType::GroupId,
+        xmtp_db::consent_record::ConsentType::InboxId => FfiConsentEntityType::InboxId,
     }
 }
 
@@ -745,8 +867,8 @@ pub(crate) fn consent_record_to_c(
     r: &xmtp_db::consent_record::StoredConsentRecord,
 ) -> FfiConsentRecord {
     FfiConsentRecord {
-        entity_type: consent_type_to_i32(r.entity_type),
-        state: consent_state_to_i32(r.state),
+        entity_type: consent_type_to_ffi(r.entity_type),
+        state: consent_state_to_ffi(r.state),
         entity: to_c_string(&r.entity),
     }
 }

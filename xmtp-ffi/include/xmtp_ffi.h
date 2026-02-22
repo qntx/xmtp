@@ -11,6 +11,52 @@
 #include <stdlib.h>
 
 /**
+ * Consent entity type.
+ */
+enum XmtpFfiConsentEntityType
+#ifdef __cplusplus
+  : int32_t
+#endif // __cplusplus
+ {
+    XMTP_FFI_CONSENT_ENTITY_TYPE_GROUP_ID = 0,
+    XMTP_FFI_CONSENT_ENTITY_TYPE_INBOX_ID = 1,
+};
+#ifndef __cplusplus
+typedef int32_t XmtpFfiConsentEntityType;
+#endif // __cplusplus
+
+/**
+ * Consent state for an entity.
+ */
+enum XmtpFfiConsentState
+#ifdef __cplusplus
+  : int32_t
+#endif // __cplusplus
+ {
+    XMTP_FFI_CONSENT_STATE_UNKNOWN = 0,
+    XMTP_FFI_CONSENT_STATE_ALLOWED = 1,
+    XMTP_FFI_CONSENT_STATE_DENIED = 2,
+};
+#ifndef __cplusplus
+typedef int32_t XmtpFfiConsentState;
+#endif // __cplusplus
+
+/**
+ * Preference update kind.
+ */
+enum XmtpFfiPreferenceUpdateKind
+#ifdef __cplusplus
+  : int32_t
+#endif // __cplusplus
+ {
+    XMTP_FFI_PREFERENCE_UPDATE_KIND_CONSENT = 0,
+    XMTP_FFI_PREFERENCE_UPDATE_KIND_HMAC_KEY = 1,
+};
+#ifndef __cplusplus
+typedef int32_t XmtpFfiPreferenceUpdateKind;
+#endif // __cplusplus
+
+/**
  * Opaque handle for gateway authentication credentials.
  */
 typedef struct XmtpFfiAuthHandle XmtpFfiAuthHandle;
@@ -479,14 +525,8 @@ typedef void (*XmtpFnMessageCallback)(struct XmtpFfiMessage *message, void *cont
  * A consent record exposed to C.
  */
 typedef struct XmtpFfiConsentRecord {
-    /**
-     * Entity type: 0=InboxId, 1=ConversationId
-     */
-    int32_t entity_type;
-    /**
-     * Consent state: 0=Unknown, 1=Allowed, 2=Denied
-     */
-    int32_t state;
+    XmtpFfiConsentEntityType entity_type;
+    XmtpFfiConsentState state;
     /**
      * Entity identifier string.
      */
@@ -504,10 +544,7 @@ typedef void (*XmtpFnConsentCallback)(struct XmtpFfiConsentRecord *records,
  * A preference update exposed to C.
  */
 typedef struct XmtpFfiPreferenceUpdate {
-    /**
-     * Update kind: 0=Consent, 1=HmacKey
-     */
-    int32_t kind;
+    XmtpFfiPreferenceUpdateKind kind;
     /**
      * For Consent: the consent record. For HmacKey: zeroed.
      */

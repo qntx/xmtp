@@ -249,11 +249,10 @@ pub unsafe extern "C" fn xmtp_stream_consent(
             c.inner.clone(),
             move |result| {
                 if let Ok(records) = result {
-                    let mut c_records: Vec<FfiConsentRecord> =
+                    let c_records: Vec<FfiConsentRecord> =
                         records.iter().map(consent_record_to_c).collect();
                     let count = c_records.len() as i32;
-                    let ptr = c_records.as_mut_ptr();
-                    std::mem::forget(c_records);
+                    let (ptr, _, _) = c_records.into_raw_parts();
                     unsafe { callback(ptr, count, ctx as *mut std::ffi::c_void) };
                 }
             },
@@ -306,25 +305,24 @@ pub unsafe extern "C" fn xmtp_stream_preferences(
             move |result| {
                 if let Ok(updates) = result {
                     use xmtp_mls::groups::device_sync::preference_sync::PreferenceUpdate;
-                    let mut c_updates: Vec<FfiPreferenceUpdate> = updates
+                    let c_updates: Vec<FfiPreferenceUpdate> = updates
                         .into_iter()
                         .map(|u| match u {
                             PreferenceUpdate::Consent(r) => FfiPreferenceUpdate {
-                                kind: 0,
+                                kind: FfiPreferenceUpdateKind::Consent,
                                 consent: consent_record_to_c(&r),
                                 hmac_key: std::ptr::null_mut(),
                                 hmac_key_len: 0,
                             },
                             PreferenceUpdate::Hmac { key, .. } => {
                                 let len = key.len() as i32;
-                                let mut boxed = key.into_boxed_slice();
-                                let ptr = boxed.as_mut_ptr();
-                                std::mem::forget(boxed);
+                                let boxed = key.into_boxed_slice();
+                                let ptr = Box::into_raw(boxed) as *mut u8;
                                 FfiPreferenceUpdate {
-                                    kind: 1,
+                                    kind: FfiPreferenceUpdateKind::HmacKey,
                                     consent: FfiConsentRecord {
-                                        entity_type: 0,
-                                        state: 0,
+                                        entity_type: FfiConsentEntityType::GroupId,
+                                        state: FfiConsentState::Unknown,
                                         entity: std::ptr::null_mut(),
                                     },
                                     hmac_key: ptr,
@@ -334,8 +332,7 @@ pub unsafe extern "C" fn xmtp_stream_preferences(
                         })
                         .collect();
                     let count = c_updates.len() as i32;
-                    let ptr = c_updates.as_mut_ptr();
-                    std::mem::forget(c_updates);
+                    let (ptr, _, _) = c_updates.into_raw_parts();
                     unsafe { callback(ptr, count, ctx as *mut std::ffi::c_void) };
                 }
             },

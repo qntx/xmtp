@@ -431,13 +431,12 @@ pub unsafe extern "C" fn xmtp_client_hmac_keys(
         let mut entries = Vec::new();
         for conv in conversations {
             if let Ok(keys) = conv.hmac_keys(-1..=1) {
-                let mut c_keys: Vec<FfiHmacKey> = keys
+                let c_keys: Vec<FfiHmacKey> = keys
                     .into_iter()
                     .map(|k| {
-                        let mut key_vec = k.key.to_vec();
+                        let key_vec = k.key.to_vec();
                         let len = key_vec.len() as i32;
-                        let ptr = key_vec.as_mut_ptr();
-                        std::mem::forget(key_vec);
+                        let (ptr, _, _) = key_vec.into_raw_parts();
                         FfiHmacKey {
                             key: ptr,
                             key_len: len,
@@ -446,8 +445,7 @@ pub unsafe extern "C" fn xmtp_client_hmac_keys(
                     })
                     .collect();
                 let keys_count = c_keys.len() as i32;
-                let keys_ptr = c_keys.as_mut_ptr();
-                std::mem::forget(c_keys);
+                let (keys_ptr, _, _) = c_keys.into_raw_parts();
                 entries.push(FfiHmacKeyEntry {
                     group_id: to_c_string(&hex::encode(&conv.group_id)),
                     keys: keys_ptr,

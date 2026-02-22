@@ -508,11 +508,11 @@ pub unsafe extern "C" fn xmtp_conversation_list_members(
                 FfiGroupMember {
                     inbox_id: to_c_string(&m.inbox_id),
                     permission_level: match m.permission_level {
-                        PermissionLevel::Member => 0,
-                        PermissionLevel::Admin => 1,
-                        PermissionLevel::SuperAdmin => 2,
+                        PermissionLevel::Member => FfiPermissionLevel::Member,
+                        PermissionLevel::Admin => FfiPermissionLevel::Admin,
+                        PermissionLevel::SuperAdmin => FfiPermissionLevel::SuperAdmin,
                     },
-                    consent_state: consent_state_to_i32(m.consent_state),
+                    consent_state: consent_state_to_ffi(m.consent_state),
                     account_identifiers: ident_ptrs,
                     account_identifiers_count: ident_count,
                     installation_ids: inst_ptrs,
@@ -559,7 +559,7 @@ pub unsafe extern "C" fn xmtp_group_member_permission_level(
     };
     l.items
         .get(index as usize)
-        .map_or(-1, |m| m.permission_level)
+        .map_or(-1, |m| m.permission_level as i32)
 }
 
 /// Get member consent state at index: 0=Unknown, 1=Allowed, 2=Denied, -1=error.
@@ -572,7 +572,9 @@ pub unsafe extern "C" fn xmtp_group_member_consent_state(
         Ok(l) => l,
         Err(_) => return -1,
     };
-    l.items.get(index as usize).map_or(-1, |m| m.consent_state)
+    l.items
+        .get(index as usize)
+        .map_or(-1, |m| m.consent_state as i32)
 }
 
 /// Get member account identifiers at index.
@@ -824,7 +826,7 @@ pub unsafe extern "C" fn xmtp_conversation_consent_state(
         }
         let state = c.inner.consent_state()?;
         unsafe {
-            *out_state = consent_state_to_i32(state);
+            *out_state = consent_state_to_ffi(state) as i32;
         }
         Ok(())
     })
@@ -1279,7 +1281,7 @@ pub unsafe extern "C" fn xmtp_conversation_debug_info(
         }
         let info = c.inner.debug_info().await?;
         // Build cursor array on the heap
-        let mut cursors: Vec<FfiCursor> = info
+        let cursors: Vec<FfiCursor> = info
             .cursor
             .iter()
             .map(|c| FfiCursor {
@@ -1288,8 +1290,7 @@ pub unsafe extern "C" fn xmtp_conversation_debug_info(
             })
             .collect();
         let cursors_count = cursors.len() as i32;
-        let cursors_ptr = cursors.as_mut_ptr();
-        std::mem::forget(cursors);
+        let (cursors_ptr, _, _) = cursors.into_raw_parts();
 
         unsafe {
             *out = FfiConversationDebugInfo {
@@ -1374,13 +1375,12 @@ fn hmac_keys_to_entry(
     group_id: &[u8],
     keys: Vec<xmtp_db::user_preferences::HmacKey>,
 ) -> FfiHmacKeyEntry {
-    let mut c_keys: Vec<FfiHmacKey> = keys
+    let c_keys: Vec<FfiHmacKey> = keys
         .into_iter()
         .map(|k| {
-            let mut key_vec = k.key.to_vec();
+            let key_vec = k.key.to_vec();
             let len = key_vec.len() as i32;
-            let ptr = key_vec.as_mut_ptr();
-            std::mem::forget(key_vec);
+            let (ptr, _, _) = key_vec.into_raw_parts();
             FfiHmacKey {
                 key: ptr,
                 key_len: len,
@@ -1389,8 +1389,7 @@ fn hmac_keys_to_entry(
         })
         .collect();
     let keys_count = c_keys.len() as i32;
-    let keys_ptr = c_keys.as_mut_ptr();
-    std::mem::forget(c_keys);
+    let (keys_ptr, _, _) = c_keys.into_raw_parts();
     FfiHmacKeyEntry {
         group_id: to_c_string(&hex::encode(group_id)),
         keys: keys_ptr,
