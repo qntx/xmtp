@@ -38,6 +38,11 @@ typedef struct XmtpXmtpConversation XmtpXmtpConversation;
 typedef struct XmtpXmtpConversationList XmtpXmtpConversationList;
 
 /**
+ * A list of enriched messages.
+ */
+typedef struct XmtpXmtpEnrichedMessageList XmtpXmtpEnrichedMessageList;
+
+/**
  * A list of group members.
  */
 typedef struct XmtpXmtpGroupMemberList XmtpXmtpGroupMemberList;
@@ -61,6 +66,11 @@ typedef struct XmtpXmtpInboxUpdateCountList XmtpXmtpInboxUpdateCountList;
  * A list of key package statuses.
  */
 typedef struct XmtpXmtpKeyPackageStatusList XmtpXmtpKeyPackageStatusList;
+
+/**
+ * A list of last-read-time entries.
+ */
+typedef struct XmtpXmtpLastReadTimeList XmtpXmtpLastReadTimeList;
 
 /**
  * A stored message exposed to C.
@@ -288,6 +298,61 @@ typedef struct XmtpXmtpGroupPermissions {
     int32_t policy_type;
     struct XmtpXmtpPermissionPolicySet policy_set;
 } XmtpXmtpGroupPermissions;
+
+/**
+ * An enriched (decoded) message exposed to C.
+ * Contains metadata + the original encoded content bytes for upper-layer decoding.
+ */
+typedef struct XmtpXmtpEnrichedMessage {
+    /**
+     * Message ID (hex string, owned).
+     */
+    char *id;
+    /**
+     * Group ID (hex string, owned).
+     */
+    char *group_id;
+    /**
+     * Sender inbox ID (owned string).
+     */
+    char *sender_inbox_id;
+    /**
+     * Sender installation ID (hex string, owned).
+     */
+    char *sender_installation_id;
+    /**
+     * Sent timestamp in nanoseconds.
+     */
+    int64_t sent_at_ns;
+    /**
+     * Inserted-into-DB timestamp in nanoseconds.
+     */
+    int64_t inserted_at_ns;
+    /**
+     * Message kind: 1=Application, 2=MembershipChange.
+     */
+    int32_t kind;
+    /**
+     * Delivery status: 1=Unpublished, 2=Published, 3=Failed.
+     */
+    int32_t delivery_status;
+    /**
+     * Content type ID string (e.g. "xmtp.org/text:1.0", owned).
+     */
+    char *content_type;
+    /**
+     * Fallback text (nullable, owned).
+     */
+    char *fallback_text;
+    /**
+     * Number of reactions.
+     */
+    int32_t num_reactions;
+    /**
+     * Number of replies.
+     */
+    int32_t num_replies;
+} XmtpXmtpEnrichedMessage;
 
 /**
  * Options for creating a new group conversation.
@@ -1268,6 +1333,59 @@ int32_t xmtp_conversation_group_permissions(const struct XmtpXmtpConversation *c
  * Free a group permissions struct.
  */
 xmtp_ void xmtp_group_permissions_free(struct XmtpXmtpGroupPermissions *perms);
+
+/**
+ * List enriched (decoded) messages for a conversation.
+ * Caller must free with [`xmtp_enriched_message_list_free`].
+ */
+xmtp_
+int32_t xmtp_conversation_list_enriched_messages(const struct XmtpXmtpConversation *conversation,
+                                                 const struct XmtpXmtpListMessagesOptions *opts,
+                                                 struct XmtpXmtpEnrichedMessageList **out);
+
+/**
+ * Get the number of entries in an enriched message list.
+ */
+xmtp_ int32_t xmtp_enriched_message_list_len(const struct XmtpXmtpEnrichedMessageList *list);
+
+/**
+ * Get a borrowed pointer to an enriched message by index.
+ */
+xmtp_
+const struct XmtpXmtpEnrichedMessage *xmtp_enriched_message_list_get(const struct XmtpXmtpEnrichedMessageList *list,
+                                                                     int32_t index);
+
+/**
+ * Free an enriched message list (including all owned strings).
+ */
+xmtp_ void xmtp_enriched_message_list_free(struct XmtpXmtpEnrichedMessageList *list);
+
+/**
+ * Get per-inbox last read times for a conversation.
+ * Caller must free with [`xmtp_last_read_time_list_free`].
+ */
+xmtp_
+int32_t xmtp_conversation_last_read_times(const struct XmtpXmtpConversation *conversation,
+                                          struct XmtpXmtpLastReadTimeList **out);
+
+/**
+ * Get the number of entries in a last-read-time list.
+ */
+xmtp_ int32_t xmtp_last_read_time_list_len(const struct XmtpXmtpLastReadTimeList *list);
+
+/**
+ * Get a borrowed pointer to a last-read-time entry by index.
+ */
+xmtp_
+int32_t xmtp_last_read_time_list_get(const struct XmtpXmtpLastReadTimeList *list,
+                                     int32_t index,
+                                     const char **out_inbox_id,
+                                     int64_t *out_timestamp_ns);
+
+/**
+ * Free a last-read-time list.
+ */
+xmtp_ void xmtp_last_read_time_list_free(struct XmtpXmtpLastReadTimeList *list);
 
 /**
  * Free an HMAC key map (including all owned data).

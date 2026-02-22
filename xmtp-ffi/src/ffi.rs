@@ -321,6 +321,53 @@ pub struct XmtpGroupPermissions {
     pub policy_set: XmtpPermissionPolicySet,
 }
 
+/// An enriched (decoded) message exposed to C.
+/// Contains metadata + the original encoded content bytes for upper-layer decoding.
+#[repr(C)]
+pub struct XmtpEnrichedMessage {
+    /// Message ID (hex string, owned).
+    pub id: *mut c_char,
+    /// Group ID (hex string, owned).
+    pub group_id: *mut c_char,
+    /// Sender inbox ID (owned string).
+    pub sender_inbox_id: *mut c_char,
+    /// Sender installation ID (hex string, owned).
+    pub sender_installation_id: *mut c_char,
+    /// Sent timestamp in nanoseconds.
+    pub sent_at_ns: i64,
+    /// Inserted-into-DB timestamp in nanoseconds.
+    pub inserted_at_ns: i64,
+    /// Message kind: 1=Application, 2=MembershipChange.
+    pub kind: i32,
+    /// Delivery status: 1=Unpublished, 2=Published, 3=Failed.
+    pub delivery_status: i32,
+    /// Content type ID string (e.g. "xmtp.org/text:1.0", owned).
+    pub content_type: *mut c_char,
+    /// Fallback text (nullable, owned).
+    pub fallback_text: *mut c_char,
+    /// Number of reactions.
+    pub num_reactions: i32,
+    /// Number of replies.
+    pub num_replies: i32,
+}
+
+/// A list of enriched messages.
+pub struct XmtpEnrichedMessageList {
+    pub(crate) items: Vec<XmtpEnrichedMessage>,
+}
+
+/// Last-read-time entry (inbox_id → timestamp_ns).
+#[repr(C)]
+pub struct XmtpLastReadTimeEntry {
+    pub inbox_id: *mut c_char,
+    pub timestamp_ns: i64,
+}
+
+/// A list of last-read-time entries.
+pub struct XmtpLastReadTimeList {
+    pub(crate) items: Vec<XmtpLastReadTimeEntry>,
+}
+
 // ---------------------------------------------------------------------------
 // Thread-local error
 // ---------------------------------------------------------------------------
