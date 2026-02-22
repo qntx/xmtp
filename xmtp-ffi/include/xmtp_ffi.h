@@ -180,6 +180,14 @@ typedef struct XmtpXmtpListMessagesOptions {
      */
     int64_t sent_before_ns;
     /**
+     * Only messages inserted after this timestamp (ns). 0 = no filter.
+     */
+    int64_t inserted_after_ns;
+    /**
+     * Only messages inserted before this timestamp (ns). 0 = no filter.
+     */
+    int64_t inserted_before_ns;
+    /**
      * Maximum number of messages. 0 = no limit.
      */
     int64_t limit;
@@ -191,6 +199,27 @@ typedef struct XmtpXmtpListMessagesOptions {
      * Filter by message kind: -1 = all, 0 = Application, 1 = MembershipChange.
      */
     int32_t kind;
+    /**
+     * Sort direction: 0 = Ascending (default), 1 = Descending.
+     */
+    int32_t direction;
+    /**
+     * Sort by: 0 = SentAt (default), 1 = InsertedAt.
+     */
+    int32_t sort_by;
+    /**
+     * Content type filter array (nullable). Each element is a ContentType i32 value.
+     * See `xmtp_db::group_message::ContentType` repr(i32) for values.
+     */
+    const int32_t *content_types;
+    /**
+     * Number of elements in `content_types`. 0 = no filter.
+     */
+    int32_t content_types_count;
+    /**
+     * Whether to exclude disappearing messages. 0 = include (default), 1 = exclude.
+     */
+    int32_t exclude_disappearing;
 } XmtpXmtpListMessagesOptions;
 
 /**

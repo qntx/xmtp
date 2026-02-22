@@ -223,42 +223,88 @@ pub struct XmtpListMessagesOptions {
     pub sent_after_ns: i64,
     /// Only messages sent before this timestamp (ns). 0 = no filter.
     pub sent_before_ns: i64,
+    /// Only messages inserted after this timestamp (ns). 0 = no filter.
+    pub inserted_after_ns: i64,
+    /// Only messages inserted before this timestamp (ns). 0 = no filter.
+    pub inserted_before_ns: i64,
     /// Maximum number of messages. 0 = no limit.
     pub limit: i64,
     /// Filter by delivery status: -1 = all, 0 = Unpublished, 1 = Published, 2 = Failed.
     pub delivery_status: i32,
     /// Filter by message kind: -1 = all, 0 = Application, 1 = MembershipChange.
     pub kind: i32,
+    /// Sort direction: 0 = Ascending (default), 1 = Descending.
+    pub direction: i32,
+    /// Sort by: 0 = SentAt (default), 1 = InsertedAt.
+    pub sort_by: i32,
+    /// Content type filter array (nullable). Each element is a ContentType i32 value.
+    /// See `xmtp_db::group_message::ContentType` repr(i32) for values.
+    pub content_types: *const i32,
+    /// Number of elements in `content_types`. 0 = no filter.
+    pub content_types_count: i32,
+    /// Whether to exclude disappearing messages. 0 = include (default), 1 = exclude.
+    pub exclude_disappearing: i32,
 }
 
 /// Parse message query options from C struct into `MsgQueryArgs`.
 fn parse_msg_query_args(
     opts: *const XmtpListMessagesOptions,
 ) -> xmtp_db::group_message::MsgQueryArgs {
-    let mut args = xmtp_db::group_message::MsgQueryArgs::default();
-    if !opts.is_null() {
-        let o = unsafe { &*opts };
-        if o.sent_after_ns > 0 {
-            args.sent_after_ns = Some(o.sent_after_ns);
-        }
-        if o.sent_before_ns > 0 {
-            args.sent_before_ns = Some(o.sent_before_ns);
-        }
-        if o.limit > 0 {
-            args.limit = Some(o.limit);
-        }
-        args.delivery_status = match o.delivery_status {
-            0 => Some(xmtp_db::group_message::DeliveryStatus::Unpublished),
-            1 => Some(xmtp_db::group_message::DeliveryStatus::Published),
-            2 => Some(xmtp_db::group_message::DeliveryStatus::Failed),
-            _ => None,
-        };
-        args.kind = match o.kind {
-            0 => Some(xmtp_db::group_message::GroupMessageKind::Application),
-            1 => Some(xmtp_db::group_message::GroupMessageKind::MembershipChange),
-            _ => None,
-        };
+    use xmtp_db::group_message::*;
+
+    let mut args = MsgQueryArgs::default();
+    if opts.is_null() {
+        return args;
     }
+    let o = unsafe { &*opts };
+
+    if o.sent_after_ns > 0 {
+        args.sent_after_ns = Some(o.sent_after_ns);
+    }
+    if o.sent_before_ns > 0 {
+        args.sent_before_ns = Some(o.sent_before_ns);
+    }
+    if o.inserted_after_ns > 0 {
+        args.inserted_after_ns = Some(o.inserted_after_ns);
+    }
+    if o.inserted_before_ns > 0 {
+        args.inserted_before_ns = Some(o.inserted_before_ns);
+    }
+    if o.limit > 0 {
+        args.limit = Some(o.limit);
+    }
+    args.delivery_status = match o.delivery_status {
+        0 => Some(DeliveryStatus::Unpublished),
+        1 => Some(DeliveryStatus::Published),
+        2 => Some(DeliveryStatus::Failed),
+        _ => None,
+    };
+    args.kind = match o.kind {
+        0 => Some(GroupMessageKind::Application),
+        1 => Some(GroupMessageKind::MembershipChange),
+        _ => None,
+    };
+    args.direction = match o.direction {
+        1 => Some(SortDirection::Descending),
+        _ => None, // 0 or default = Ascending (MsgQueryArgs default)
+    };
+    args.sort_by = match o.sort_by {
+        1 => Some(SortBy::InsertedAt),
+        _ => None, // 0 or default = SentAt (MsgQueryArgs default)
+    };
+    if !o.content_types.is_null() && o.content_types_count > 0 {
+        let slice =
+            unsafe { std::slice::from_raw_parts(o.content_types, o.content_types_count as usize) };
+        let cts: Vec<ContentType> = slice
+            .iter()
+            .filter_map(|&v| i32_to_content_type(v))
+            .collect();
+        if !cts.is_empty() {
+            args.content_types = Some(cts);
+        }
+    }
+    args.exclude_disappearing = o.exclude_disappearing != 0;
+
     args
 }
 
@@ -1593,7 +1639,11 @@ pub unsafe extern "C" fn xmtp_conversation_list_enriched_messages(
 }
 
 ffi_list_len!(xmtp_enriched_message_list_len, XmtpEnrichedMessageList);
-ffi_list_get!(xmtp_enriched_message_list_get, XmtpEnrichedMessageList, XmtpEnrichedMessage);
+ffi_list_get!(
+    xmtp_enriched_message_list_get,
+    XmtpEnrichedMessageList,
+    XmtpEnrichedMessage
+);
 
 /// Free an enriched message list.
 #[unsafe(no_mangle)]
@@ -1604,7 +1654,12 @@ pub unsafe extern "C" fn xmtp_enriched_message_list_free(list: *mut XmtpEnriched
     let l = unsafe { Box::from_raw(list) };
     for item in &l.items {
         free_c_strings!(
-            item, id, group_id, sender_inbox_id, sender_installation_id, content_type,
+            item,
+            id,
+            group_id,
+            sender_inbox_id,
+            sender_installation_id,
+            content_type,
             fallback_text,
         );
     }
@@ -1637,7 +1692,11 @@ pub unsafe extern "C" fn xmtp_conversation_last_read_times(
 }
 
 ffi_list_len!(xmtp_last_read_time_list_len, XmtpLastReadTimeList);
-ffi_list_get!(xmtp_last_read_time_list_get, XmtpLastReadTimeList, XmtpLastReadTimeEntry);
+ffi_list_get!(
+    xmtp_last_read_time_list_get,
+    XmtpLastReadTimeList,
+    XmtpLastReadTimeEntry
+);
 
 /// Free a last-read-time list.
 #[unsafe(no_mangle)]

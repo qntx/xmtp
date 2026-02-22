@@ -735,6 +735,31 @@ pub(crate) fn consent_record_to_c(
     }
 }
 
+/// Map i32 → `ContentType`. Returns `None` on invalid value.
+pub(crate) fn i32_to_content_type(v: i32) -> Option<xmtp_db::group_message::ContentType> {
+    use xmtp_db::group_message::ContentType;
+    match v {
+        0 => Some(ContentType::Unknown),
+        1 => Some(ContentType::Text),
+        2 => Some(ContentType::GroupMembershipChange),
+        3 => Some(ContentType::GroupUpdated),
+        4 => Some(ContentType::Reaction),
+        5 => Some(ContentType::ReadReceipt),
+        6 => Some(ContentType::Reply),
+        7 => Some(ContentType::Attachment),
+        8 => Some(ContentType::RemoteAttachment),
+        9 => Some(ContentType::TransactionReference),
+        10 => Some(ContentType::WalletSendCalls),
+        11 => Some(ContentType::LeaveRequest),
+        12 => Some(ContentType::Markdown),
+        13 => Some(ContentType::Actions),
+        14 => Some(ContentType::Intent),
+        15 => Some(ContentType::MultiRemoteAttachment),
+        16 => Some(ContentType::DeleteMessage),
+        _ => None,
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Logger initialization
 // ---------------------------------------------------------------------------
