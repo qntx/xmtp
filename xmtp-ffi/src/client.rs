@@ -625,14 +625,7 @@ pub unsafe extern "C" fn xmtp_client_fetch_inbox_states(
     })
 }
 
-/// Get the number of inbox states in the list.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn xmtp_inbox_state_list_len(list: *const XmtpInboxStateList) -> i32 {
-    match unsafe { ref_from(list) } {
-        Ok(l) => l.items.len() as i32,
-        Err(_) => 0,
-    }
-}
+ffi_list_len!(xmtp_inbox_state_list_len, XmtpInboxStateList);
 
 /// Get inbox ID at index. Caller must free with [`xmtp_free_string`].
 #[unsafe(no_mangle)]
@@ -730,7 +723,7 @@ pub unsafe extern "C" fn xmtp_inbox_state_installation_ids(
     }
 }
 
-/// Free an inbox state list (including all owned strings).
+/// Free an inbox state list.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn xmtp_inbox_state_list_free(list: *mut XmtpInboxStateList) {
     if list.is_null() {
@@ -738,12 +731,7 @@ pub unsafe extern "C" fn xmtp_inbox_state_list_free(list: *mut XmtpInboxStateLis
     }
     let l = unsafe { Box::from_raw(list) };
     for item in &l.items {
-        if !item.inbox_id.is_null() {
-            drop(unsafe { std::ffi::CString::from_raw(item.inbox_id) });
-        }
-        if !item.recovery_identifier.is_null() {
-            drop(unsafe { std::ffi::CString::from_raw(item.recovery_identifier) });
-        }
+        free_c_strings!(item, inbox_id, recovery_identifier);
         free_c_string_array(item.identifiers, item.identifiers_count);
         free_c_string_array(item.installation_ids, item.installation_ids_count);
     }

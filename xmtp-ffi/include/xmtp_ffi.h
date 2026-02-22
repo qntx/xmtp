@@ -639,11 +639,6 @@ int32_t xmtp_client_fetch_inbox_states(const struct XmtpXmtpClient *client,
                                        struct XmtpXmtpInboxStateList **out);
 
 /**
- * Get the number of inbox states in the list.
- */
-xmtp_ int32_t xmtp_inbox_state_list_len(const struct XmtpXmtpInboxStateList *list);
-
-/**
  * Get inbox ID at index. Caller must free with [`xmtp_free_string`].
  */
 xmtp_ char *xmtp_inbox_state_inbox_id(const struct XmtpXmtpInboxStateList *list, int32_t index);
@@ -672,7 +667,7 @@ char *const *xmtp_inbox_state_installation_ids(const struct XmtpXmtpInboxStateLi
                                                int32_t *out_count);
 
 /**
- * Free an inbox state list (including all owned strings).
+ * Free an inbox state list.
  */
 xmtp_ void xmtp_inbox_state_list_free(struct XmtpXmtpInboxStateList *list);
 
@@ -912,7 +907,7 @@ char *const *xmtp_group_member_installation_ids(const struct XmtpXmtpGroupMember
                                                 int32_t *out_count);
 
 /**
- * Free a group member list (including all owned strings).
+ * Free a group member list.
  */
 xmtp_ void xmtp_group_member_list_free(struct XmtpXmtpGroupMemberList *list);
 
@@ -1309,11 +1304,6 @@ int32_t xmtp_conversation_list_get(const struct XmtpXmtpConversationList *list,
                                    struct XmtpXmtpConversation **out);
 
 /**
- * Free a conversation list.
- */
-xmtp_ void xmtp_conversation_list_free(struct XmtpXmtpConversationList *list);
-
-/**
  * Sync welcomes (process new group invitations).
  */
 xmtp_ int32_t xmtp_client_sync_welcomes(const struct XmtpXmtpClient *client);
@@ -1408,11 +1398,6 @@ xmtp_
 int32_t xmtp_device_sync_list_available_archives(const struct XmtpXmtpClient *client,
                                                  int64_t days_cutoff,
                                                  struct XmtpXmtpAvailableArchiveList **out);
-
-/**
- * Get the number of available archives.
- */
-xmtp_ int32_t xmtp_available_archive_list_len(const struct XmtpXmtpAvailableArchiveList *list);
 
 /**
  * Get the pin string at index. Returns a borrowed pointer; do NOT free.

@@ -301,13 +301,7 @@ pub unsafe extern "C" fn xmtp_conversation_list_get(
     })
 }
 
-/// Free a conversation list.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn xmtp_conversation_list_free(list: *mut XmtpConversationList) {
-    if !list.is_null() {
-        drop(unsafe { Box::from_raw(list) });
-    }
-}
+free_opaque!(xmtp_conversation_list_free, XmtpConversationList);
 
 // ---------------------------------------------------------------------------
 // Sync

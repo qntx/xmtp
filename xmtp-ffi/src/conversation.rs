@@ -558,7 +558,7 @@ pub unsafe extern "C" fn xmtp_group_member_installation_ids(
     }
 }
 
-/// Free a group member list (including all owned strings).
+/// Free a group member list.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn xmtp_group_member_list_free(list: *mut XmtpGroupMemberList) {
     if list.is_null() {
@@ -566,9 +566,7 @@ pub unsafe extern "C" fn xmtp_group_member_list_free(list: *mut XmtpGroupMemberL
     }
     let l = unsafe { Box::from_raw(list) };
     for m in &l.items {
-        if !m.inbox_id.is_null() {
-            drop(unsafe { CString::from_raw(m.inbox_id) });
-        }
+        free_c_strings!(m, inbox_id);
         free_c_string_array(m.account_identifiers, m.account_identifiers_count);
         free_c_string_array(m.installation_ids, m.installation_ids_count);
     }

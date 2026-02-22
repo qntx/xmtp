@@ -161,16 +161,7 @@ pub unsafe extern "C" fn xmtp_device_sync_list_available_archives(
     })
 }
 
-/// Get the number of available archives.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn xmtp_available_archive_list_len(
-    list: *const XmtpAvailableArchiveList,
-) -> i32 {
-    match unsafe { ref_from(list) } {
-        Ok(l) => l.items.len() as i32,
-        Err(_) => 0,
-    }
-}
+ffi_list_len!(xmtp_available_archive_list_len, XmtpAvailableArchiveList);
 
 /// Get the pin string at index. Returns a borrowed pointer; do NOT free.
 #[unsafe(no_mangle)]
@@ -209,9 +200,7 @@ pub unsafe extern "C" fn xmtp_available_archive_list_free(list: *mut XmtpAvailab
     }
     let l = unsafe { Box::from_raw(list) };
     for item in &l.items {
-        if !item.pin.is_null() {
-            drop(unsafe { std::ffi::CString::from_raw(item.pin) });
-        }
+        free_c_strings!(item, pin);
         if !item.sent_by_installation.is_null() && item.sent_by_installation_len > 0 {
             drop(unsafe {
                 Vec::from_raw_parts(
