@@ -44,9 +44,8 @@ fn main() {
         let _ = ffi_path;
     } else {
         // Option 2: Download from GitHub Releases.
-        let version = env::var("XMTP_FFI_VERSION").unwrap_or_else(|_| {
-            env::var("CARGO_PKG_VERSION").expect("CARGO_PKG_VERSION not set")
-        });
+        let version = env::var("XMTP_FFI_VERSION")
+            .unwrap_or_else(|_| env::var("CARGO_PKG_VERSION").expect("CARGO_PKG_VERSION not set"));
 
         let lib_dir = out_dir.join("lib");
         let lib_file = lib_dir.join(lib_filename(&target));
@@ -126,10 +125,11 @@ fn download_and_extract(version: &str, target: &str, dest: &Path) {
 
     fs::create_dir_all(dest).expect("Failed to create output directory");
 
+    let body = resp.into_body().into_reader();
     if is_windows {
-        extract_zip(resp.into_reader(), dest);
+        extract_zip(body, dest);
     } else {
-        extract_tar_gz(resp.into_reader(), dest);
+        extract_tar_gz(body, dest);
     }
 
     // Verify the expected library file exists after extraction.

@@ -30,7 +30,7 @@ jobs:
             lib: libxmtp_ffi.a
             cross: true
           - target: x86_64-apple-darwin
-            os: macos-13
+            os: macos-latest
             lib: libxmtp_ffi.a
           - target: aarch64-apple-darwin
             os: macos-latest

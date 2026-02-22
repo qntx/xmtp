@@ -7219,15 +7219,12 @@ dependencies = [
 
 [[package]]
 name = "xmtp-ffi"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "cbindgen",
  "const-hex",
- "futures",
  "http 1.4.0",
- "prost",
  "tokio",
- "tracing",
  "tracing-subscriber",
  "xmtp_api",
  "xmtp_api_d14n",
