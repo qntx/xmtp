@@ -645,15 +645,15 @@ dependencies = [
 
 [[package]]
 name = "xmtp"
-version = "0.1.1"
+version = "0.1.3"
 
 [[package]]
 name = "xmtp-cli"
-version = "0.1.1"
+version = "0.1.3"
 
 [[package]]
 name = "xmtp-sys"
-version = "0.1.1"
+version = "0.1.3"
 dependencies = [
  "bindgen",
  "flate2",
