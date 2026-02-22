@@ -62,19 +62,18 @@ doc:
 # Toolchain is auto-selected by xmtp-ffi/rust-toolchain.toml (nightly, for cbindgen)
 .PHONY: ffi-build
 ffi-build:
-	cargo build --release --manifest-path $(FFI_DIR)/Cargo.toml
+	cd $(FFI_DIR) && cargo build --release
 
 # Quick compilation check for FFI
 # Toolchain is auto-selected by xmtp-ffi/rust-toolchain.toml (nightly, for cbindgen)
 .PHONY: ffi-check
 ffi-check:
-	cargo check --manifest-path $(FFI_DIR)/Cargo.toml
+	cd $(FFI_DIR) && cargo check
 
 # Lint FFI code with Clippy (auto-fix)
 .PHONY: ffi-clippy
 ffi-clippy:
-	cargo clippy --fix \
-		--manifest-path $(FFI_DIR)/Cargo.toml \
+	cd $(FFI_DIR) && cargo clippy --fix \
 		--all-targets \
 		--allow-dirty \
 		--allow-staged \
@@ -83,12 +82,12 @@ ffi-clippy:
 # Format FFI code
 .PHONY: ffi-fmt
 ffi-fmt:
-	cargo fmt --manifest-path $(FFI_DIR)/Cargo.toml
+	cd $(FFI_DIR) && cargo fmt
 
 # Check FFI formatting without modifying files
 .PHONY: ffi-fmt-check
 ffi-fmt-check:
-	cargo fmt --manifest-path $(FFI_DIR)/Cargo.toml --check
+	cd $(FFI_DIR) && cargo fmt --check
 
 .PHONY: fmt-all
 fmt-all: fmt ffi-fmt
@@ -109,7 +108,7 @@ build-all: build ffi-build
 .PHONY: update
 update:
 	cargo update
-	cargo update --manifest-path $(FFI_DIR)/Cargo.toml
+	cd $(FFI_DIR) && cargo update
 
 # Check for unused dependencies (workspace only)
 .PHONY: udeps
