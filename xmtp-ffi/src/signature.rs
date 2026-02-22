@@ -206,6 +206,45 @@ pub unsafe extern "C" fn xmtp_signature_request_add_passkey(
     })
 }
 
+/// Add a smart contract wallet (SCW) signature to the request.
+/// `account_address` is the EVM account address (hex string).
+/// `chain_id` is the EVM chain ID (e.g. 1 for mainnet).
+/// `block_number` is optional; pass 0 to omit.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn xmtp_signature_request_add_scw(
+    req: *const XmtpSignatureRequest,
+    account_address: *const c_char,
+    signature_bytes: *const u8,
+    signature_len: i32,
+    chain_id: u64,
+    block_number: u64,
+) -> i32 {
+    catch_async(|| async {
+        let r = unsafe { ref_from(req)? };
+        let addr = unsafe { c_str_to_string(account_address)? };
+        if signature_bytes.is_null() || signature_len <= 0 {
+            return Err("null or empty signature".into());
+        }
+        let sig =
+            unsafe { std::slice::from_raw_parts(signature_bytes, signature_len as usize) }.to_vec();
+        let account_id = xmtp_id::associations::AccountId::new_evm(chain_id, addr);
+        let bn = if block_number == 0 {
+            None
+        } else {
+            Some(block_number)
+        };
+        let scw_sig =
+            xmtp_id::associations::unverified::NewUnverifiedSmartContractWalletSignature::new(
+                sig, account_id, bn,
+            );
+        let mut req_lock = r.request.lock().await;
+        req_lock
+            .add_new_unverified_smart_contract_signature(scw_sig, &*r.scw_verifier)
+            .await?;
+        Ok(())
+    })
+}
+
 /// Apply a signature request to the client.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn xmtp_client_apply_signature_request(

@@ -54,6 +54,10 @@ pub type FnConversationCallback =
 pub type FnMessageCallback =
     unsafe extern "C" fn(message: *mut XmtpMessage, context: *mut std::ffi::c_void);
 
+/// Callback invoked when a stream closes (either normally or on error).
+/// Receives the opaque context pointer.
+pub type FnOnCloseCallback = unsafe extern "C" fn(context: *mut std::ffi::c_void);
+
 // ---------------------------------------------------------------------------
 // Data transfer types (flat, repr(C))
 // ---------------------------------------------------------------------------
@@ -82,6 +86,7 @@ pub struct XmtpConversationListItem {
 pub struct XmtpGroupMember {
     pub(crate) inbox_id: *mut c_char,
     pub(crate) permission_level: i32, // 0=Member, 1=Admin, 2=SuperAdmin
+    pub(crate) consent_state: i32,    // 0=Unknown, 1=Allowed, 2=Denied
 }
 
 /// A list of group members.

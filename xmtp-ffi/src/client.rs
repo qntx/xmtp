@@ -524,3 +524,42 @@ pub unsafe extern "C" fn xmtp_client_verify_signed_with_installation_key(
         Ok(())
     })
 }
+
+// ---------------------------------------------------------------------------
+// Message-level operations (client-scoped)
+// ---------------------------------------------------------------------------
+
+/// Get a message by its hex-encoded ID. Caller must free with [`xmtp_message_free`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn xmtp_client_get_message_by_id(
+    client: *const XmtpClient,
+    message_id_hex: *const c_char,
+    out: *mut *mut XmtpMessage,
+) -> i32 {
+    catch(|| {
+        let c = unsafe { ref_from(client)? };
+        if out.is_null() {
+            return Err("null output pointer".into());
+        }
+        let id_hex = unsafe { c_str_to_string(message_id_hex)? };
+        let id_bytes = hex::decode(&id_hex)?;
+        let msg = c.inner.message(id_bytes)?;
+        unsafe { write_out(out, XmtpMessage { inner: msg })? };
+        Ok(())
+    })
+}
+
+/// Delete a message by its hex-encoded ID. Returns the number of deleted rows.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn xmtp_client_delete_message_by_id(
+    client: *const XmtpClient,
+    message_id_hex: *const c_char,
+) -> i32 {
+    catch(|| {
+        let c = unsafe { ref_from(client)? };
+        let id_hex = unsafe { c_str_to_string(message_id_hex)? };
+        let id_bytes = hex::decode(&id_hex)?;
+        c.inner.delete_message(id_bytes)?;
+        Ok(())
+    })
+}

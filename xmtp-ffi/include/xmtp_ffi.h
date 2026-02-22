@@ -10,6 +10,8 @@
 #include <stdint.h>
 #include <stdlib.h>
 
+typedef struct XmtpOption_FnOnCloseCallback XmtpOption_FnOnCloseCallback;
+
 /**
  * Opaque client handle.
  */
@@ -375,6 +377,21 @@ int32_t xmtp_client_verify_signed_with_installation_key(const struct XmtpXmtpCli
                                                         int32_t signature_len);
 
 /**
+ * Get a message by its hex-encoded ID. Caller must free with [`xmtp_message_free`].
+ */
+xmtp_
+int32_t xmtp_client_get_message_by_id(const struct XmtpXmtpClient *client,
+                                      const char *message_id_hex,
+                                      struct XmtpXmtpMessage **out);
+
+/**
+ * Delete a message by its hex-encoded ID. Returns the number of deleted rows.
+ */
+xmtp_
+int32_t xmtp_client_delete_message_by_id(const struct XmtpXmtpClient *client,
+                                         const char *message_id_hex);
+
+/**
  * Free a conversation handle.
  */
 xmtp_ void xmtp_conversation_free(struct XmtpXmtpConversation *conv);
@@ -424,6 +441,14 @@ xmtp_
 int32_t xmtp_conversation_list_messages(const struct XmtpXmtpConversation *conv,
                                         const struct XmtpXmtpListMessagesOptions *opts,
                                         struct XmtpXmtpMessageList **out);
+
+/**
+ * Count messages matching the given filter options.
+ * Pass null for `opts` to count all messages.
+ */
+xmtp_
+int64_t xmtp_conversation_count_messages(const struct XmtpXmtpConversation *conv,
+                                         const struct XmtpXmtpListMessagesOptions *opts);
 
 /**
  * Get the number of messages in a list.
@@ -497,6 +522,13 @@ xmtp_ char *xmtp_group_member_inbox_id(const struct XmtpXmtpGroupMemberList *lis
 xmtp_
 int32_t xmtp_group_member_permission_level(const struct XmtpXmtpGroupMemberList *list,
                                            int32_t index);
+
+/**
+ * Get member consent state at index: 0=Unknown, 1=Allowed, 2=Denied, -1=error.
+ */
+xmtp_
+int32_t xmtp_group_member_consent_state(const struct XmtpXmtpGroupMemberList *list,
+                                        int32_t index);
 
 /**
  * Free a group member list.
@@ -666,12 +698,29 @@ int32_t xmtp_conversation_remove_members_by_identity(const struct XmtpXmtpConver
 xmtp_ void xmtp_free_string_array(char **arr, int32_t count);
 
 /**
- * Create a new group conversation. Caller must free result with [`xmtp_conversation_free`].
+ * Create a new group conversation, optionally adding members by inbox ID.
+ * Pass null/0 for `member_inbox_ids`/`member_count` to create an empty group.
+ * Caller must free result with [`xmtp_conversation_free`].
  */
 xmtp_
 int32_t xmtp_client_create_group(const struct XmtpXmtpClient *client,
                                  const struct XmtpXmtpCreateGroupOptions *opts,
+                                 const char *const *member_inbox_ids,
+                                 int32_t member_count,
                                  struct XmtpXmtpConversation **out);
+
+/**
+ * Create a new group, adding members by identity (address/passkey).
+ * `identifiers` and `kinds` are parallel arrays of length `count`.
+ * Caller must free result with [`xmtp_conversation_free`].
+ */
+xmtp_
+int32_t xmtp_client_create_group_by_identity(const struct XmtpXmtpClient *client,
+                                             const struct XmtpXmtpCreateGroupOptions *opts,
+                                             const char *const *identifiers,
+                                             const int32_t *kinds,
+                                             int32_t count,
+                                             struct XmtpXmtpConversation **out);
 
 /**
  * Find or create a DM by identifier. Caller must free result with [`xmtp_conversation_free`].
@@ -836,6 +885,20 @@ int32_t xmtp_signature_request_add_passkey(const struct XmtpXmtpSignatureRequest
                                            int32_t client_data_json_len);
 
 /**
+ * Add a smart contract wallet (SCW) signature to the request.
+ * `account_address` is the EVM account address (hex string).
+ * `chain_id` is the EVM chain ID (e.g. 1 for mainnet).
+ * `block_number` is optional; pass 0 to omit.
+ */
+xmtp_
+int32_t xmtp_signature_request_add_scw(const struct XmtpXmtpSignatureRequest *req,
+                                       const char *account_address,
+                                       const uint8_t *signature_bytes,
+                                       int32_t signature_len,
+                                       uint64_t chain_id,
+                                       uint64_t block_number);
+
+/**
  * Apply a signature request to the client.
  */
 xmtp_
@@ -895,7 +958,8 @@ int32_t xmtp_verify_signed_with_public_key(const char *signature_text,
 /**
  * Stream new conversations. Calls `callback` for each new conversation.
  * The callback receives a `*mut XmtpConversation` that the caller must free.
- * `context` is an opaque pointer passed through to the callback.
+ * `context` is an opaque pointer passed through to both callbacks.
+ * `on_close` is called when the stream ends (pass null to ignore).
  *
  * Returns a stream handle via `out` that must be closed with [`xmtp_stream_close`].
  */
@@ -903,27 +967,35 @@ xmtp_
 int32_t xmtp_stream_conversations(const struct XmtpXmtpClient *client,
                                   int32_t conversation_type,
                                   XmtpFnConversationCallback callback,
+                                  struct XmtpOption_FnOnCloseCallback on_close,
                                   void *context,
                                   struct XmtpXmtpStreamHandle **out);
 
 /**
  * Stream all messages across conversations.
  * The callback receives a `*mut XmtpMessage` that the caller must free.
+ * `consent_states` / `consent_states_count`: optional consent filter (pass null/0 for all).
+ * `on_close` is called when the stream ends (pass null to ignore).
  */
 xmtp_
 int32_t xmtp_stream_all_messages(const struct XmtpXmtpClient *client,
                                  int32_t conversation_type,
+                                 const int32_t *consent_states,
+                                 int32_t consent_states_count,
                                  XmtpFnMessageCallback callback,
+                                 struct XmtpOption_FnOnCloseCallback on_close,
                                  void *context,
                                  struct XmtpXmtpStreamHandle **out);
 
 /**
  * Stream messages for a single conversation.
  * The callback receives a `*mut XmtpMessage` that the caller must free.
+ * `on_close` is called when the stream ends (pass null to ignore).
  */
 xmtp_
 int32_t xmtp_conversation_stream_messages(const struct XmtpXmtpConversation *conv,
                                           XmtpFnMessageCallback callback,
+                                          struct XmtpOption_FnOnCloseCallback on_close,
                                           void *context,
                                           struct XmtpXmtpStreamHandle **out);
 

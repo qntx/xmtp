@@ -191,6 +191,42 @@ pub unsafe extern "C" fn xmtp_conversation_list_messages(
     })
 }
 
+/// Count messages matching the given filter options.
+/// Pass null for `opts` to count all messages.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn xmtp_conversation_count_messages(
+    conv: *const XmtpConversation,
+    opts: *const XmtpListMessagesOptions,
+) -> i64 {
+    match unsafe { ref_from(conv) } {
+        Ok(c) => {
+            let mut args = xmtp_db::group_message::MsgQueryArgs::default();
+            if !opts.is_null() {
+                let o = unsafe { &*opts };
+                if o.sent_after_ns > 0 {
+                    args.sent_after_ns = Some(o.sent_after_ns);
+                }
+                if o.sent_before_ns > 0 {
+                    args.sent_before_ns = Some(o.sent_before_ns);
+                }
+                args.delivery_status = match o.delivery_status {
+                    0 => Some(xmtp_db::group_message::DeliveryStatus::Unpublished),
+                    1 => Some(xmtp_db::group_message::DeliveryStatus::Published),
+                    2 => Some(xmtp_db::group_message::DeliveryStatus::Failed),
+                    _ => None,
+                };
+                args.kind = match o.kind {
+                    0 => Some(xmtp_db::group_message::GroupMessageKind::Application),
+                    1 => Some(xmtp_db::group_message::GroupMessageKind::MembershipChange),
+                    _ => None,
+                };
+            }
+            c.inner.count_messages(&args).unwrap_or(0)
+        }
+        Err(_) => 0,
+    }
+}
+
 // --- Message list accessors ---
 
 /// Get the number of messages in a list.
@@ -336,6 +372,11 @@ pub unsafe extern "C" fn xmtp_conversation_list_members(
                         PermissionLevel::Admin => 1,
                         PermissionLevel::SuperAdmin => 2,
                     },
+                    consent_state: match m.consent_state {
+                        xmtp_db::consent_record::ConsentState::Unknown => 0,
+                        xmtp_db::consent_record::ConsentState::Allowed => 1,
+                        xmtp_db::consent_record::ConsentState::Denied => 2,
+                    },
                 }
             })
             .collect();
@@ -386,6 +427,21 @@ pub unsafe extern "C" fn xmtp_group_member_permission_level(
     l.members
         .get(index as usize)
         .map_or(-1, |m| m.permission_level)
+}
+
+/// Get member consent state at index: 0=Unknown, 1=Allowed, 2=Denied, -1=error.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn xmtp_group_member_consent_state(
+    list: *const XmtpGroupMemberList,
+    index: i32,
+) -> i32 {
+    let l = match unsafe { ref_from(list) } {
+        Ok(l) => l,
+        Err(_) => return -1,
+    };
+    l.members
+        .get(index as usize)
+        .map_or(-1, |m| m.consent_state)
 }
 
 /// Free a group member list.

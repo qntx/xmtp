@@ -50,36 +50,66 @@ pub struct XmtpListConversationsOptions {
 // Group / DM creation
 // ---------------------------------------------------------------------------
 
-/// Create a new group conversation. Caller must free result with [`xmtp_conversation_free`].
+/// Create a new group conversation, optionally adding members by inbox ID.
+/// Pass null/0 for `member_inbox_ids`/`member_count` to create an empty group.
+/// Caller must free result with [`xmtp_conversation_free`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn xmtp_client_create_group(
     client: *const XmtpClient,
     opts: *const XmtpCreateGroupOptions,
+    member_inbox_ids: *const *const c_char,
+    member_count: i32,
     out: *mut *mut XmtpConversation,
 ) -> i32 {
-    catch(|| {
+    catch_async(|| async {
         let c = unsafe { ref_from(client)? };
         if out.is_null() {
             return Err("null output pointer".into());
         }
 
-        let (policy_set, metadata) = if opts.is_null() {
-            (None, None)
-        } else {
-            let o = unsafe { &*opts };
-            let policy = match o.permissions {
-                0 => Some(xmtp_mls::groups::PreconfiguredPolicies::Default.to_policy_set()),
-                1 => Some(xmtp_mls::groups::PreconfiguredPolicies::AdminsOnly.to_policy_set()),
-                _ => None,
-            };
-            let mut meta = xmtp_mls::mls_common::group::GroupMetadataOptions::default();
-            meta.name = unsafe { c_str_to_option(o.name)? };
-            meta.description = unsafe { c_str_to_option(o.description)? };
-            meta.image_url_square = unsafe { c_str_to_option(o.image_url)? };
-            (policy, Some(meta))
-        };
-
+        let (policy_set, metadata) = unsafe { parse_group_opts(opts)? };
         let group = c.inner.create_group(policy_set, metadata)?;
+
+        if !member_inbox_ids.is_null() && member_count > 0 {
+            let ids = unsafe { collect_strings(member_inbox_ids, member_count)? };
+            group.add_members(&ids).await?;
+        } else {
+            group.sync().await?;
+        }
+
+        unsafe { write_out(out, XmtpConversation { inner: group })? };
+        Ok(())
+    })
+}
+
+/// Create a new group, adding members by identity (address/passkey).
+/// `identifiers` and `kinds` are parallel arrays of length `count`.
+/// Caller must free result with [`xmtp_conversation_free`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn xmtp_client_create_group_by_identity(
+    client: *const XmtpClient,
+    opts: *const XmtpCreateGroupOptions,
+    identifiers: *const *const c_char,
+    kinds: *const i32,
+    count: i32,
+    out: *mut *mut XmtpConversation,
+) -> i32 {
+    catch_async(|| async {
+        let c = unsafe { ref_from(client)? };
+        if out.is_null() {
+            return Err("null output pointer".into());
+        }
+
+        let (policy_set, metadata) = unsafe { parse_group_opts(opts)? };
+        let group = c.inner.create_group(policy_set, metadata)?;
+
+        if !identifiers.is_null() && count > 0 {
+            let idents = unsafe { collect_identifiers(identifiers, kinds, count)? };
+            group.add_members_by_identity(&idents).await?;
+        } else {
+            group.sync().await?;
+        }
+
         unsafe { write_out(out, XmtpConversation { inner: group })? };
         Ok(())
     })
@@ -326,6 +356,32 @@ pub unsafe extern "C" fn xmtp_client_create_dm_by_inbox_id(
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/// Parse group creation options into (PolicySet, GroupMetadataOptions).
+unsafe fn parse_group_opts(
+    opts: *const XmtpCreateGroupOptions,
+) -> Result<
+    (
+        Option<xmtp_mls::groups::group_permissions::PolicySet>,
+        Option<xmtp_mls::mls_common::group::GroupMetadataOptions>,
+    ),
+    Box<dyn std::error::Error>,
+> {
+    if opts.is_null() {
+        return Ok((None, None));
+    }
+    let o = unsafe { &*opts };
+    let policy = match o.permissions {
+        0 => Some(xmtp_mls::groups::PreconfiguredPolicies::Default.to_policy_set()),
+        1 => Some(xmtp_mls::groups::PreconfiguredPolicies::AdminsOnly.to_policy_set()),
+        _ => None,
+    };
+    let mut meta = xmtp_mls::mls_common::group::GroupMetadataOptions::default();
+    meta.name = unsafe { c_str_to_option(o.name)? };
+    meta.description = unsafe { c_str_to_option(o.description)? };
+    meta.image_url_square = unsafe { c_str_to_option(o.image_url)? };
+    Ok((policy, Some(meta)))
+}
 
 /// Parse a consent state filter from a raw int array.
 fn parse_consent_filter(

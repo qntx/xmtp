@@ -22,13 +22,39 @@ fn parse_conv_type(v: i32) -> Option<xmtp_db::group::ConversationType> {
     }
 }
 
+/// Parse a consent state filter from a raw int array.
+fn parse_consent_states(
+    states: *const i32,
+    count: i32,
+) -> Option<Vec<xmtp_db::consent_record::ConsentState>> {
+    if states.is_null() || count <= 0 {
+        return None;
+    }
+    let mut result = Vec::with_capacity(count as usize);
+    for i in 0..count as usize {
+        let s = unsafe { *states.add(i) };
+        result.push(match s {
+            0 => xmtp_db::consent_record::ConsentState::Unknown,
+            1 => xmtp_db::consent_record::ConsentState::Allowed,
+            2 => xmtp_db::consent_record::ConsentState::Denied,
+            _ => continue,
+        });
+    }
+    if result.is_empty() {
+        None
+    } else {
+        Some(result)
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Stream conversations
 // ---------------------------------------------------------------------------
 
 /// Stream new conversations. Calls `callback` for each new conversation.
 /// The callback receives a `*mut XmtpConversation` that the caller must free.
-/// `context` is an opaque pointer passed through to the callback.
+/// `context` is an opaque pointer passed through to both callbacks.
+/// `on_close` is called when the stream ends (pass null to ignore).
 ///
 /// Returns a stream handle via `out` that must be closed with [`xmtp_stream_close`].
 #[unsafe(no_mangle)]
@@ -36,6 +62,7 @@ pub unsafe extern "C" fn xmtp_stream_conversations(
     client: *const XmtpClient,
     conversation_type: i32,
     callback: FnConversationCallback,
+    on_close: Option<FnOnCloseCallback>,
     context: *mut std::ffi::c_void,
     out: *mut *mut XmtpStreamHandle,
 ) -> i32 {
@@ -46,7 +73,8 @@ pub unsafe extern "C" fn xmtp_stream_conversations(
         }
 
         let conv_type = parse_conv_type(conversation_type);
-        let ctx = context as usize; // usize is Send; raw pointers are not
+        let ctx = context as usize;
+        let close_ctx = ctx;
 
         let mut handle = MlsClient::stream_conversations_with_callback(
             c.inner.clone(),
@@ -54,12 +82,14 @@ pub unsafe extern "C" fn xmtp_stream_conversations(
             move |result| {
                 if let Ok(group) = result {
                     let ptr = into_raw(XmtpConversation { inner: group });
-                    unsafe {
-                        callback(ptr, ctx as *mut std::ffi::c_void);
-                    }
+                    unsafe { callback(ptr, ctx as *mut std::ffi::c_void) };
                 }
             },
-            || {},
+            move || {
+                if let Some(cb) = on_close {
+                    unsafe { cb(close_ctx as *mut std::ffi::c_void) };
+                }
+            },
             false,
         );
 
@@ -83,11 +113,16 @@ pub unsafe extern "C" fn xmtp_stream_conversations(
 
 /// Stream all messages across conversations.
 /// The callback receives a `*mut XmtpMessage` that the caller must free.
+/// `consent_states` / `consent_states_count`: optional consent filter (pass null/0 for all).
+/// `on_close` is called when the stream ends (pass null to ignore).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn xmtp_stream_all_messages(
     client: *const XmtpClient,
     conversation_type: i32,
+    consent_states: *const i32,
+    consent_states_count: i32,
     callback: FnMessageCallback,
+    on_close: Option<FnOnCloseCallback>,
     context: *mut std::ffi::c_void,
     out: *mut *mut XmtpStreamHandle,
 ) -> i32 {
@@ -98,21 +133,25 @@ pub unsafe extern "C" fn xmtp_stream_all_messages(
         }
 
         let conv_type = parse_conv_type(conversation_type);
+        let consents = parse_consent_states(consent_states, consent_states_count);
         let ctx = context as usize;
+        let close_ctx = ctx;
 
         let mut handle = MlsClient::stream_all_messages_with_callback(
             c.inner.context.clone(),
             conv_type,
-            None,
+            consents,
             move |result| {
                 if let Ok(msg) = result {
                     let ptr = into_raw(XmtpMessage { inner: msg });
-                    unsafe {
-                        callback(ptr, ctx as *mut std::ffi::c_void);
-                    }
+                    unsafe { callback(ptr, ctx as *mut std::ffi::c_void) };
                 }
             },
-            || {},
+            move || {
+                if let Some(cb) = on_close {
+                    unsafe { cb(close_ctx as *mut std::ffi::c_void) };
+                }
+            },
         );
 
         runtime().block_on(handle.wait_for_ready());
@@ -135,10 +174,12 @@ pub unsafe extern "C" fn xmtp_stream_all_messages(
 
 /// Stream messages for a single conversation.
 /// The callback receives a `*mut XmtpMessage` that the caller must free.
+/// `on_close` is called when the stream ends (pass null to ignore).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn xmtp_conversation_stream_messages(
     conv: *const XmtpConversation,
     callback: FnMessageCallback,
+    on_close: Option<FnOnCloseCallback>,
     context: *mut std::ffi::c_void,
     out: *mut *mut XmtpStreamHandle,
 ) -> i32 {
@@ -149,6 +190,7 @@ pub unsafe extern "C" fn xmtp_conversation_stream_messages(
         }
 
         let ctx = context as usize;
+        let close_ctx = ctx;
 
         let mut handle = MlsGroup::stream_with_callback(
             c.inner.context.clone(),
@@ -156,12 +198,14 @@ pub unsafe extern "C" fn xmtp_conversation_stream_messages(
             move |result| {
                 if let Ok(msg) = result {
                     let ptr = into_raw(XmtpMessage { inner: msg });
-                    unsafe {
-                        callback(ptr, ctx as *mut std::ffi::c_void);
-                    }
+                    unsafe { callback(ptr, ctx as *mut std::ffi::c_void) };
                 }
             },
-            || {},
+            move || {
+                if let Some(cb) = on_close {
+                    unsafe { cb(close_ctx as *mut std::ffi::c_void) };
+                }
+            },
         );
 
         runtime().block_on(handle.wait_for_ready());
