@@ -266,7 +266,8 @@ pub unsafe extern "C" fn xmtp_device_sync_import_archive(
 // ---------------------------------------------------------------------------
 
 /// Read metadata from an archive file without loading its full contents.
-/// Writes `backup_version` and `exported_at_ns` to the output pointers.
+/// `out_elements` is a bitmask: bit 0 = Messages, bit 1 = Consent.
+/// `out_start_ns` / `out_end_ns` are 0 if not set. All output pointers are nullable.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn xmtp_device_sync_archive_metadata(
     path: *const c_char,
@@ -274,16 +275,38 @@ pub unsafe extern "C" fn xmtp_device_sync_archive_metadata(
     key_len: i32,
     out_version: *mut u16,
     out_exported_at_ns: *mut i64,
+    out_elements: *mut i32,
+    out_start_ns: *mut i64,
+    out_end_ns: *mut i64,
 ) -> i32 {
     catch_async(|| async {
         let path_str = unsafe { c_str_to_string(path)? };
         let enc_key = check_key(key, key_len)?;
         let importer = ArchiveImporter::from_file(path_str, &enc_key).await?;
+        let m = &importer.metadata;
         if !out_version.is_null() {
-            unsafe { *out_version = importer.metadata.backup_version };
+            unsafe { *out_version = m.backup_version };
         }
         if !out_exported_at_ns.is_null() {
-            unsafe { *out_exported_at_ns = importer.metadata.exported_at_ns };
+            unsafe { *out_exported_at_ns = m.exported_at_ns };
+        }
+        if !out_elements.is_null() {
+            let mut bits: i32 = 0;
+            for e in &m.elements {
+                match e {
+                    BackupElementSelection::Messages => bits |= 1,
+                    BackupElementSelection::Consent => bits |= 2,
+                    BackupElementSelection::Event => bits |= 4,
+                    _ => {}
+                }
+            }
+            unsafe { *out_elements = bits };
+        }
+        if !out_start_ns.is_null() {
+            unsafe { *out_start_ns = m.start_ns.unwrap_or(0) };
+        }
+        if !out_end_ns.is_null() {
+            unsafe { *out_end_ns = m.end_ns.unwrap_or(0) };
         }
         Ok(())
     })

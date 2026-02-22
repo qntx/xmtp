@@ -189,7 +189,14 @@ pub struct XmtpIdentityStats {
     pub verify_smart_contract_wallet_signature: i64,
 }
 
-/// Conversation debug info (epoch, fork status, commit logs).
+/// A single cursor entry (originator + sequence).
+#[repr(C)]
+pub struct XmtpCursor {
+    pub originator_id: u32,
+    pub sequence_id: u64,
+}
+
+/// Conversation debug info (epoch, fork status, commit logs, cursors).
 #[repr(C)]
 pub struct XmtpConversationDebugInfo {
     pub epoch: u64,
@@ -199,6 +206,9 @@ pub struct XmtpConversationDebugInfo {
     pub is_commit_log_forked: i32,
     pub local_commit_log: *mut c_char,
     pub remote_commit_log: *mut c_char,
+    /// Heap-allocated cursor array. Free with the debug_info_free function.
+    pub cursors: *mut XmtpCursor,
+    pub cursors_count: i32,
 }
 
 /// A single HMAC key (42-byte key + epoch).

@@ -284,7 +284,15 @@ typedef struct XmtpXmtpDisappearingSettings {
 } XmtpXmtpDisappearingSettings;
 
 /**
- * Conversation debug info (epoch, fork status, commit logs).
+ * A single cursor entry (originator + sequence).
+ */
+typedef struct XmtpXmtpCursor {
+    uint32_t originator_id;
+    uint64_t sequence_id;
+} XmtpXmtpCursor;
+
+/**
+ * Conversation debug info (epoch, fork status, commit logs, cursors).
  */
 typedef struct XmtpXmtpConversationDebugInfo {
     uint64_t epoch;
@@ -296,6 +304,11 @@ typedef struct XmtpXmtpConversationDebugInfo {
     int32_t is_commit_log_forked;
     char *local_commit_log;
     char *remote_commit_log;
+    /**
+     * Heap-allocated cursor array. Free with the debug_info_free function.
+     */
+    struct XmtpXmtpCursor *cursors;
+    int32_t cursors_count;
 } XmtpXmtpConversationDebugInfo;
 
 /**
@@ -1226,7 +1239,7 @@ int32_t xmtp_conversation_debug_info(const struct XmtpXmtpConversation *conv,
                                      struct XmtpXmtpConversationDebugInfo *out);
 
 /**
- * Free a conversation debug info struct (its string fields).
+ * Free a conversation debug info struct (its string fields and cursor array).
  */
 xmtp_ void xmtp_conversation_debug_info_free(struct XmtpXmtpConversationDebugInfo *info);
 
@@ -1352,6 +1365,8 @@ xmtp_
 int32_t xmtp_client_create_dm(const struct XmtpXmtpClient *client,
                               const char *identifier,
                               int32_t identifier_kind,
+                              int64_t disappear_from_ns,
+                              int64_t disappear_in_ns,
                               struct XmtpXmtpConversation **out);
 
 /**
@@ -1368,6 +1383,8 @@ int32_t xmtp_client_find_dm_by_inbox_id(const struct XmtpXmtpClient *client,
 xmtp_
 int32_t xmtp_client_create_dm_by_inbox_id(const struct XmtpXmtpClient *client,
                                           const char *inbox_id,
+                                          int64_t disappear_from_ns,
+                                          int64_t disappear_in_ns,
                                           struct XmtpXmtpConversation **out);
 
 /**
@@ -1533,14 +1550,18 @@ int32_t xmtp_device_sync_import_archive(const struct XmtpXmtpClient *client,
 
 /**
  * Read metadata from an archive file without loading its full contents.
- * Writes `backup_version` and `exported_at_ns` to the output pointers.
+ * `out_elements` is a bitmask: bit 0 = Messages, bit 1 = Consent.
+ * `out_start_ns` / `out_end_ns` are 0 if not set. All output pointers are nullable.
  */
 xmtp_
 int32_t xmtp_device_sync_archive_metadata(const char *path,
                                           const uint8_t *key,
                                           int32_t key_len,
                                           uint16_t *out_version,
-                                          int64_t *out_exported_at_ns);
+                                          int64_t *out_exported_at_ns,
+                                          int32_t *out_elements,
+                                          int64_t *out_start_ns,
+                                          int64_t *out_end_ns);
 
 /**
  * Manually sync all device sync groups.

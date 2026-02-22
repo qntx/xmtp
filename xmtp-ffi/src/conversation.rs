@@ -1280,6 +1280,19 @@ pub unsafe extern "C" fn xmtp_conversation_debug_info(
             return Err("null output pointer".into());
         }
         let info = c.inner.debug_info().await?;
+        // Build cursor array on the heap
+        let mut cursors: Vec<XmtpCursor> = info
+            .cursor
+            .iter()
+            .map(|c| XmtpCursor {
+                originator_id: c.originator_id,
+                sequence_id: c.sequence_id,
+            })
+            .collect();
+        let cursors_count = cursors.len() as i32;
+        let cursors_ptr = cursors.as_mut_ptr();
+        std::mem::forget(cursors);
+
         unsafe {
             *out = XmtpConversationDebugInfo {
                 epoch: info.epoch,
@@ -1292,30 +1305,32 @@ pub unsafe extern "C" fn xmtp_conversation_debug_info(
                 },
                 local_commit_log: to_c_string(&info.local_commit_log),
                 remote_commit_log: to_c_string(&info.remote_commit_log),
+                cursors: cursors_ptr,
+                cursors_count,
             };
         }
         Ok(())
     })
 }
 
-/// Free a conversation debug info struct (its string fields).
+/// Free a conversation debug info struct (its string fields and cursor array).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn xmtp_conversation_debug_info_free(info: *mut XmtpConversationDebugInfo) {
     if info.is_null() {
         return;
     }
     let i = unsafe { &mut *info };
-    if !i.fork_details.is_null() {
-        drop(unsafe { CString::from_raw(i.fork_details) });
-        i.fork_details = std::ptr::null_mut();
-    }
-    if !i.local_commit_log.is_null() {
-        drop(unsafe { CString::from_raw(i.local_commit_log) });
-        i.local_commit_log = std::ptr::null_mut();
-    }
-    if !i.remote_commit_log.is_null() {
-        drop(unsafe { CString::from_raw(i.remote_commit_log) });
-        i.remote_commit_log = std::ptr::null_mut();
+    free_c_strings!(i, fork_details, local_commit_log, remote_commit_log);
+    if !i.cursors.is_null() && i.cursors_count > 0 {
+        drop(unsafe {
+            Vec::from_raw_parts(
+                i.cursors,
+                i.cursors_count as usize,
+                i.cursors_count as usize,
+            )
+        });
+        i.cursors = std::ptr::null_mut();
+        i.cursors_count = 0;
     }
 }
 

@@ -125,12 +125,32 @@ pub unsafe extern "C" fn xmtp_client_create_group_by_identity(
     })
 }
 
+/// Build `DMMetadataOptions` from disappearing-message timestamps.
+fn build_dm_opts(
+    disappear_from_ns: i64,
+    disappear_in_ns: i64,
+) -> Option<xmtp_mls_common::group::DMMetadataOptions> {
+    use xmtp_mls_common::group_mutable_metadata::MessageDisappearingSettings;
+    if disappear_from_ns > 0 && disappear_in_ns > 0 {
+        Some(xmtp_mls_common::group::DMMetadataOptions {
+            message_disappearing_settings: Some(MessageDisappearingSettings {
+                from_ns: disappear_from_ns,
+                in_ns: disappear_in_ns,
+            }),
+        })
+    } else {
+        None
+    }
+}
+
 /// Find or create a DM by identifier. Caller must free result with [`xmtp_conversation_free`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn xmtp_client_create_dm(
     client: *const XmtpClient,
     identifier: *const c_char,
     identifier_kind: i32,
+    disappear_from_ns: i64,
+    disappear_in_ns: i64,
     out: *mut *mut XmtpConversation,
 ) -> i32 {
     catch_async(|| async {
@@ -144,7 +164,11 @@ pub unsafe extern "C" fn xmtp_client_create_dm(
             1 => xmtp_id::associations::Identifier::passkey_str(&ident_str, None)?,
             _ => return Err("invalid identifier kind".into()),
         };
-        let group = c.inner.find_or_create_dm_by_identity(ident, None).await?;
+        let dm_opts = build_dm_opts(disappear_from_ns, disappear_in_ns);
+        let group = c
+            .inner
+            .find_or_create_dm_by_identity(ident, dm_opts)
+            .await?;
         unsafe { write_out(out, XmtpConversation { inner: group })? };
         Ok(())
     })
@@ -174,6 +198,8 @@ pub unsafe extern "C" fn xmtp_client_find_dm_by_inbox_id(
 pub unsafe extern "C" fn xmtp_client_create_dm_by_inbox_id(
     client: *const XmtpClient,
     inbox_id: *const c_char,
+    disappear_from_ns: i64,
+    disappear_in_ns: i64,
     out: *mut *mut XmtpConversation,
 ) -> i32 {
     catch_async(|| async {
@@ -182,7 +208,8 @@ pub unsafe extern "C" fn xmtp_client_create_dm_by_inbox_id(
             return Err("null output pointer".into());
         }
         let inbox_id = unsafe { c_str_to_string(inbox_id)? };
-        let group = c.inner.find_or_create_dm(inbox_id, None).await?;
+        let dm_opts = build_dm_opts(disappear_from_ns, disappear_in_ns);
+        let group = c.inner.find_or_create_dm(inbox_id, dm_opts).await?;
         unsafe { write_out(out, XmtpConversation { inner: group })? };
         Ok(())
     })
