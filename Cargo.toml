@@ -12,6 +12,10 @@ repository = "https://github.com/qntx/xmtp"
 description = "Client library for the XMTP messaging protocol."
 
 [workspace.dependencies]
+xmtp-sys = { version = "0.1", path = "xmtp-sys" }
+xmtp = { version = "0.1", path = "xmtp" }
+
+thiserror = "2"
 
 [profile.release]
 codegen-units = 1

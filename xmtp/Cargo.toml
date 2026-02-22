@@ -4,9 +4,16 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
-description.workspace = true
+description = "Safe, ergonomic Rust client SDK for the XMTP messaging protocol"
+readme = "README.md"
+documentation = "https://docs.rs/xmtp"
+categories = ["api-bindings", "cryptography", "network-programming"]
+keywords = ["xmtp", "messaging", "e2e-encryption", "mls", "web3"]
+rust-version = "1.85"
 
 [dependencies]
+xmtp-sys.workspace = true
+thiserror.workspace = true
 
 [lints]
 workspace = true
