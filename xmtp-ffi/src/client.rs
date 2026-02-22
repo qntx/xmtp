@@ -267,17 +267,8 @@ pub unsafe extern "C" fn xmtp_client_set_consent_states(
         let mut records = Vec::with_capacity(count as usize);
         for i in 0..count as usize {
             let entity = unsafe { c_str_to_string(*entities.add(i))? };
-            let entity_type = match unsafe { *entity_types.add(i) } {
-                0 => xmtp_db::consent_record::ConsentType::ConversationId,
-                1 => xmtp_db::consent_record::ConsentType::InboxId,
-                _ => return Err("invalid entity type".into()),
-            };
-            let state = match unsafe { *states.add(i) } {
-                0 => xmtp_db::consent_record::ConsentState::Unknown,
-                1 => xmtp_db::consent_record::ConsentState::Allowed,
-                2 => xmtp_db::consent_record::ConsentState::Denied,
-                _ => return Err("invalid consent state".into()),
-            };
+            let entity_type = i32_to_consent_type(unsafe { *entity_types.add(i) })?;
+            let state = i32_to_consent_state(unsafe { *states.add(i) })?;
             records.push(xmtp_db::consent_record::StoredConsentRecord {
                 entity_type,
                 state,
@@ -304,22 +295,21 @@ pub unsafe extern "C" fn xmtp_client_get_consent_state(
         if out_state.is_null() {
             return Err("null output pointer".into());
         }
-        let et = match entity_type {
-            0 => xmtp_db::consent_record::ConsentType::ConversationId,
-            1 => xmtp_db::consent_record::ConsentType::InboxId,
-            _ => return Err("invalid entity type".into()),
-        };
+        let et = i32_to_consent_type(entity_type)?;
         let state = c.inner.get_consent_state(et, entity).await?;
         unsafe {
-            *out_state = match state {
-                xmtp_db::consent_record::ConsentState::Unknown => 0,
-                xmtp_db::consent_record::ConsentState::Allowed => 1,
-                xmtp_db::consent_record::ConsentState::Denied => 2,
-            };
+            *out_state = consent_state_to_i32(state);
         }
         Ok(())
     })
 }
+
+// ---------------------------------------------------------------------------
+// Inbox state
+// ---------------------------------------------------------------------------
+
+/// Get the inbox state for this client as a single-element list.
+/// Caller must free with [`xmtp_inbox_state_list_free`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn xmtp_client_inbox_state(
     client: *const XmtpClient,
@@ -666,18 +656,4 @@ pub unsafe extern "C" fn xmtp_inbox_state_list_free(list: *mut XmtpInboxStateLis
         free_c_string_array(item.identifiers, item.identifiers_count);
         free_c_string_array(item.installation_ids, item.installation_ids_count);
     }
-}
-
-/// Helper to free an array of C strings.
-fn free_c_string_array(arr: *mut *mut c_char, count: i32) {
-    if arr.is_null() || count <= 0 {
-        return;
-    }
-    for i in 0..count as usize {
-        let s = unsafe { *arr.add(i) };
-        if !s.is_null() {
-            drop(unsafe { std::ffi::CString::from_raw(s) });
-        }
-    }
-    drop(unsafe { Vec::from_raw_parts(arr, count as usize, count as usize) });
 }

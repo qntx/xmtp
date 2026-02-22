@@ -59,7 +59,6 @@ pub type FnMessageCallback =
 pub type FnOnCloseCallback = unsafe extern "C" fn(context: *mut std::ffi::c_void);
 
 /// Callback for consent stream events.
-/// Receives an array of `XmtpConsentRecord` and its count.
 pub type FnConsentCallback = unsafe extern "C" fn(
     records: *mut XmtpConsentRecord,
     count: i32,
@@ -67,35 +66,11 @@ pub type FnConsentCallback = unsafe extern "C" fn(
 );
 
 /// Callback for preference stream events.
-/// Receives an array of `XmtpPreferenceUpdate` and its count.
 pub type FnPreferenceCallback = unsafe extern "C" fn(
     updates: *mut XmtpPreferenceUpdate,
     count: i32,
     context: *mut std::ffi::c_void,
 );
-
-/// A consent record exposed to C.
-#[repr(C)]
-pub struct XmtpConsentRecord {
-    /// Entity type: 0=InboxId, 1=ConversationId, 2=Address
-    pub entity_type: i32,
-    /// Consent state: 0=Unknown, 1=Allowed, 2=Denied
-    pub state: i32,
-    /// Entity identifier string.
-    pub entity: *mut c_char,
-}
-
-/// A preference update exposed to C.
-#[repr(C)]
-pub struct XmtpPreferenceUpdate {
-    /// Update kind: 0=Consent, 1=HmacKey
-    pub kind: i32,
-    /// For Consent updates: the consent record. For HmacKey: zeroed.
-    pub consent: XmtpConsentRecord,
-    /// For HmacKey updates: the key bytes. For Consent: null/0.
-    pub hmac_key: *mut u8,
-    pub hmac_key_len: i32,
-}
 
 // ---------------------------------------------------------------------------
 // Data transfer types (flat, repr(C))
@@ -152,6 +127,36 @@ pub struct XmtpInboxStateItem {
 /// A list of inbox states.
 pub struct XmtpInboxStateList {
     pub(crate) items: Vec<XmtpInboxStateItem>,
+}
+
+/// A consent record exposed to C.
+#[repr(C)]
+pub struct XmtpConsentRecord {
+    /// Entity type: 0=InboxId, 1=ConversationId
+    pub entity_type: i32,
+    /// Consent state: 0=Unknown, 1=Allowed, 2=Denied
+    pub state: i32,
+    /// Entity identifier string.
+    pub entity: *mut c_char,
+}
+
+/// A preference update exposed to C.
+#[repr(C)]
+pub struct XmtpPreferenceUpdate {
+    /// Update kind: 0=Consent, 1=HmacKey
+    pub kind: i32,
+    /// For Consent: the consent record. For HmacKey: zeroed.
+    pub consent: XmtpConsentRecord,
+    /// For HmacKey: the key bytes. For Consent: null/0.
+    pub hmac_key: *mut u8,
+    pub hmac_key_len: i32,
+}
+
+/// Options for sending a message.
+#[repr(C)]
+pub struct XmtpSendOpts {
+    /// Whether to send a push notification. 1 = yes (default), 0 = no.
+    pub should_push: i32,
 }
 
 // ---------------------------------------------------------------------------
@@ -319,10 +324,6 @@ pub(crate) unsafe fn write_out<T>(
 }
 
 // ---------------------------------------------------------------------------
-// Optional logger initialization
-// ---------------------------------------------------------------------------
-
-// ---------------------------------------------------------------------------
 // Identifier helpers (shared across modules)
 // ---------------------------------------------------------------------------
 
@@ -388,18 +389,86 @@ pub(crate) fn string_vec_to_c(v: Vec<String>, out_count: *mut i32) -> *mut *mut 
 }
 
 // ---------------------------------------------------------------------------
-// Send options
+// Array free helpers
 // ---------------------------------------------------------------------------
 
-/// Options for sending a message.
-#[repr(C)]
-pub struct XmtpSendOpts {
-    /// Whether to send a push notification. 1 = yes (default), 0 = no.
-    pub should_push: i32,
+/// Free a heap-allocated array of C strings.
+pub(crate) fn free_c_string_array(arr: *mut *mut c_char, count: i32) {
+    if arr.is_null() || count <= 0 {
+        return;
+    }
+    for i in 0..count as usize {
+        let s = unsafe { *arr.add(i) };
+        if !s.is_null() {
+            drop(unsafe { CString::from_raw(s) });
+        }
+    }
+    drop(unsafe { Vec::from_raw_parts(arr, count as usize, count as usize) });
+}
+
+/// Free a string array returned by this library.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn xmtp_free_string_array(arr: *mut *mut c_char, count: i32) {
+    free_c_string_array(arr, count);
 }
 
 // ---------------------------------------------------------------------------
-// Optional logger initialization
+// Enum mapping helpers (shared across modules)
+// ---------------------------------------------------------------------------
+
+/// Map `ConsentState` → i32. 0=Unknown, 1=Allowed, 2=Denied.
+pub(crate) fn consent_state_to_i32(s: xmtp_db::consent_record::ConsentState) -> i32 {
+    match s {
+        xmtp_db::consent_record::ConsentState::Unknown => 0,
+        xmtp_db::consent_record::ConsentState::Allowed => 1,
+        xmtp_db::consent_record::ConsentState::Denied => 2,
+    }
+}
+
+/// Map i32 → `ConsentState`. Returns `Err` on invalid value.
+pub(crate) fn i32_to_consent_state(
+    v: i32,
+) -> Result<xmtp_db::consent_record::ConsentState, Box<dyn std::error::Error>> {
+    match v {
+        0 => Ok(xmtp_db::consent_record::ConsentState::Unknown),
+        1 => Ok(xmtp_db::consent_record::ConsentState::Allowed),
+        2 => Ok(xmtp_db::consent_record::ConsentState::Denied),
+        _ => Err("invalid consent state".into()),
+    }
+}
+
+/// Map `ConsentType` → i32. 0=InboxId, 1=ConversationId.
+pub(crate) fn consent_type_to_i32(t: xmtp_db::consent_record::ConsentType) -> i32 {
+    match t {
+        xmtp_db::consent_record::ConsentType::InboxId => 0,
+        xmtp_db::consent_record::ConsentType::ConversationId => 1,
+    }
+}
+
+/// Map i32 → `ConsentType`. Returns `Err` on invalid value.
+pub(crate) fn i32_to_consent_type(
+    v: i32,
+) -> Result<xmtp_db::consent_record::ConsentType, Box<dyn std::error::Error>> {
+    match v {
+        0 => Ok(xmtp_db::consent_record::ConsentType::ConversationId),
+        1 => Ok(xmtp_db::consent_record::ConsentType::InboxId),
+        _ => Err("invalid entity type".into()),
+    }
+}
+
+/// Convert a `StoredConsentRecord` to a C `XmtpConsentRecord`.
+pub(crate) fn consent_record_to_c(
+    r: &xmtp_db::consent_record::StoredConsentRecord,
+) -> XmtpConsentRecord {
+    XmtpConsentRecord {
+        entity_type: consent_type_to_i32(r.entity_type),
+        state: consent_state_to_i32(r.state),
+        entity: to_c_string(&r.entity),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Logger initialization
 // ---------------------------------------------------------------------------
 
 static LOGGER_INIT: OnceLock<()> = OnceLock::new();

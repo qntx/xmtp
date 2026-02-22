@@ -229,7 +229,7 @@ typedef void (*XmtpFnMessageCallback)(struct XmtpXmtpMessage *message, void *con
  */
 typedef struct XmtpXmtpConsentRecord {
     /**
-     * Entity type: 0=InboxId, 1=ConversationId, 2=Address
+     * Entity type: 0=InboxId, 1=ConversationId
      */
     int32_t entity_type;
     /**
@@ -244,7 +244,6 @@ typedef struct XmtpXmtpConsentRecord {
 
 /**
  * Callback for consent stream events.
- * Receives an array of `XmtpConsentRecord` and its count.
  */
 typedef void (*XmtpFnConsentCallback)(struct XmtpXmtpConsentRecord *records,
                                       int32_t count,
@@ -259,11 +258,11 @@ typedef struct XmtpXmtpPreferenceUpdate {
      */
     int32_t kind;
     /**
-     * For Consent updates: the consent record. For HmacKey: zeroed.
+     * For Consent: the consent record. For HmacKey: zeroed.
      */
     struct XmtpXmtpConsentRecord consent;
     /**
-     * For HmacKey updates: the key bytes. For Consent: null/0.
+     * For HmacKey: the key bytes. For Consent: null/0.
      */
     uint8_t *hmac_key;
     int32_t hmac_key_len;
@@ -271,7 +270,6 @@ typedef struct XmtpXmtpPreferenceUpdate {
 
 /**
  * Callback for preference stream events.
- * Receives an array of `XmtpPreferenceUpdate` and its count.
  */
 typedef void (*XmtpFnPreferenceCallback)(struct XmtpXmtpPreferenceUpdate *updates,
                                          int32_t count,
@@ -302,6 +300,11 @@ xmtp_ void xmtp_free_string(char *s);
  * Free a byte buffer previously returned by this library.
  */
 xmtp_ void xmtp_free_bytes(uint8_t *ptr, int32_t len);
+
+/**
+ * Free a string array returned by this library.
+ */
+xmtp_ void xmtp_free_string_array(char **arr, int32_t count);
 
 /**
  * Initialize the tracing logger. Call at most once. `level` is a C string like
@@ -388,6 +391,10 @@ int32_t xmtp_client_get_consent_state(const struct XmtpXmtpClient *client,
                                       const char *entity,
                                       int32_t *out_state);
 
+/**
+ * Get the inbox state for this client as a single-element list.
+ * Caller must free with [`xmtp_inbox_state_list_free`].
+ */
 xmtp_
 int32_t xmtp_client_inbox_state(const struct XmtpXmtpClient *client,
                                 int32_t refresh,
@@ -835,11 +842,6 @@ int32_t xmtp_conversation_remove_members_by_identity(const struct XmtpXmtpConver
                                                      int32_t count);
 
 /**
- * Free a string array returned by `xmtp_conversation_list_admins` etc.
- */
-xmtp_ void xmtp_free_string_array(char **arr, int32_t count);
-
-/**
  * Update the message disappearing settings for this conversation.
  */
 xmtp_
@@ -939,6 +941,14 @@ int32_t xmtp_client_find_dm_by_inbox_id(const struct XmtpXmtpClient *client,
                                         struct XmtpXmtpConversation **out);
 
 /**
+ * Create a DM by target inbox ID. Caller must free result with [`xmtp_conversation_free`].
+ */
+xmtp_
+int32_t xmtp_client_create_dm_by_inbox_id(const struct XmtpXmtpClient *client,
+                                          const char *inbox_id,
+                                          struct XmtpXmtpConversation **out);
+
+/**
  * Get a conversation by hex-encoded group ID.
  * Caller must free result with [`xmtp_conversation_free`].
  */
@@ -997,14 +1007,6 @@ xmtp_
 int32_t xmtp_client_sync_preferences(const struct XmtpXmtpClient *client,
                                      int32_t *out_synced,
                                      int32_t *out_eligible);
-
-/**
- * Create a DM by target inbox ID. Caller must free result with [`xmtp_conversation_free`].
- */
-xmtp_
-int32_t xmtp_client_create_dm_by_inbox_id(const struct XmtpXmtpClient *client,
-                                          const char *inbox_id,
-                                          struct XmtpXmtpConversation **out);
 
 /**
  * Generate an inbox ID from an identifier. Caller must free with [`xmtp_free_string`].

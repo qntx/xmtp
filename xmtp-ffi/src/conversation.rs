@@ -1,6 +1,6 @@
 //! Single conversation operations: send, messages, members, metadata, permissions, consent.
 
-use std::ffi::c_char;
+use std::ffi::{CStr, CString, c_char};
 
 use xmtp_db::group::DmIdExt;
 use xmtp_mls::groups::UpdateAdminListType;
@@ -201,6 +201,37 @@ pub struct XmtpListMessagesOptions {
     pub kind: i32,
 }
 
+/// Parse message query options from C struct into `MsgQueryArgs`.
+fn parse_msg_query_args(
+    opts: *const XmtpListMessagesOptions,
+) -> xmtp_db::group_message::MsgQueryArgs {
+    let mut args = xmtp_db::group_message::MsgQueryArgs::default();
+    if !opts.is_null() {
+        let o = unsafe { &*opts };
+        if o.sent_after_ns > 0 {
+            args.sent_after_ns = Some(o.sent_after_ns);
+        }
+        if o.sent_before_ns > 0 {
+            args.sent_before_ns = Some(o.sent_before_ns);
+        }
+        if o.limit > 0 {
+            args.limit = Some(o.limit);
+        }
+        args.delivery_status = match o.delivery_status {
+            0 => Some(xmtp_db::group_message::DeliveryStatus::Unpublished),
+            1 => Some(xmtp_db::group_message::DeliveryStatus::Published),
+            2 => Some(xmtp_db::group_message::DeliveryStatus::Failed),
+            _ => None,
+        };
+        args.kind = match o.kind {
+            0 => Some(xmtp_db::group_message::GroupMessageKind::Application),
+            1 => Some(xmtp_db::group_message::GroupMessageKind::MembershipChange),
+            _ => None,
+        };
+    }
+    args
+}
+
 /// List messages in this conversation. Caller must free with [`xmtp_message_list_free`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn xmtp_conversation_list_messages(
@@ -213,32 +244,7 @@ pub unsafe extern "C" fn xmtp_conversation_list_messages(
         if out.is_null() {
             return Err("null output pointer".into());
         }
-
-        let mut args = xmtp_db::group_message::MsgQueryArgs::default();
-        if !opts.is_null() {
-            let o = unsafe { &*opts };
-            if o.sent_after_ns > 0 {
-                args.sent_after_ns = Some(o.sent_after_ns);
-            }
-            if o.sent_before_ns > 0 {
-                args.sent_before_ns = Some(o.sent_before_ns);
-            }
-            if o.limit > 0 {
-                args.limit = Some(o.limit);
-            }
-            args.delivery_status = match o.delivery_status {
-                0 => Some(xmtp_db::group_message::DeliveryStatus::Unpublished),
-                1 => Some(xmtp_db::group_message::DeliveryStatus::Published),
-                2 => Some(xmtp_db::group_message::DeliveryStatus::Failed),
-                _ => None,
-            };
-            args.kind = match o.kind {
-                0 => Some(xmtp_db::group_message::GroupMessageKind::Application),
-                1 => Some(xmtp_db::group_message::GroupMessageKind::MembershipChange),
-                _ => None,
-            };
-        }
-
+        let args = parse_msg_query_args(opts);
         let messages = c.inner.find_messages(&args)?;
         unsafe { write_out(out, XmtpMessageList { items: messages })? };
         Ok(())
@@ -254,27 +260,7 @@ pub unsafe extern "C" fn xmtp_conversation_count_messages(
 ) -> i64 {
     match unsafe { ref_from(conv) } {
         Ok(c) => {
-            let mut args = xmtp_db::group_message::MsgQueryArgs::default();
-            if !opts.is_null() {
-                let o = unsafe { &*opts };
-                if o.sent_after_ns > 0 {
-                    args.sent_after_ns = Some(o.sent_after_ns);
-                }
-                if o.sent_before_ns > 0 {
-                    args.sent_before_ns = Some(o.sent_before_ns);
-                }
-                args.delivery_status = match o.delivery_status {
-                    0 => Some(xmtp_db::group_message::DeliveryStatus::Unpublished),
-                    1 => Some(xmtp_db::group_message::DeliveryStatus::Published),
-                    2 => Some(xmtp_db::group_message::DeliveryStatus::Failed),
-                    _ => None,
-                };
-                args.kind = match o.kind {
-                    0 => Some(xmtp_db::group_message::GroupMessageKind::Application),
-                    1 => Some(xmtp_db::group_message::GroupMessageKind::MembershipChange),
-                    _ => None,
-                };
-            }
+            let args = parse_msg_query_args(opts);
             c.inner.count_messages(&args).unwrap_or(0)
         }
         Err(_) => 0,
@@ -438,11 +424,7 @@ pub unsafe extern "C" fn xmtp_conversation_list_members(
                         PermissionLevel::Admin => 1,
                         PermissionLevel::SuperAdmin => 2,
                     },
-                    consent_state: match m.consent_state {
-                        xmtp_db::consent_record::ConsentState::Unknown => 0,
-                        xmtp_db::consent_record::ConsentState::Allowed => 1,
-                        xmtp_db::consent_record::ConsentState::Denied => 2,
-                    },
+                    consent_state: consent_state_to_i32(m.consent_state),
                     account_identifiers: ident_ptrs,
                     account_identifiers_count: ident_count,
                     installation_ids: inst_ptrs,
@@ -586,43 +568,10 @@ pub unsafe extern "C" fn xmtp_group_member_list_free(list: *mut XmtpGroupMemberL
         if !m.inbox_id.is_null() {
             drop(unsafe { CString::from_raw(m.inbox_id) });
         }
-        // Free account_identifiers array
-        if !m.account_identifiers.is_null() && m.account_identifiers_count > 0 {
-            for i in 0..m.account_identifiers_count as usize {
-                let s = unsafe { *m.account_identifiers.add(i) };
-                if !s.is_null() {
-                    drop(unsafe { CString::from_raw(s) });
-                }
-            }
-            drop(unsafe {
-                Vec::from_raw_parts(
-                    m.account_identifiers,
-                    m.account_identifiers_count as usize,
-                    m.account_identifiers_count as usize,
-                )
-            });
-        }
-        // Free installation_ids array
-        if !m.installation_ids.is_null() && m.installation_ids_count > 0 {
-            for i in 0..m.installation_ids_count as usize {
-                let s = unsafe { *m.installation_ids.add(i) };
-                if !s.is_null() {
-                    drop(unsafe { CString::from_raw(s) });
-                }
-            }
-            drop(unsafe {
-                Vec::from_raw_parts(
-                    m.installation_ids,
-                    m.installation_ids_count as usize,
-                    m.installation_ids_count as usize,
-                )
-            });
-        }
+        free_c_string_array(m.account_identifiers, m.account_identifiers_count);
+        free_c_string_array(m.installation_ids, m.installation_ids_count);
     }
 }
-
-use std::ffi::CStr;
-use std::ffi::CString;
 
 // ---------------------------------------------------------------------------
 // Membership mutations
@@ -800,11 +749,7 @@ pub unsafe extern "C" fn xmtp_conversation_consent_state(
         }
         let state = c.inner.consent_state()?;
         unsafe {
-            *out_state = match state {
-                xmtp_db::consent_record::ConsentState::Unknown => 0,
-                xmtp_db::consent_record::ConsentState::Allowed => 1,
-                xmtp_db::consent_record::ConsentState::Denied => 2,
-            };
+            *out_state = consent_state_to_i32(state);
         }
         Ok(())
     })
@@ -818,12 +763,7 @@ pub unsafe extern "C" fn xmtp_conversation_update_consent_state(
 ) -> i32 {
     catch(|| {
         let c = unsafe { ref_from(conv)? };
-        let consent_state = match state {
-            0 => xmtp_db::consent_record::ConsentState::Unknown,
-            1 => xmtp_db::consent_record::ConsentState::Allowed,
-            2 => xmtp_db::consent_record::ConsentState::Denied,
-            _ => return Err("invalid consent state".into()),
-        };
+        let consent_state = i32_to_consent_state(state)?;
         c.inner.update_consent_state(consent_state)?;
         Ok(())
     })
@@ -1080,25 +1020,6 @@ pub unsafe extern "C" fn xmtp_conversation_remove_members_by_identity(
         c.inner.remove_members_by_identity(&idents).await?;
         Ok(())
     })
-}
-
-// ---------------------------------------------------------------------------
-// Free string arrays
-// ---------------------------------------------------------------------------
-
-/// Free a string array returned by `xmtp_conversation_list_admins` etc.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn xmtp_free_string_array(arr: *mut *mut c_char, count: i32) {
-    if arr.is_null() || count <= 0 {
-        return;
-    }
-    for i in 0..count as usize {
-        let s = unsafe { *arr.add(i) };
-        if !s.is_null() {
-            drop(unsafe { CString::from_raw(s) });
-        }
-    }
-    drop(unsafe { Vec::from_raw_parts(arr, count as usize, count as usize) });
 }
 
 // ---------------------------------------------------------------------------

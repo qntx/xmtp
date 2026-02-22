@@ -165,6 +165,25 @@ pub unsafe extern "C" fn xmtp_client_find_dm_by_inbox_id(
     })
 }
 
+/// Create a DM by target inbox ID. Caller must free result with [`xmtp_conversation_free`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn xmtp_client_create_dm_by_inbox_id(
+    client: *const XmtpClient,
+    inbox_id: *const c_char,
+    out: *mut *mut XmtpConversation,
+) -> i32 {
+    catch_async(|| async {
+        let c = unsafe { ref_from(client)? };
+        if out.is_null() {
+            return Err("null output pointer".into());
+        }
+        let inbox_id = unsafe { c_str_to_string(inbox_id)? };
+        let group = c.inner.find_or_create_dm(inbox_id, None).await?;
+        unsafe { write_out(out, XmtpConversation { inner: group })? };
+        Ok(())
+    })
+}
+
 // ---------------------------------------------------------------------------
 // Lookup
 // ---------------------------------------------------------------------------
@@ -356,25 +375,6 @@ pub unsafe extern "C" fn xmtp_client_sync_preferences(
         if !out_eligible.is_null() {
             unsafe { *out_eligible = summary.num_eligible as i32 };
         }
-        Ok(())
-    })
-}
-
-/// Create a DM by target inbox ID. Caller must free result with [`xmtp_conversation_free`].
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn xmtp_client_create_dm_by_inbox_id(
-    client: *const XmtpClient,
-    inbox_id: *const c_char,
-    out: *mut *mut XmtpConversation,
-) -> i32 {
-    catch_async(|| async {
-        let c = unsafe { ref_from(client)? };
-        if out.is_null() {
-            return Err("null output pointer".into());
-        }
-        let inbox_id = unsafe { c_str_to_string(inbox_id)? };
-        let group = c.inner.find_or_create_dm(inbox_id, None).await?;
-        unsafe { write_out(out, XmtpConversation { inner: group })? };
         Ok(())
     })
 }

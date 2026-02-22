@@ -249,24 +249,8 @@ pub unsafe extern "C" fn xmtp_stream_consent(
             c.inner.clone(),
             move |result| {
                 if let Ok(records) = result {
-                    let mut c_records: Vec<XmtpConsentRecord> = records
-                        .into_iter()
-                        .map(|r| {
-                            use xmtp_db::consent_record::{ConsentState, ConsentType};
-                            XmtpConsentRecord {
-                                entity_type: match r.entity_type {
-                                    ConsentType::ConversationId => 1,
-                                    ConsentType::InboxId => 0,
-                                },
-                                state: match r.state {
-                                    ConsentState::Unknown => 0,
-                                    ConsentState::Allowed => 1,
-                                    ConsentState::Denied => 2,
-                                },
-                                entity: to_c_string(&r.entity),
-                            }
-                        })
-                        .collect();
+                    let mut c_records: Vec<XmtpConsentRecord> =
+                        records.iter().map(consent_record_to_c).collect();
                     let count = c_records.len() as i32;
                     let ptr = c_records.as_mut_ptr();
                     std::mem::forget(c_records);
@@ -321,25 +305,13 @@ pub unsafe extern "C" fn xmtp_stream_preferences(
             c.inner.clone(),
             move |result| {
                 if let Ok(updates) = result {
-                    use xmtp_db::consent_record::{ConsentState, ConsentType};
                     use xmtp_mls::groups::device_sync::preference_sync::PreferenceUpdate;
                     let mut c_updates: Vec<XmtpPreferenceUpdate> = updates
                         .into_iter()
                         .map(|u| match u {
                             PreferenceUpdate::Consent(r) => XmtpPreferenceUpdate {
                                 kind: 0,
-                                consent: XmtpConsentRecord {
-                                    entity_type: match r.entity_type {
-                                        ConsentType::ConversationId => 1,
-                                        ConsentType::InboxId => 0,
-                                    },
-                                    state: match r.state {
-                                        ConsentState::Unknown => 0,
-                                        ConsentState::Allowed => 1,
-                                        ConsentState::Denied => 2,
-                                    },
-                                    entity: to_c_string(&r.entity),
-                                },
+                                consent: consent_record_to_c(&r),
                                 hmac_key: std::ptr::null_mut(),
                                 hmac_key_len: 0,
                             },
