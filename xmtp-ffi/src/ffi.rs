@@ -58,25 +58,28 @@ pub type FnConversationCallback =
 pub type FnMessageCallback =
     unsafe extern "C" fn(message: *mut FfiMessage, context: *mut std::ffi::c_void);
 
-/// Callback invoked when a stream closes (either normally or on error).
-/// Receives the opaque context pointer.
-pub type FnOnCloseCallback = unsafe extern "C" fn(context: *mut std::ffi::c_void);
+/// Callback invoked when a stream closes.
+/// `error` is null on normal close, or a borrowed error string on failure.
+pub type FnOnCloseCallback =
+    unsafe extern "C" fn(error: *const c_char, context: *mut std::ffi::c_void);
 
 /// Callback for consent stream events.
+/// `records` is borrowed — valid only during the callback invocation.
 pub type FnConsentCallback = unsafe extern "C" fn(
-    records: *mut FfiConsentRecord,
+    records: *const FfiConsentRecord,
     count: i32,
     context: *mut std::ffi::c_void,
 );
 
 /// Callback for message deletion stream events.
-/// Receives the message ID as a hex string (caller must free) and context.
+/// `message_id` is a borrowed hex string — valid only during the callback.
 pub type FnMessageDeletionCallback =
-    unsafe extern "C" fn(message_id: *mut c_char, context: *mut std::ffi::c_void);
+    unsafe extern "C" fn(message_id: *const c_char, context: *mut std::ffi::c_void);
 
 /// Callback for preference stream events.
+/// `updates` is borrowed — valid only during the callback invocation.
 pub type FnPreferenceCallback = unsafe extern "C" fn(
-    updates: *mut FfiPreferenceUpdate,
+    updates: *const FfiPreferenceUpdate,
     count: i32,
     context: *mut std::ffi::c_void,
 );

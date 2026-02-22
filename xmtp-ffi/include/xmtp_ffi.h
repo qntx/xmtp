@@ -535,8 +535,9 @@ typedef struct XmtpFfiConsentRecord {
 
 /**
  * Callback for consent stream events.
+ * `records` is borrowed — valid only during the callback invocation.
  */
-typedef void (*XmtpFnConsentCallback)(struct XmtpFfiConsentRecord *records,
+typedef void (*XmtpFnConsentCallback)(const struct XmtpFfiConsentRecord *records,
                                       int32_t count,
                                       void *context);
 
@@ -558,16 +559,17 @@ typedef struct XmtpFfiPreferenceUpdate {
 
 /**
  * Callback for preference stream events.
+ * `updates` is borrowed — valid only during the callback invocation.
  */
-typedef void (*XmtpFnPreferenceCallback)(struct XmtpFfiPreferenceUpdate *updates,
+typedef void (*XmtpFnPreferenceCallback)(const struct XmtpFfiPreferenceUpdate *updates,
                                          int32_t count,
                                          void *context);
 
 /**
  * Callback for message deletion stream events.
- * Receives the message ID as a hex string (caller must free) and context.
+ * `message_id` is a borrowed hex string — valid only during the callback.
  */
-typedef void (*XmtpFnMessageDeletionCallback)(char *message_id, void *context);
+typedef void (*XmtpFnMessageDeletionCallback)(const char *message_id, void *context);
 
 #ifdef __cplusplus
 extern "C" {
@@ -1695,12 +1697,9 @@ int32_t xmtp_verify_signed_with_public_key(const char *signature_text,
                                            int32_t public_key_len);
 
 /**
- * Stream new conversations. Calls `callback` for each new conversation.
- * The callback receives a `*mut FfiConversation` that the caller must free.
- * `context` is an opaque pointer passed through to both callbacks.
- * `on_close` is called when the stream ends (pass null to ignore).
- *
- * Returns a stream handle via `out` that must be closed with [`xmtp_stream_close`].
+ * Stream new conversations. Callback receives owned `*mut FfiConversation` (caller must free).
+ * `on_close(error, ctx)`: null error = normal close; non-null = borrowed error string.
+ * Caller must end with `xmtp_stream_end` and free with `xmtp_stream_free`.
  */
 int32_t xmtp_stream_conversations(const struct XmtpFfiClient *client,
                                   int32_t conversation_type,
@@ -1710,10 +1709,8 @@ int32_t xmtp_stream_conversations(const struct XmtpFfiClient *client,
                                   struct XmtpFfiStreamHandle **out);
 
 /**
- * Stream all messages across conversations.
- * The callback receives a `*mut FfiMessage` that the caller must free.
- * `consent_states` / `consent_states_count`: optional consent filter (pass null/0 for all).
- * `on_close` is called when the stream ends (pass null to ignore).
+ * Stream all messages across conversations. Callback receives owned `*mut FfiMessage`.
+ * `consent_states` / `consent_states_count`: optional filter (null/0 = all).
  */
 int32_t xmtp_stream_all_messages(const struct XmtpFfiClient *client,
                                  int32_t conversation_type,
@@ -1725,9 +1722,7 @@ int32_t xmtp_stream_all_messages(const struct XmtpFfiClient *client,
                                  struct XmtpFfiStreamHandle **out);
 
 /**
- * Stream messages for a single conversation.
- * The callback receives a `*mut FfiMessage` that the caller must free.
- * `on_close` is called when the stream ends (pass null to ignore).
+ * Stream messages for a single conversation. Callback receives owned `*mut FfiMessage`.
  */
 int32_t xmtp_conversation_stream_messages(const struct XmtpFfiConversation *conv,
                                           XmtpFnMessageCallback callback,
@@ -1736,8 +1731,8 @@ int32_t xmtp_conversation_stream_messages(const struct XmtpFfiConversation *conv
                                           struct XmtpFfiStreamHandle **out);
 
 /**
- * Stream consent state changes. Callback receives an array of consent records.
- * Caller must free each `entity` string in the records after processing.
+ * Stream consent state changes. Callback receives a borrowed array of consent records
+ * (`*const FfiConsentRecord`) — valid only during the callback invocation.
  */
 int32_t xmtp_stream_consent(const struct XmtpFfiClient *client,
                             XmtpFnConsentCallback callback,
@@ -1747,7 +1742,7 @@ int32_t xmtp_stream_consent(const struct XmtpFfiClient *client,
 
 /**
  * Stream preference updates (consent changes + HMAC key rotations).
- * Callback receives an array of preference updates.
+ * Callback receives a borrowed array (`*const FfiPreferenceUpdate`) — valid only during callback.
  */
 int32_t xmtp_stream_preferences(const struct XmtpFfiClient *client,
                                 XmtpFnPreferenceCallback callback,
@@ -1756,23 +1751,32 @@ int32_t xmtp_stream_preferences(const struct XmtpFfiClient *client,
                                 struct XmtpFfiStreamHandle **out);
 
 /**
- * Stream message deletion events across all conversations.
- * The callback receives the deleted message ID as a hex string (caller must free).
+ * Stream message deletion events. Callback receives a borrowed hex message ID
+ * (`*const c_char`) — valid only during the callback invocation.
+ * Now includes `on_close` for API consistency with other stream functions.
  */
 int32_t xmtp_stream_message_deletions(const struct XmtpFfiClient *client,
                                       XmtpFnMessageDeletionCallback callback,
+                                      struct XmtpOption_FnOnCloseCallback on_close,
                                       void *context,
                                       struct XmtpFfiStreamHandle **out);
 
 /**
- * Close a stream and stop receiving events.
+ * Signal a stream to stop. Does NOT free the handle — call `xmtp_stream_free` afterwards.
+ * Safe to call multiple times.
  */
-void xmtp_stream_close(struct XmtpFfiStreamHandle *handle);
+void xmtp_stream_end(const struct XmtpFfiStreamHandle *handle);
 
 /**
- * Check if a stream is closed. Returns 1 if closed, 0 if active.
+ * Check if a stream has finished. Returns 1 if closed, 0 if active.
  */
 int32_t xmtp_stream_is_closed(const struct XmtpFfiStreamHandle *handle);
+
+/**
+ * Free a stream handle. Must be called after `xmtp_stream_end`.
+ * Calling this on an active (non-ended) stream will also end it.
+ */
+void xmtp_stream_free(struct XmtpFfiStreamHandle *handle);
 
 #ifdef __cplusplus
 }  // extern "C"
