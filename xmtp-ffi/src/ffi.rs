@@ -283,6 +283,39 @@ pub struct XmtpInboxUpdateCountList {
     pub(crate) items: Vec<XmtpInboxUpdateCount>,
 }
 
+/// Group metadata (creator + conversation type).
+#[repr(C)]
+pub struct XmtpGroupMetadata {
+    /// Creator inbox ID (owned string).
+    pub creator_inbox_id: *mut c_char,
+    /// Conversation type: 0=Group, 1=DM, 2=Sync.
+    pub conversation_type: i32,
+}
+
+/// Permission policy set for a conversation.
+/// Each field is an i32 encoding:
+///   0=Allow, 1=Deny, 2=Admin, 3=SuperAdmin, 4=DoesNotExist, 5=Other
+#[repr(C)]
+pub struct XmtpPermissionPolicySet {
+    pub add_member_policy: i32,
+    pub remove_member_policy: i32,
+    pub add_admin_policy: i32,
+    pub remove_admin_policy: i32,
+    pub update_group_name_policy: i32,
+    pub update_group_description_policy: i32,
+    pub update_group_image_url_square_policy: i32,
+    pub update_message_disappearing_policy: i32,
+    pub update_app_data_policy: i32,
+}
+
+/// Group permissions (policy type + policy set).
+#[repr(C)]
+pub struct XmtpGroupPermissions {
+    /// 0=Default(AllMembers), 1=AdminOnly, 2=CustomPolicy.
+    pub policy_type: i32,
+    pub policy_set: XmtpPermissionPolicySet,
+}
+
 // ---------------------------------------------------------------------------
 // Thread-local error
 // ---------------------------------------------------------------------------

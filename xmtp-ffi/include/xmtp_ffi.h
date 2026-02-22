@@ -248,6 +248,48 @@ typedef struct XmtpXmtpHmacKey {
 } XmtpXmtpHmacKey;
 
 /**
+ * Group metadata (creator + conversation type).
+ */
+typedef struct XmtpXmtpGroupMetadata {
+    /**
+     * Creator inbox ID (owned string).
+     */
+    char *creator_inbox_id;
+    /**
+     * Conversation type: 0=Group, 1=DM, 2=Sync.
+     */
+    int32_t conversation_type;
+} XmtpXmtpGroupMetadata;
+
+/**
+ * Permission policy set for a conversation.
+ * Each field is an i32 encoding:
+ *   0=Allow, 1=Deny, 2=Admin, 3=SuperAdmin, 4=DoesNotExist, 5=Other
+ */
+typedef struct XmtpXmtpPermissionPolicySet {
+    int32_t add_member_policy;
+    int32_t remove_member_policy;
+    int32_t add_admin_policy;
+    int32_t remove_admin_policy;
+    int32_t update_group_name_policy;
+    int32_t update_group_description_policy;
+    int32_t update_group_image_url_square_policy;
+    int32_t update_message_disappearing_policy;
+    int32_t update_app_data_policy;
+} XmtpXmtpPermissionPolicySet;
+
+/**
+ * Group permissions (policy type + policy set).
+ */
+typedef struct XmtpXmtpGroupPermissions {
+    /**
+     * 0=Default(AllMembers), 1=AdminOnly, 2=CustomPolicy.
+     */
+    int32_t policy_type;
+    struct XmtpXmtpPermissionPolicySet policy_set;
+} XmtpXmtpGroupPermissions;
+
+/**
  * Options for creating a new group conversation.
  */
 typedef struct XmtpXmtpCreateGroupOptions {
@@ -1186,6 +1228,42 @@ const struct XmtpXmtpHmacKey *xmtp_hmac_key_map_keys(const struct XmtpXmtpHmacKe
                                                      int32_t *out_count);
 
 /**
+ * Process a raw group message received via push notification.
+ * Returns a list of stored messages. Caller must free with [`xmtp_message_list_free`].
+ */
+xmtp_
+int32_t xmtp_conversation_process_streamed_group_message(const struct XmtpXmtpConversation *conversation,
+                                                         const uint8_t *envelope_bytes,
+                                                         int32_t envelope_bytes_len,
+                                                         struct XmtpXmtpMessageList **out);
+
+/**
+ * Get the full group metadata (creator inbox ID + conversation type).
+ * Caller must free with [`xmtp_group_metadata_free`].
+ */
+xmtp_
+int32_t xmtp_conversation_group_metadata(const struct XmtpXmtpConversation *conversation,
+                                         struct XmtpXmtpGroupMetadata **out);
+
+/**
+ * Free a group metadata struct.
+ */
+xmtp_ void xmtp_group_metadata_free(struct XmtpXmtpGroupMetadata *meta);
+
+/**
+ * Get the group permissions (policy type + full policy set).
+ * Caller must free with [`xmtp_group_permissions_free`].
+ */
+xmtp_
+int32_t xmtp_conversation_group_permissions(const struct XmtpXmtpConversation *conversation,
+                                            struct XmtpXmtpGroupPermissions **out);
+
+/**
+ * Free a group permissions struct.
+ */
+xmtp_ void xmtp_group_permissions_free(struct XmtpXmtpGroupPermissions *perms);
+
+/**
  * Free an HMAC key map (including all owned data).
  */
 xmtp_ void xmtp_hmac_key_map_free(struct XmtpXmtpHmacKeyMap *map);
@@ -1307,6 +1385,16 @@ int32_t xmtp_client_sync_preferences(const struct XmtpXmtpClient *client,
 xmtp_
 int32_t xmtp_client_hmac_keys(const struct XmtpXmtpClient *client,
                               struct XmtpXmtpHmacKeyMap **out);
+
+/**
+ * Process a raw welcome message received via push notification.
+ * Returns a list of conversation handles. Caller must free with [`xmtp_conversation_list_free`].
+ */
+xmtp_
+int32_t xmtp_client_process_streamed_welcome_message(const struct XmtpXmtpClient *client,
+                                                     const uint8_t *envelope_bytes,
+                                                     int32_t envelope_bytes_len,
+                                                     struct XmtpXmtpConversationList **out);
 
 /**
  * Send a device sync request to retrieve records from another installation.

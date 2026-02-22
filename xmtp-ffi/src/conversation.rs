@@ -1366,6 +1366,194 @@ pub unsafe extern "C" fn xmtp_hmac_key_map_keys(
     }
 }
 
+// ---------------------------------------------------------------------------
+// Process streamed group message
+// ---------------------------------------------------------------------------
+
+/// Process a raw group message received via push notification.
+/// Returns a list of stored messages. Caller must free with [`xmtp_message_list_free`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn xmtp_conversation_process_streamed_group_message(
+    conversation: *const XmtpConversation,
+    envelope_bytes: *const u8,
+    envelope_bytes_len: i32,
+    out: *mut *mut XmtpMessageList,
+) -> i32 {
+    catch_async(|| async {
+        let conv = unsafe { ref_from(conversation)? };
+        if out.is_null() {
+            return Err("null output pointer".into());
+        }
+        let bytes =
+            unsafe { std::slice::from_raw_parts(envelope_bytes, envelope_bytes_len as usize) }
+                .to_vec();
+        let messages = conv.inner.process_streamed_group_message(bytes).await?;
+        let list = Box::new(XmtpMessageList { items: messages });
+        unsafe { *out = Box::into_raw(list) };
+        Ok(())
+    })
+}
+
+// ---------------------------------------------------------------------------
+// Group metadata
+// ---------------------------------------------------------------------------
+
+/// Get the full group metadata (creator inbox ID + conversation type).
+/// Caller must free with [`xmtp_group_metadata_free`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn xmtp_conversation_group_metadata(
+    conversation: *const XmtpConversation,
+    out: *mut *mut XmtpGroupMetadata,
+) -> i32 {
+    catch_async(|| async {
+        let conv = unsafe { ref_from(conversation)? };
+        if out.is_null() {
+            return Err("null output pointer".into());
+        }
+        let metadata = conv.inner.metadata().await?;
+        let conv_type = match metadata.conversation_type {
+            xmtp_db::group::ConversationType::Group => 0,
+            xmtp_db::group::ConversationType::Dm => 1,
+            xmtp_db::group::ConversationType::Sync => 2,
+            xmtp_db::group::ConversationType::Oneshot => 3,
+        };
+        let result = Box::new(XmtpGroupMetadata {
+            creator_inbox_id: to_c_string(&metadata.creator_inbox_id),
+            conversation_type: conv_type,
+        });
+        unsafe { *out = Box::into_raw(result) };
+        Ok(())
+    })
+}
+
+/// Free a group metadata struct.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn xmtp_group_metadata_free(meta: *mut XmtpGroupMetadata) {
+    if meta.is_null() {
+        return;
+    }
+    let m = unsafe { Box::from_raw(meta) };
+    if !m.creator_inbox_id.is_null() {
+        drop(unsafe { CString::from_raw(m.creator_inbox_id) });
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Group permissions
+// ---------------------------------------------------------------------------
+
+/// Map a MembershipPolicies to i32: 0=Allow, 1=Deny, 2=Admin, 3=SuperAdmin, 5=Other.
+fn membership_policy_to_i32(
+    p: &xmtp_mls::groups::group_permissions::MembershipPolicies,
+) -> i32 {
+    use xmtp_mls::groups::group_permissions::{BasePolicies, MembershipPolicies};
+    if let MembershipPolicies::Standard(base) = p {
+        match base {
+            BasePolicies::Allow => 0,
+            BasePolicies::Deny => 1,
+            BasePolicies::AllowIfAdminOrSuperAdmin => 2,
+            BasePolicies::AllowIfSuperAdmin => 3,
+            BasePolicies::AllowSameMember => 5,
+        }
+    } else {
+        5 // Other
+    }
+}
+
+/// Map a MetadataPolicies to i32: 0=Allow, 1=Deny, 2=Admin, 3=SuperAdmin, 5=Other.
+fn metadata_policy_to_i32(
+    p: &xmtp_mls::groups::group_permissions::MetadataPolicies,
+) -> i32 {
+    use xmtp_mls::groups::group_permissions::{MetadataBasePolicies, MetadataPolicies};
+    if let MetadataPolicies::Standard(base) = p {
+        match base {
+            MetadataBasePolicies::Allow => 0,
+            MetadataBasePolicies::Deny => 1,
+            MetadataBasePolicies::AllowIfActorAdminOrSuperAdmin => 2,
+            MetadataBasePolicies::AllowIfActorSuperAdmin => 3,
+        }
+    } else {
+        5 // Other
+    }
+}
+
+/// Map a PermissionsPolicies to i32: 1=Deny, 2=Admin, 3=SuperAdmin, 5=Other.
+fn permissions_policy_to_i32(
+    p: &xmtp_mls::groups::group_permissions::PermissionsPolicies,
+) -> i32 {
+    use xmtp_mls::groups::group_permissions::{PermissionsBasePolicies, PermissionsPolicies};
+    if let PermissionsPolicies::Standard(base) = p {
+        match base {
+            PermissionsBasePolicies::Deny => 1,
+            PermissionsBasePolicies::AllowIfActorAdminOrSuperAdmin => 2,
+            PermissionsBasePolicies::AllowIfActorSuperAdmin => 3,
+        }
+    } else {
+        5 // Other
+    }
+}
+
+/// Get the group permissions (policy type + full policy set).
+/// Caller must free with [`xmtp_group_permissions_free`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn xmtp_conversation_group_permissions(
+    conversation: *const XmtpConversation,
+    out: *mut *mut XmtpGroupPermissions,
+) -> i32 {
+    catch(|| {
+        let conv = unsafe { ref_from(conversation)? };
+        if out.is_null() {
+            return Err("null output pointer".into());
+        }
+        let perms = conv.inner.permissions()?;
+        let policy_type = match perms.preconfigured_policy() {
+            Ok(xmtp_mls::groups::PreconfiguredPolicies::Default) => 0,
+            Ok(xmtp_mls::groups::PreconfiguredPolicies::AdminsOnly) => 1,
+            Err(_) => 2, // CustomPolicy
+        };
+
+        let ps = &perms.policies;
+        let meta = &ps.update_metadata_policy;
+        let get_meta = |field: &str| -> i32 {
+            meta.get(field)
+                .map(|p| metadata_policy_to_i32(p))
+                .unwrap_or(4) // DoesNotExist
+        };
+
+        use xmtp_mls::mls_common::group_mutable_metadata::MetadataField;
+        let policy_set = XmtpPermissionPolicySet {
+            add_member_policy: membership_policy_to_i32(&ps.add_member_policy),
+            remove_member_policy: membership_policy_to_i32(&ps.remove_member_policy),
+            add_admin_policy: permissions_policy_to_i32(&ps.add_admin_policy),
+            remove_admin_policy: permissions_policy_to_i32(&ps.remove_admin_policy),
+            update_group_name_policy: get_meta(MetadataField::GroupName.as_str()),
+            update_group_description_policy: get_meta(MetadataField::Description.as_str()),
+            update_group_image_url_square_policy: get_meta(
+                MetadataField::GroupImageUrlSquare.as_str(),
+            ),
+            update_message_disappearing_policy: get_meta(
+                MetadataField::MessageDisappearInNS.as_str(),
+            ),
+            update_app_data_policy: get_meta(MetadataField::AppData.as_str()),
+        };
+
+        let result = Box::new(XmtpGroupPermissions {
+            policy_type,
+            policy_set,
+        });
+        unsafe { *out = Box::into_raw(result) };
+        Ok(())
+    })
+}
+
+/// Free a group permissions struct.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn xmtp_group_permissions_free(perms: *mut XmtpGroupPermissions) {
+    if !perms.is_null() {
+        drop(unsafe { Box::from_raw(perms) });
+    }
+}
+
 /// Free an HMAC key map (including all owned data).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn xmtp_hmac_key_map_free(map: *mut XmtpHmacKeyMap) {

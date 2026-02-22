@@ -434,6 +434,38 @@ pub unsafe extern "C" fn xmtp_client_hmac_keys(
 }
 
 // ---------------------------------------------------------------------------
+// Process streamed messages
+// ---------------------------------------------------------------------------
+
+/// Process a raw welcome message received via push notification.
+/// Returns a list of conversation handles. Caller must free with [`xmtp_conversation_list_free`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn xmtp_client_process_streamed_welcome_message(
+    client: *const XmtpClient,
+    envelope_bytes: *const u8,
+    envelope_bytes_len: i32,
+    out: *mut *mut XmtpConversationList,
+) -> i32 {
+    catch_async(|| async {
+        let c = unsafe { ref_from(client)? };
+        if out.is_null() {
+            return Err("null output pointer".into());
+        }
+        let bytes =
+            unsafe { std::slice::from_raw_parts(envelope_bytes, envelope_bytes_len as usize) }
+                .to_vec();
+        let groups = c.inner.process_streamed_welcome_message(bytes).await?;
+        let items: Vec<XmtpConversationListItem> = groups
+            .into_iter()
+            .map(|g| XmtpConversationListItem { group: g })
+            .collect();
+        let list = Box::new(XmtpConversationList { items });
+        unsafe { *out = Box::into_raw(list) };
+        Ok(())
+    })
+}
+
+// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
