@@ -6,8 +6,8 @@ fn main() {
     let output_dir = PathBuf::from(&crate_dir).join("include");
     std::fs::create_dir_all(&output_dir).expect("Failed to create include directory");
 
-    let config = cbindgen::Config::from_file("cbindgen.toml")
-        .expect("Failed to read cbindgen.toml");
+    let config =
+        cbindgen::Config::from_file("cbindgen.toml").expect("Failed to read cbindgen.toml");
 
     cbindgen::Builder::new()
         .with_crate(&crate_dir)

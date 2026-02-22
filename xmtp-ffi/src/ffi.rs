@@ -31,8 +31,10 @@ pub struct XmtpConversation {
 
 /// Opaque signature request handle.
 pub struct XmtpSignatureRequest {
-    pub(crate) request: std::sync::Arc<tokio::sync::Mutex<xmtp_id::associations::builder::SignatureRequest>>,
-    pub(crate) scw_verifier: std::sync::Arc<Box<dyn xmtp_id::scw_verifier::SmartContractSignatureVerifier>>,
+    pub(crate) request:
+        std::sync::Arc<tokio::sync::Mutex<xmtp_id::associations::builder::SignatureRequest>>,
+    pub(crate) scw_verifier:
+        std::sync::Arc<Box<dyn xmtp_id::scw_verifier::SmartContractSignatureVerifier>>,
 }
 
 /// Opaque stream handle.
@@ -74,8 +76,6 @@ pub struct XmtpConversationList {
 
 pub struct XmtpConversationListItem {
     pub(crate) group: InnerGroup,
-    #[allow(dead_code)]
-    pub(crate) last_message: Option<xmtp_db::group_message::StoredGroupMessage>,
 }
 
 /// A single group member.
@@ -122,7 +122,9 @@ pub unsafe extern "C" fn xmtp_last_error_message(buf: *mut c_char, buf_len: i32)
     LAST_ERROR.with(|e| {
         let s = e.borrow();
         if s.is_empty() {
-            unsafe { *buf = 0; }
+            unsafe {
+                *buf = 0;
+            }
             return 0;
         }
         let bytes = s.as_bytes();
@@ -178,7 +180,9 @@ pub(crate) fn runtime() -> &'static Runtime {
 // ---------------------------------------------------------------------------
 
 /// Convert a C string to an owned Rust `String`. Returns `Err` on null or invalid UTF-8.
-pub(crate) unsafe fn c_str_to_string(s: *const c_char) -> Result<String, Box<dyn std::error::Error>> {
+pub(crate) unsafe fn c_str_to_string(
+    s: *const c_char,
+) -> Result<String, Box<dyn std::error::Error>> {
     if s.is_null() {
         return Err("null string pointer".into());
     }
@@ -186,7 +190,9 @@ pub(crate) unsafe fn c_str_to_string(s: *const c_char) -> Result<String, Box<dyn
 }
 
 /// Convert a nullable C string to `Option<String>`.
-pub(crate) unsafe fn c_str_to_option(s: *const c_char) -> Result<Option<String>, Box<dyn std::error::Error>> {
+pub(crate) unsafe fn c_str_to_option(
+    s: *const c_char,
+) -> Result<Option<String>, Box<dyn std::error::Error>> {
     if s.is_null() {
         return Ok(None);
     }
@@ -195,7 +201,9 @@ pub(crate) unsafe fn c_str_to_option(s: *const c_char) -> Result<Option<String>,
 
 /// Allocate a new C string from a Rust `&str`. Caller must free with [`xmtp_free_string`].
 pub(crate) fn to_c_string(s: &str) -> *mut c_char {
-    CString::new(s).map(CString::into_raw).unwrap_or(std::ptr::null_mut())
+    CString::new(s)
+        .map(CString::into_raw)
+        .unwrap_or(std::ptr::null_mut())
 }
 
 /// Free a string previously returned by this library.
@@ -226,27 +234,103 @@ pub(crate) unsafe fn ref_from<'a, T>(ptr: *const T) -> Result<&'a T, Box<dyn std
     Ok(unsafe { &*ptr })
 }
 
-/// Validate a pointer and create a safe mutable reference.
-#[allow(dead_code)]
-pub(crate) unsafe fn mut_from<'a, T>(ptr: *mut T) -> Result<&'a mut T, Box<dyn std::error::Error>> {
-    if ptr.is_null() {
-        return Err("null handle".into());
-    }
-    Ok(unsafe { &mut *ptr })
-}
-
 /// Box a value and return a raw pointer.
 pub(crate) fn into_raw<T>(val: T) -> *mut T {
     Box::into_raw(Box::new(val))
 }
 
 /// Write a raw pointer into an output parameter.
-pub(crate) unsafe fn write_out<T>(out: *mut *mut T, val: T) -> Result<(), Box<dyn std::error::Error>> {
+pub(crate) unsafe fn write_out<T>(
+    out: *mut *mut T,
+    val: T,
+) -> Result<(), Box<dyn std::error::Error>> {
     if out.is_null() {
         return Err("null output pointer".into());
     }
-    unsafe { *out = into_raw(val); }
+    unsafe {
+        *out = into_raw(val);
+    }
     Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Optional logger initialization
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Identifier helpers (shared across modules)
+// ---------------------------------------------------------------------------
+
+/// Parse a single identifier from a C string + kind.
+pub(crate) unsafe fn parse_identifier(
+    s: *const c_char,
+    kind: i32,
+) -> Result<xmtp_id::associations::Identifier, Box<dyn std::error::Error>> {
+    let val = unsafe { c_str_to_string(s)? };
+    match kind {
+        0 => Ok(xmtp_id::associations::Identifier::eth(val)?),
+        1 => Ok(xmtp_id::associations::Identifier::passkey_str(&val, None)?),
+        _ => Err("invalid identifier kind".into()),
+    }
+}
+
+/// Collect parallel arrays of identifiers and kinds into `Vec<Identifier>`.
+pub(crate) unsafe fn collect_identifiers(
+    ptrs: *const *const c_char,
+    kinds: *const i32,
+    count: i32,
+) -> Result<Vec<xmtp_id::associations::Identifier>, Box<dyn std::error::Error>> {
+    if ptrs.is_null() || kinds.is_null() || count <= 0 {
+        return Err("null pointer or invalid count".into());
+    }
+    let mut result = Vec::with_capacity(count as usize);
+    for i in 0..count as usize {
+        let s = unsafe { c_str_to_string(*ptrs.add(i))? };
+        let kind = unsafe { *kinds.add(i) };
+        result.push(match kind {
+            0 => xmtp_id::associations::Identifier::eth(s)?,
+            1 => xmtp_id::associations::Identifier::passkey_str(&s, None)?,
+            _ => return Err("invalid identifier kind".into()),
+        });
+    }
+    Ok(result)
+}
+
+/// Collect an array of C strings into `Vec<String>`.
+pub(crate) unsafe fn collect_strings(
+    ptrs: *const *const c_char,
+    count: i32,
+) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+    if ptrs.is_null() || count <= 0 {
+        return Err("null pointer or invalid count".into());
+    }
+    (0..count as usize)
+        .map(|i| unsafe { c_str_to_string(*ptrs.add(i)) })
+        .collect()
+}
+
+/// Convert a `Vec<String>` into a heap-allocated C string array.
+/// Caller must free each string and the array itself.
+pub(crate) fn string_vec_to_c(v: Vec<String>, out_count: *mut i32) -> *mut *mut c_char {
+    let count = v.len();
+    let mut ptrs: Vec<*mut c_char> = v.into_iter().map(|s| to_c_string(&s)).collect();
+    let ptr = ptrs.as_mut_ptr();
+    std::mem::forget(ptrs);
+    unsafe {
+        *out_count = count as i32;
+    }
+    ptr
+}
+
+// ---------------------------------------------------------------------------
+// Send options
+// ---------------------------------------------------------------------------
+
+/// Options for sending a message.
+#[repr(C)]
+pub struct XmtpSendOpts {
+    /// Whether to send a push notification. 1 = yes (default), 0 = no.
+    pub should_push: i32,
 }
 
 // ---------------------------------------------------------------------------

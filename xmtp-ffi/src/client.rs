@@ -78,9 +78,7 @@ pub unsafe extern "C" fn xmtp_client_create(
 
         // Identity strategy
         let identity_strategy = xmtp_mls::identity::IdentityStrategy::new(
-            inbox_id,
-            identifier,
-            1, // nonce
+            inbox_id, identifier, 1, // nonce
             None,
         );
 
@@ -103,7 +101,14 @@ pub unsafe extern "C" fn xmtp_client_create(
             .build()
             .await?;
 
-        unsafe { write_out(out, XmtpClient { inner: Arc::new(client) })? };
+        unsafe {
+            write_out(
+                out,
+                XmtpClient {
+                    inner: Arc::new(client),
+                },
+            )?
+        };
         Ok(())
     })
 }
@@ -162,7 +167,10 @@ pub unsafe extern "C" fn xmtp_client_register_identity(
             c.inner.register_identity(req).await?;
         } else {
             // Create a default empty signature request for registration
-            let req = c.inner.identity().signature_request()
+            let req = c
+                .inner
+                .identity()
+                .signature_request()
                 .ok_or("no signature request available for registration")?;
             c.inner.register_identity(req).await?;
         }
@@ -202,7 +210,9 @@ pub unsafe extern "C" fn xmtp_client_can_message(
         let results = c.inner.can_message(&idents).await?;
         for (i, ident) in idents.iter().enumerate() {
             let can = results.get(ident).copied().unwrap_or(false);
-            unsafe { *out_results.add(i) = i32::from(can); }
+            unsafe {
+                *out_results.add(i) = i32::from(can);
+            }
         }
         Ok(())
     })
@@ -356,6 +366,89 @@ pub unsafe extern "C" fn xmtp_inbox_state_installation_count(state: *const XmtpI
     }
 }
 
+/// Get the recovery identifier string from an inbox state.
+/// Caller must free with [`xmtp_free_string`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn xmtp_inbox_state_recovery_identifier(
+    state: *const XmtpInboxState,
+) -> *mut c_char {
+    match unsafe { ref_from(state) } {
+        Ok(s) => to_c_string(&s.inner.recovery_identifier().to_string()),
+        Err(_) => std::ptr::null_mut(),
+    }
+}
+
+/// Get installation IDs from an inbox state as a flat byte buffer.
+/// Each installation ID is 32 bytes, concatenated. Total length = count * 32.
+/// Writes the number of installations to `out_count`.
+/// Caller must free the returned buffer with [`xmtp_free_bytes`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn xmtp_inbox_state_installation_ids(
+    state: *const XmtpInboxState,
+    out_count: *mut i32,
+) -> *mut u8 {
+    if out_count.is_null() {
+        return std::ptr::null_mut();
+    }
+    match unsafe { ref_from(state) } {
+        Ok(s) => {
+            let ids = s.inner.installation_ids();
+            let count = ids.len();
+            let mut buf: Vec<u8> = Vec::with_capacity(count * 32);
+            for id in &ids {
+                // Pad or truncate to 32 bytes
+                let mut padded = [0u8; 32];
+                let len = id.len().min(32);
+                padded[..len].copy_from_slice(&id[..len]);
+                buf.extend_from_slice(&padded);
+            }
+            unsafe {
+                *out_count = count as i32;
+            }
+            let ptr = buf.as_mut_ptr();
+            std::mem::forget(buf);
+            ptr
+        }
+        Err(_) => {
+            unsafe {
+                *out_count = 0;
+            }
+            std::ptr::null_mut()
+        }
+    }
+}
+
+/// Get the account identifiers associated with an inbox state.
+/// Returns a null-terminated array of C strings (the identifier values).
+/// `out_count` receives the number of identifiers.
+/// Caller must free with [`xmtp_free_string_array`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn xmtp_inbox_state_account_identifiers(
+    state: *const XmtpInboxState,
+    out_count: *mut i32,
+) -> *mut *mut c_char {
+    if out_count.is_null() {
+        return std::ptr::null_mut();
+    }
+    match unsafe { ref_from(state) } {
+        Ok(s) => {
+            let idents: Vec<String> = s
+                .inner
+                .identifiers()
+                .into_iter()
+                .map(|id: xmtp_id::associations::Identifier| id.to_string())
+                .collect();
+            string_vec_to_c(idents, out_count)
+        }
+        Err(_) => {
+            unsafe {
+                *out_count = 0;
+            }
+            std::ptr::null_mut()
+        }
+    }
+}
+
 /// Free an inbox state handle.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn xmtp_inbox_state_free(state: *mut XmtpInboxState) {
@@ -385,11 +478,15 @@ pub unsafe extern "C" fn xmtp_client_installation_id_bytes(
             let mut copy = id.to_vec();
             let ptr = copy.as_mut_ptr();
             std::mem::forget(copy);
-            unsafe { *out_len = len as i32; }
+            unsafe {
+                *out_len = len as i32;
+            }
             ptr
         }
         Err(_) => {
-            unsafe { *out_len = 0; }
+            unsafe {
+                *out_len = 0;
+            }
             std::ptr::null_mut()
         }
     }
@@ -418,7 +515,10 @@ pub unsafe extern "C" fn xmtp_client_verify_signed_with_installation_key(
         let sig: [u8; 64] = sig_slice.try_into().map_err(|_| "bad signature length")?;
 
         let pub_key = c.inner.installation_public_key();
-        let pk: [u8; 32] = pub_key.as_slice().try_into().map_err(|_| "bad public key length")?;
+        let pk: [u8; 32] = pub_key
+            .as_slice()
+            .try_into()
+            .map_err(|_| "bad public key length")?;
 
         xmtp_id::associations::signature::verify_signed_with_public_context(text, &sig, &pk)?;
         Ok(())

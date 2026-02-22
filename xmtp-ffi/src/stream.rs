@@ -54,7 +54,9 @@ pub unsafe extern "C" fn xmtp_stream_conversations(
             move |result| {
                 if let Ok(group) = result {
                     let ptr = into_raw(XmtpConversation { inner: group });
-                    unsafe { callback(ptr, ctx as *mut std::ffi::c_void); }
+                    unsafe {
+                        callback(ptr, ctx as *mut std::ffi::c_void);
+                    }
                 }
             },
             || {},
@@ -63,7 +65,14 @@ pub unsafe extern "C" fn xmtp_stream_conversations(
 
         runtime().block_on(handle.wait_for_ready());
         let abort = handle.abort_handle();
-        unsafe { write_out(out, XmtpStreamHandle { abort: Arc::new(abort) })? };
+        unsafe {
+            write_out(
+                out,
+                XmtpStreamHandle {
+                    abort: Arc::new(abort),
+                },
+            )?
+        };
         Ok(())
     })
 }
@@ -98,7 +107,9 @@ pub unsafe extern "C" fn xmtp_stream_all_messages(
             move |result| {
                 if let Ok(msg) = result {
                     let ptr = into_raw(XmtpMessage { inner: msg });
-                    unsafe { callback(ptr, ctx as *mut std::ffi::c_void); }
+                    unsafe {
+                        callback(ptr, ctx as *mut std::ffi::c_void);
+                    }
                 }
             },
             || {},
@@ -106,7 +117,14 @@ pub unsafe extern "C" fn xmtp_stream_all_messages(
 
         runtime().block_on(handle.wait_for_ready());
         let abort = handle.abort_handle();
-        unsafe { write_out(out, XmtpStreamHandle { abort: Arc::new(abort) })? };
+        unsafe {
+            write_out(
+                out,
+                XmtpStreamHandle {
+                    abort: Arc::new(abort),
+                },
+            )?
+        };
         Ok(())
     })
 }
@@ -138,7 +156,9 @@ pub unsafe extern "C" fn xmtp_conversation_stream_messages(
             move |result| {
                 if let Ok(msg) = result {
                     let ptr = into_raw(XmtpMessage { inner: msg });
-                    unsafe { callback(ptr, ctx as *mut std::ffi::c_void); }
+                    unsafe {
+                        callback(ptr, ctx as *mut std::ffi::c_void);
+                    }
                 }
             },
             || {},
@@ -146,7 +166,14 @@ pub unsafe extern "C" fn xmtp_conversation_stream_messages(
 
         runtime().block_on(handle.wait_for_ready());
         let abort = handle.abort_handle();
-        unsafe { write_out(out, XmtpStreamHandle { abort: Arc::new(abort) })? };
+        unsafe {
+            write_out(
+                out,
+                XmtpStreamHandle {
+                    abort: Arc::new(abort),
+                },
+            )?
+        };
         Ok(())
     })
 }

@@ -90,6 +90,16 @@ typedef struct XmtpXmtpClientOptions {
 } XmtpXmtpClientOptions;
 
 /**
+ * Options for sending a message.
+ */
+typedef struct XmtpXmtpSendOpts {
+    /**
+     * Whether to send a push notification. 1 = yes (default), 0 = no.
+     */
+    int32_t should_push;
+} XmtpXmtpSendOpts;
+
+/**
  * Options for listing messages.
  */
 typedef struct XmtpXmtpListMessagesOptions {
@@ -105,6 +115,14 @@ typedef struct XmtpXmtpListMessagesOptions {
      * Maximum number of messages. 0 = no limit.
      */
     int64_t limit;
+    /**
+     * Filter by delivery status: -1 = all, 0 = Unpublished, 1 = Published, 2 = Failed.
+     */
+    int32_t delivery_status;
+    /**
+     * Filter by message kind: -1 = all, 0 = Application, 1 = MembershipChange.
+     */
+    int32_t kind;
 } XmtpXmtpListMessagesOptions;
 
 /**
@@ -149,6 +167,23 @@ typedef struct XmtpXmtpListConversationsOptions {
      * Only include conversations created before this timestamp (ns). 0 = no filter.
      */
     int64_t created_before_ns;
+    /**
+     * Consent state filter (parallel array with `consent_states_count`).
+     * Values: 0 = Unknown, 1 = Allowed, 2 = Denied.
+     */
+    const int32_t *consent_states;
+    /**
+     * Number of consent states in the filter. 0 = no filter.
+     */
+    int32_t consent_states_count;
+    /**
+     * Order by: 0 = CreatedAt (default), 1 = LastActivity.
+     */
+    int32_t order_by;
+    /**
+     * Whether to include duplicate DMs. 0 = no (default), 1 = yes.
+     */
+    int32_t include_duplicate_dms;
 } XmtpXmtpListConversationsOptions;
 
 /**
@@ -291,6 +326,32 @@ xmtp_ char *xmtp_inbox_state_inbox_id(const struct XmtpXmtpInboxState *state);
 xmtp_ int32_t xmtp_inbox_state_installation_count(const struct XmtpXmtpInboxState *state);
 
 /**
+ * Get the recovery identifier string from an inbox state.
+ * Caller must free with [`xmtp_free_string`].
+ */
+xmtp_ char *xmtp_inbox_state_recovery_identifier(const struct XmtpXmtpInboxState *state);
+
+/**
+ * Get installation IDs from an inbox state as a flat byte buffer.
+ * Each installation ID is 32 bytes, concatenated. Total length = count * 32.
+ * Writes the number of installations to `out_count`.
+ * Caller must free the returned buffer with [`xmtp_free_bytes`].
+ */
+xmtp_
+uint8_t *xmtp_inbox_state_installation_ids(const struct XmtpXmtpInboxState *state,
+                                           int32_t *out_count);
+
+/**
+ * Get the account identifiers associated with an inbox state.
+ * Returns a null-terminated array of C strings (the identifier values).
+ * `out_count` receives the number of identifiers.
+ * Caller must free with [`xmtp_free_string_array`].
+ */
+xmtp_
+char **xmtp_inbox_state_account_identifiers(const struct XmtpXmtpInboxState *state,
+                                            int32_t *out_count);
+
+/**
  * Free an inbox state handle.
  */
 xmtp_ void xmtp_inbox_state_free(struct XmtpXmtpInboxState *state);
@@ -335,7 +396,7 @@ xmtp_ int32_t xmtp_conversation_type(const struct XmtpXmtpConversation *conv);
 
 /**
  * Get the DM peer's inbox ID. Caller must free with [`xmtp_free_string`].
- * Returns null if not a DM.
+ * Returns null if not a DM or on error.
  */
 xmtp_ char *xmtp_conversation_dm_peer_inbox_id(const struct XmtpXmtpConversation *conv);
 
@@ -347,11 +408,13 @@ xmtp_ int32_t xmtp_conversation_sync(const struct XmtpXmtpConversation *conv);
 /**
  * Send raw encoded content bytes. Returns the message ID (hex) via `out_id`.
  * Caller must free `out_id` with [`xmtp_free_string`].
+ * Pass null for `opts` to use defaults (should_push = true).
  */
 xmtp_
 int32_t xmtp_conversation_send(const struct XmtpXmtpConversation *conv,
                                const uint8_t *content_bytes,
                                int32_t content_len,
+                               const struct XmtpXmtpSendOpts *opts,
                                char **out_id);
 
 /**
@@ -668,12 +731,24 @@ xmtp_ void xmtp_conversation_list_free(struct XmtpXmtpConversationList *list);
 xmtp_ int32_t xmtp_client_sync_welcomes(const struct XmtpXmtpClient *client);
 
 /**
- * Sync all conversations. Writes summary counts to `out_synced` and `out_eligible`.
+ * Sync all conversations, optionally filtering by consent states.
+ * `consent_states` is a parallel array of consent state values (0=Unknown, 1=Allowed, 2=Denied).
+ * Pass null and 0 to sync all.
  */
 xmtp_
 int32_t xmtp_client_sync_all(const struct XmtpXmtpClient *client,
+                             const int32_t *consent_states,
+                             int32_t consent_states_count,
                              int32_t *out_synced,
                              int32_t *out_eligible);
+
+/**
+ * Create a DM by target inbox ID. Caller must free result with [`xmtp_conversation_free`].
+ */
+xmtp_
+int32_t xmtp_client_create_dm_by_inbox_id(const struct XmtpXmtpClient *client,
+                                          const char *inbox_id,
+                                          struct XmtpXmtpConversation **out);
 
 /**
  * Generate an inbox ID from an identifier. Caller must free with [`xmtp_free_string`].
@@ -746,6 +821,21 @@ int32_t xmtp_signature_request_add_ecdsa(const struct XmtpXmtpSignatureRequest *
                                          int32_t signature_len);
 
 /**
+ * Add a passkey signature to the request.
+ * All four byte arrays are required and must not be null.
+ */
+xmtp_
+int32_t xmtp_signature_request_add_passkey(const struct XmtpXmtpSignatureRequest *req,
+                                           const uint8_t *public_key,
+                                           int32_t public_key_len,
+                                           const uint8_t *signature,
+                                           int32_t signature_len,
+                                           const uint8_t *authenticator_data,
+                                           int32_t authenticator_data_len,
+                                           const uint8_t *client_data_json,
+                                           int32_t client_data_json_len);
+
+/**
  * Apply a signature request to the client.
  */
 xmtp_
@@ -789,6 +879,18 @@ int32_t xmtp_client_sign_with_installation_key(const struct XmtpXmtpClient *clie
                                                const char *text,
                                                uint8_t **out,
                                                int32_t *out_len);
+
+/**
+ * Verify a signature produced by `sign_with_installation_key` using an
+ * arbitrary public key. Does not require a client handle.
+ * `signature_bytes` must be exactly 64 bytes, `public_key` must be exactly 32 bytes.
+ */
+xmtp_
+int32_t xmtp_verify_signed_with_public_key(const char *signature_text,
+                                           const uint8_t *signature_bytes,
+                                           int32_t signature_len,
+                                           const uint8_t *public_key,
+                                           int32_t public_key_len);
 
 /**
  * Stream new conversations. Calls `callback` for each new conversation.

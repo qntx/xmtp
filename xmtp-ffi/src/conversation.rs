@@ -2,6 +2,7 @@
 
 use std::ffi::c_char;
 
+use xmtp_db::group::DmIdExt;
 use xmtp_mls::groups::UpdateAdminListType;
 
 use crate::ffi::*;
@@ -55,16 +56,19 @@ pub unsafe extern "C" fn xmtp_conversation_type(conv: *const XmtpConversation) -
 }
 
 /// Get the DM peer's inbox ID. Caller must free with [`xmtp_free_string`].
-/// Returns null if not a DM.
+/// Returns null if not a DM or on error.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn xmtp_conversation_dm_peer_inbox_id(
     conv: *const XmtpConversation,
 ) -> *mut c_char {
     match unsafe { ref_from(conv) } {
-        Ok(c) => match &c.inner.dm_id {
-            Some(id) => to_c_string(id),
-            None => std::ptr::null_mut(),
-        },
+        Ok(c) => {
+            let inbox_id = c.inner.context.inbox_id();
+            match &c.inner.dm_id {
+                Some(dm_id) => to_c_string(&dm_id.other_inbox_id(inbox_id)),
+                None => std::ptr::null_mut(),
+            }
+        }
         Err(_) => std::ptr::null_mut(),
     }
 }
@@ -89,11 +93,13 @@ pub unsafe extern "C" fn xmtp_conversation_sync(conv: *const XmtpConversation) -
 
 /// Send raw encoded content bytes. Returns the message ID (hex) via `out_id`.
 /// Caller must free `out_id` with [`xmtp_free_string`].
+/// Pass null for `opts` to use defaults (should_push = true).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn xmtp_conversation_send(
     conv: *const XmtpConversation,
     content_bytes: *const u8,
     content_len: i32,
+    opts: *const XmtpSendOpts,
     out_id: *mut *mut c_char,
 ) -> i32 {
     catch_async(|| async {
@@ -103,12 +109,20 @@ pub unsafe extern "C" fn xmtp_conversation_send(
         }
         let bytes = unsafe { std::slice::from_raw_parts(content_bytes, content_len as usize) };
 
-        // send_message takes raw bytes and SendMessageOpts
-        let opts = xmtp_mls::groups::send_message_opts::SendMessageOpts::default();
-        let msg_id = c.inner.send_message(bytes, opts).await?;
+        let send_opts = if opts.is_null() {
+            xmtp_mls::groups::send_message_opts::SendMessageOpts::default()
+        } else {
+            let o = unsafe { &*opts };
+            xmtp_mls::groups::send_message_opts::SendMessageOpts {
+                should_push: o.should_push != 0,
+            }
+        };
+        let msg_id = c.inner.send_message(bytes, send_opts).await?;
 
         if !out_id.is_null() {
-            unsafe { *out_id = to_c_string(&hex::encode(&msg_id)); }
+            unsafe {
+                *out_id = to_c_string(&hex::encode(&msg_id));
+            }
         }
         Ok(())
     })
@@ -127,6 +141,10 @@ pub struct XmtpListMessagesOptions {
     pub sent_before_ns: i64,
     /// Maximum number of messages. 0 = no limit.
     pub limit: i64,
+    /// Filter by delivery status: -1 = all, 0 = Unpublished, 1 = Published, 2 = Failed.
+    pub delivery_status: i32,
+    /// Filter by message kind: -1 = all, 0 = Application, 1 = MembershipChange.
+    pub kind: i32,
 }
 
 /// List messages in this conversation. Caller must free with [`xmtp_message_list_free`].
@@ -154,6 +172,17 @@ pub unsafe extern "C" fn xmtp_conversation_list_messages(
             if o.limit > 0 {
                 args.limit = Some(o.limit);
             }
+            args.delivery_status = match o.delivery_status {
+                0 => Some(xmtp_db::group_message::DeliveryStatus::Unpublished),
+                1 => Some(xmtp_db::group_message::DeliveryStatus::Published),
+                2 => Some(xmtp_db::group_message::DeliveryStatus::Failed),
+                _ => None,
+            };
+            args.kind = match o.kind {
+                0 => Some(xmtp_db::group_message::GroupMessageKind::Application),
+                1 => Some(xmtp_db::group_message::GroupMessageKind::MembershipChange),
+                _ => None,
+            };
         }
 
         let messages = c.inner.find_messages(&args)?;
@@ -174,7 +203,10 @@ pub unsafe extern "C" fn xmtp_message_list_len(list: *const XmtpMessageList) -> 
 }
 
 /// Helper to safely access a message at index.
-unsafe fn msg_at(list: *const XmtpMessageList, idx: i32) -> Option<&'static xmtp_db::group_message::StoredGroupMessage> {
+unsafe fn msg_at(
+    list: *const XmtpMessageList,
+    idx: i32,
+) -> Option<&'static xmtp_db::group_message::StoredGroupMessage> {
     let l = unsafe { ref_from(list).ok()? };
     l.items.get(idx as usize)
 }
@@ -190,7 +222,10 @@ pub unsafe extern "C" fn xmtp_message_id(list: *const XmtpMessageList, index: i3
 
 /// Get sender inbox ID at index. Caller must free with [`xmtp_free_string`].
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn xmtp_message_sender_inbox_id(list: *const XmtpMessageList, index: i32) -> *mut c_char {
+pub unsafe extern "C" fn xmtp_message_sender_inbox_id(
+    list: *const XmtpMessageList,
+    index: i32,
+) -> *mut c_char {
     match unsafe { msg_at(list, index) } {
         Some(m) => to_c_string(&m.sender_inbox_id),
         None => std::ptr::null_mut(),
@@ -217,7 +252,10 @@ pub unsafe extern "C" fn xmtp_message_kind(list: *const XmtpMessageList, index: 
 
 /// Get delivery status at index: 0=Unpublished, 1=Published, 2=Failed, -1=error.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn xmtp_message_delivery_status(list: *const XmtpMessageList, index: i32) -> i32 {
+pub unsafe extern "C" fn xmtp_message_delivery_status(
+    list: *const XmtpMessageList,
+    index: i32,
+) -> i32 {
     match unsafe { msg_at(list, index) } {
         Some(m) => match m.delivery_status {
             xmtp_db::group_message::DeliveryStatus::Unpublished => 0,
@@ -241,11 +279,15 @@ pub unsafe extern "C" fn xmtp_message_content_bytes(
     }
     match unsafe { msg_at(list, index) } {
         Some(m) => {
-            unsafe { *out_len = m.decrypted_message_bytes.len() as i32; }
+            unsafe {
+                *out_len = m.decrypted_message_bytes.len() as i32;
+            }
             m.decrypted_message_bytes.as_ptr()
         }
         None => {
-            unsafe { *out_len = 0; }
+            unsafe {
+                *out_len = 0;
+            }
             std::ptr::null()
         }
     }
@@ -313,7 +355,10 @@ pub unsafe extern "C" fn xmtp_group_member_list_len(list: *const XmtpGroupMember
 
 /// Get member inbox ID at index. Caller must free with [`xmtp_free_string`].
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn xmtp_group_member_inbox_id(list: *const XmtpGroupMemberList, index: i32) -> *mut c_char {
+pub unsafe extern "C" fn xmtp_group_member_inbox_id(
+    list: *const XmtpGroupMemberList,
+    index: i32,
+) -> *mut c_char {
     let l = match unsafe { ref_from(list) } {
         Ok(l) => l,
         Err(_) => return std::ptr::null_mut(),
@@ -330,12 +375,17 @@ pub unsafe extern "C" fn xmtp_group_member_inbox_id(list: *const XmtpGroupMember
 
 /// Get member permission level at index: 0=Member, 1=Admin, 2=SuperAdmin, -1=error.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn xmtp_group_member_permission_level(list: *const XmtpGroupMemberList, index: i32) -> i32 {
+pub unsafe extern "C" fn xmtp_group_member_permission_level(
+    list: *const XmtpGroupMemberList,
+    index: i32,
+) -> i32 {
     let l = match unsafe { ref_from(list) } {
         Ok(l) => l,
         Err(_) => return -1,
     };
-    l.members.get(index as usize).map_or(-1, |m| m.permission_level)
+    l.members
+        .get(index as usize)
+        .map_or(-1, |m| m.permission_level)
 }
 
 /// Free a group member list.
@@ -431,7 +481,9 @@ pub unsafe extern "C" fn xmtp_conversation_update_admin_list(
 
 /// Get group name. Caller must free with [`xmtp_free_string`].
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn xmtp_conversation_group_name(conv: *const XmtpConversation) -> *mut c_char {
+pub unsafe extern "C" fn xmtp_conversation_group_name(
+    conv: *const XmtpConversation,
+) -> *mut c_char {
     match unsafe { ref_from(conv) } {
         Ok(c) => match c.inner.group_name() {
             Ok(name) => to_c_string(&name),
@@ -457,7 +509,9 @@ pub unsafe extern "C" fn xmtp_conversation_update_group_name(
 
 /// Get group description. Caller must free with [`xmtp_free_string`].
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn xmtp_conversation_group_description(conv: *const XmtpConversation) -> *mut c_char {
+pub unsafe extern "C" fn xmtp_conversation_group_description(
+    conv: *const XmtpConversation,
+) -> *mut c_char {
     match unsafe { ref_from(conv) } {
         Ok(c) => match c.inner.group_description() {
             Ok(desc) => to_c_string(&desc),
@@ -483,7 +537,9 @@ pub unsafe extern "C" fn xmtp_conversation_update_group_description(
 
 /// Get group image URL. Caller must free with [`xmtp_free_string`].
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn xmtp_conversation_group_image_url(conv: *const XmtpConversation) -> *mut c_char {
+pub unsafe extern "C" fn xmtp_conversation_group_image_url(
+    conv: *const XmtpConversation,
+) -> *mut c_char {
     match unsafe { ref_from(conv) } {
         Ok(c) => match c.inner.group_image_url_square() {
             Ok(url) => to_c_string(&url),
@@ -686,12 +742,16 @@ pub unsafe extern "C" fn xmtp_conversation_list_admins(
         Ok(c) => match c.inner.admin_list() {
             Ok(admins) => string_vec_to_c(admins, out_count),
             Err(_) => {
-                unsafe { *out_count = 0; }
+                unsafe {
+                    *out_count = 0;
+                }
                 std::ptr::null_mut()
             }
         },
         Err(_) => {
-            unsafe { *out_count = 0; }
+            unsafe {
+                *out_count = 0;
+            }
             std::ptr::null_mut()
         }
     }
@@ -710,12 +770,16 @@ pub unsafe extern "C" fn xmtp_conversation_list_super_admins(
         Ok(c) => match c.inner.super_admin_list() {
             Ok(admins) => string_vec_to_c(admins, out_count),
             Err(_) => {
-                unsafe { *out_count = 0; }
+                unsafe {
+                    *out_count = 0;
+                }
                 std::ptr::null_mut()
             }
         },
         Err(_) => {
-            unsafe { *out_count = 0; }
+            unsafe {
+                *out_count = 0;
+            }
             std::ptr::null_mut()
         }
     }
@@ -815,53 +879,4 @@ pub unsafe extern "C" fn xmtp_free_string_array(arr: *mut *mut c_char, count: i3
         }
     }
     drop(unsafe { Vec::from_raw_parts(arr, count as usize, count as usize) });
-}
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-/// Convert a Vec<String> to a C-allocated array of C strings.
-fn string_vec_to_c(v: Vec<String>, out_count: *mut i32) -> *mut *mut c_char {
-    let count = v.len();
-    let mut ptrs: Vec<*mut c_char> = v.into_iter().map(|s| to_c_string(&s)).collect();
-    let ptr = ptrs.as_mut_ptr();
-    std::mem::forget(ptrs);
-    unsafe { *out_count = count as i32; }
-    ptr
-}
-
-/// Collect parallel arrays of identifiers and kinds into Vec<Identifier>.
-unsafe fn collect_identifiers(
-    identifiers: *const *const c_char,
-    kinds: *const i32,
-    count: i32,
-) -> Result<Vec<xmtp_id::associations::Identifier>, Box<dyn std::error::Error>> {
-    if identifiers.is_null() || kinds.is_null() || count <= 0 {
-        return Err("null pointer or invalid count".into());
-    }
-    let mut result = Vec::with_capacity(count as usize);
-    for i in 0..count as usize {
-        let s = unsafe { c_str_to_string(*identifiers.add(i))? };
-        let kind = unsafe { *kinds.add(i) };
-        let ident = match kind {
-            0 => xmtp_id::associations::Identifier::eth(s)?,
-            1 => xmtp_id::associations::Identifier::passkey_str(&s, None)?,
-            _ => return Err("invalid identifier kind".into()),
-        };
-        result.push(ident);
-    }
-    Ok(result)
-}
-
-/// Collect an array of C strings into a Vec<String>.
-unsafe fn collect_strings(ptrs: *const *const c_char, count: i32) -> Result<Vec<String>, Box<dyn std::error::Error>> {
-    if ptrs.is_null() || count <= 0 {
-        return Err("null pointer or invalid count".into());
-    }
-    let mut result = Vec::with_capacity(count as usize);
-    for i in 0..count as usize {
-        result.push(unsafe { c_str_to_string(*ptrs.add(i))? });
-    }
-    Ok(result)
 }

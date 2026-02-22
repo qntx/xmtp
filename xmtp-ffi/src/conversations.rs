@@ -35,6 +35,15 @@ pub struct XmtpListConversationsOptions {
     pub created_after_ns: i64,
     /// Only include conversations created before this timestamp (ns). 0 = no filter.
     pub created_before_ns: i64,
+    /// Consent state filter (parallel array with `consent_states_count`).
+    /// Values: 0 = Unknown, 1 = Allowed, 2 = Denied.
+    pub consent_states: *const i32,
+    /// Number of consent states in the filter. 0 = no filter.
+    pub consent_states_count: i32,
+    /// Order by: 0 = CreatedAt (default), 1 = LastActivity.
+    pub order_by: i32,
+    /// Whether to include duplicate DMs. 0 = no (default), 1 = yes.
+    pub include_duplicate_dms: i32,
 }
 
 // ---------------------------------------------------------------------------
@@ -166,6 +175,7 @@ pub unsafe extern "C" fn xmtp_client_list_conversations(
             GroupQueryArgs::default()
         } else {
             let o = unsafe { &*opts };
+            let consent = parse_consent_filter(o.consent_states, o.consent_states_count);
             GroupQueryArgs {
                 conversation_type: match o.conversation_type {
                     0 => Some(xmtp_db::group::ConversationType::Dm),
@@ -173,8 +183,22 @@ pub unsafe extern "C" fn xmtp_client_list_conversations(
                     _ => None,
                 },
                 limit: if o.limit > 0 { Some(o.limit) } else { None },
-                created_after_ns: if o.created_after_ns > 0 { Some(o.created_after_ns) } else { None },
-                created_before_ns: if o.created_before_ns > 0 { Some(o.created_before_ns) } else { None },
+                created_after_ns: if o.created_after_ns > 0 {
+                    Some(o.created_after_ns)
+                } else {
+                    None
+                },
+                created_before_ns: if o.created_before_ns > 0 {
+                    Some(o.created_before_ns)
+                } else {
+                    None
+                },
+                consent_states: consent,
+                include_duplicate_dms: o.include_duplicate_dms != 0,
+                order_by: match o.order_by {
+                    1 => Some(xmtp_db::group::GroupQueryOrderBy::LastActivity),
+                    _ => Some(xmtp_db::group::GroupQueryOrderBy::CreatedAt),
+                },
                 ..Default::default()
             }
         };
@@ -183,10 +207,7 @@ pub unsafe extern "C" fn xmtp_client_list_conversations(
             .inner
             .list_conversations(args)?
             .into_iter()
-            .map(|item| XmtpConversationListItem {
-                group: item.group,
-                last_message: item.last_message,
-            })
+            .map(|item| XmtpConversationListItem { group: item.group })
             .collect();
 
         unsafe { write_out(out, XmtpConversationList { items })? };
@@ -254,22 +275,79 @@ pub unsafe extern "C" fn xmtp_client_sync_welcomes(client: *const XmtpClient) ->
     })
 }
 
-/// Sync all conversations. Writes summary counts to `out_synced` and `out_eligible`.
+/// Sync all conversations, optionally filtering by consent states.
+/// `consent_states` is a parallel array of consent state values (0=Unknown, 1=Allowed, 2=Denied).
+/// Pass null and 0 to sync all.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn xmtp_client_sync_all(
     client: *const XmtpClient,
+    consent_states: *const i32,
+    consent_states_count: i32,
     out_synced: *mut i32,
     out_eligible: *mut i32,
 ) -> i32 {
     catch_async(|| async {
         let c = unsafe { ref_from(client)? };
-        let summary = c.inner.sync_all_welcomes_and_groups(None).await?;
+        let consents = parse_consent_filter(consent_states, consent_states_count);
+        let summary = c.inner.sync_all_welcomes_and_groups(consents).await?;
         if !out_synced.is_null() {
-            unsafe { *out_synced = summary.num_synced as i32; }
+            unsafe {
+                *out_synced = summary.num_synced as i32;
+            }
         }
         if !out_eligible.is_null() {
-            unsafe { *out_eligible = summary.num_eligible as i32; }
+            unsafe {
+                *out_eligible = summary.num_eligible as i32;
+            }
         }
         Ok(())
     })
+}
+
+/// Create a DM by target inbox ID. Caller must free result with [`xmtp_conversation_free`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn xmtp_client_create_dm_by_inbox_id(
+    client: *const XmtpClient,
+    inbox_id: *const c_char,
+    out: *mut *mut XmtpConversation,
+) -> i32 {
+    catch_async(|| async {
+        let c = unsafe { ref_from(client)? };
+        if out.is_null() {
+            return Err("null output pointer".into());
+        }
+        let inbox_id = unsafe { c_str_to_string(inbox_id)? };
+        let group = c.inner.find_or_create_dm(inbox_id, None).await?;
+        unsafe { write_out(out, XmtpConversation { inner: group })? };
+        Ok(())
+    })
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/// Parse a consent state filter from a raw int array.
+fn parse_consent_filter(
+    states: *const i32,
+    count: i32,
+) -> Option<Vec<xmtp_db::consent_record::ConsentState>> {
+    if states.is_null() || count <= 0 {
+        return None;
+    }
+    let mut result = Vec::with_capacity(count as usize);
+    for i in 0..count as usize {
+        let s = unsafe { *states.add(i) };
+        result.push(match s {
+            0 => xmtp_db::consent_record::ConsentState::Unknown,
+            1 => xmtp_db::consent_record::ConsentState::Allowed,
+            2 => xmtp_db::consent_record::ConsentState::Denied,
+            _ => continue,
+        });
+    }
+    if result.is_empty() {
+        None
+    } else {
+        Some(result)
+    }
 }
