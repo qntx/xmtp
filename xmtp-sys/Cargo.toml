@@ -4,9 +4,21 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
-description.workspace = true
+description = "Raw FFI bindings to the XMTP messaging protocol static library (libxmtp_ffi)"
+readme = "README.md"
+links = "xmtp_ffi"
 
-[dependencies]
+[features]
+## Re-generate bindings from the C header at build time (requires libclang).
+## Without this feature, pre-generated bindings committed in `src/bindings.rs` are used.
+regenerate = ["dep:bindgen"]
+
+[build-dependencies]
+bindgen = { version = "0.72", optional = true }
+ureq = "2"
+flate2 = "1"
+tar = "0.4"
+zip = { version = "2", default-features = false, features = ["deflate"] }
 
 [lints]
 workspace = true

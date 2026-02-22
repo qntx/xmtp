@@ -1,0 +1,111 @@
+name: Build FFI
+
+on:
+  push:
+    tags:
+      - "ffi-v*.*.*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "FFI version override (e.g. 0.1.0)"
+        required: false
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            lib: libxmtp_ffi.a
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-latest
+            lib: libxmtp_ffi.a
+            cross: true
+          - target: x86_64-apple-darwin
+            os: macos-13
+            lib: libxmtp_ffi.a
+          - target: aarch64-apple-darwin
+            os: macos-latest
+            lib: libxmtp_ffi.a
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+            lib: xmtp_ffi.lib
+          - target: aarch64-pc-windows-msvc
+            os: windows-latest
+            lib: xmtp_ffi.lib
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: recursive
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install cross-compilation tools (Linux ARM64)
+        if: matrix.cross
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu
+          echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc" >> "$GITHUB_ENV"
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: xmtp-ffi
+          key: ${{ matrix.target }}
+
+      - name: Build static library
+        working-directory: xmtp-ffi
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Package (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          mkdir -p dist
+          cp "xmtp-ffi/target/${{ matrix.target }}/release/${{ matrix.lib }}" dist/
+          cp xmtp-ffi/include/xmtp_ffi.h dist/
+          tar -czf "xmtp-ffi-${{ matrix.target }}.tar.gz" -C dist .
+
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist
+          Copy-Item "xmtp-ffi\target\${{ matrix.target }}\release\${{ matrix.lib }}" dist\
+          Copy-Item xmtp-ffi\include\xmtp_ffi.h dist\
+          Compress-Archive -Path dist\* -DestinationPath "xmtp-ffi-${{ matrix.target }}.zip"
+
+      - uses: actions/upload-artifact@v6
+        with:
+          name: xmtp-ffi-${{ matrix.target }}
+          path: xmtp-ffi-${{ matrix.target }}.*
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/ffi-v')
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v7
+        with:
+          merge-multiple: true
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            xmtp-ffi-*.tar.gz
+            xmtp-ffi-*.zip
+          generate_release_notes: true
