@@ -107,7 +107,7 @@ fn link_system_libs(target: &str) {
         println!("cargo:rustc-link-lib=dylib=c++");
     } else if target.contains("windows") {
         for lib in [
-            "ws2_32", "bcrypt", "ntdll", "userenv", "crypt32", "secur32", "ncrypt",
+            "ws2_32", "bcrypt", "ntdll", "userenv", "crypt32", "secur32", "ncrypt", "user32",
         ] {
             println!("cargo:rustc-link-lib=dylib={lib}");
         }

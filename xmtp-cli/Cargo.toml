@@ -7,6 +7,11 @@ repository.workspace = true
 description.workspace = true
 
 [dependencies]
+xmtp.workspace = true
+k256 = { version = "0.13", features = ["ecdsa"] }
+sha3 = "0.10"
+hex = "0.4"
+getrandom = "0.2"
 
 [lints]
 workspace = true

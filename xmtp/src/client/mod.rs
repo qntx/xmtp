@@ -478,7 +478,9 @@ fn register_identity(client: &Client, signer: &dyn Signer) -> Result<()> {
     }
     let sig_req = OwnedHandle::new(raw, xmtp_sys::xmtp_signature_request_free)?;
     sign_request(&sig_req, signer)?;
-    apply_signature_request(client, &sig_req)?;
+    // register_identity publishes the identity update AND uploads key packages.
+    // Do NOT call apply_signature_request separately or the identity update will
+    // be published twice, causing "Multiple create operations detected".
     error::check(unsafe {
         xmtp_sys::xmtp_client_register_identity(client.handle.as_ptr(), sig_req.as_ptr())
     })

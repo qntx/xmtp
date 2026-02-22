@@ -20,5 +20,10 @@ target
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 #.idea/
 
+*.db3
+*.db3-wal
+*.db3-shm
+*.key
+
 /contracts
 # /3rdparty
