@@ -20,7 +20,7 @@ pub type InnerGroup = xmtp_mls::groups::MlsGroup<xmtp_mls::MlsContext>;
 // ---------------------------------------------------------------------------
 
 /// Opaque client handle.
-pub struct XmtpClient {
+pub struct FfiClient {
     pub(crate) inner: std::sync::Arc<InnerClient>,
     /// The account identifier used to create this client.
     pub(crate) account_identifier: String,
@@ -29,12 +29,12 @@ pub struct XmtpClient {
 }
 
 /// Opaque conversation handle.
-pub struct XmtpConversation {
+pub struct FfiConversation {
     pub(crate) inner: InnerGroup,
 }
 
 /// Opaque signature request handle.
-pub struct XmtpSignatureRequest {
+pub struct FfiSignatureRequest {
     pub(crate) request:
         std::sync::Arc<tokio::sync::Mutex<xmtp_id::associations::builder::SignatureRequest>>,
     pub(crate) scw_verifier:
@@ -42,7 +42,7 @@ pub struct XmtpSignatureRequest {
 }
 
 /// Opaque stream handle.
-pub struct XmtpStreamHandle {
+pub struct FfiStreamHandle {
     pub(crate) abort: std::sync::Arc<Box<dyn xmtp_common::AbortHandle>>,
 }
 
@@ -52,11 +52,11 @@ pub struct XmtpStreamHandle {
 
 /// Callback for conversation stream events.
 pub type FnConversationCallback =
-    unsafe extern "C" fn(conversation: *mut XmtpConversation, context: *mut std::ffi::c_void);
+    unsafe extern "C" fn(conversation: *mut FfiConversation, context: *mut std::ffi::c_void);
 
 /// Callback for message stream events.
 pub type FnMessageCallback =
-    unsafe extern "C" fn(message: *mut XmtpMessage, context: *mut std::ffi::c_void);
+    unsafe extern "C" fn(message: *mut FfiMessage, context: *mut std::ffi::c_void);
 
 /// Callback invoked when a stream closes (either normally or on error).
 /// Receives the opaque context pointer.
@@ -64,7 +64,7 @@ pub type FnOnCloseCallback = unsafe extern "C" fn(context: *mut std::ffi::c_void
 
 /// Callback for consent stream events.
 pub type FnConsentCallback = unsafe extern "C" fn(
-    records: *mut XmtpConsentRecord,
+    records: *mut FfiConsentRecord,
     count: i32,
     context: *mut std::ffi::c_void,
 );
@@ -76,7 +76,7 @@ pub type FnMessageDeletionCallback =
 
 /// Callback for preference stream events.
 pub type FnPreferenceCallback = unsafe extern "C" fn(
-    updates: *mut XmtpPreferenceUpdate,
+    updates: *mut FfiPreferenceUpdate,
     count: i32,
     context: *mut std::ffi::c_void,
 );
@@ -87,22 +87,23 @@ pub type FnPreferenceCallback = unsafe extern "C" fn(
 
 /// A stored message exposed to C.
 #[allow(dead_code)]
-pub struct XmtpMessage {
+pub struct FfiMessage {
     pub(crate) inner: xmtp_db::group_message::StoredGroupMessage,
 }
 
 /// A list of messages.
-pub struct XmtpMessageList {
+pub struct FfiMessageList {
     pub(crate) items: Vec<xmtp_db::group_message::StoredGroupMessage>,
 }
 
 /// A list of conversations returned from queries.
-pub struct XmtpConversationList {
+pub struct FfiConversationList {
     pub(crate) items: Vec<InnerGroup>,
 }
 
 /// A single group member.
-pub struct XmtpGroupMember {
+#[repr(C)]
+pub struct FfiGroupMember {
     pub(crate) inbox_id: *mut c_char,
     pub(crate) permission_level: i32, // 0=Member, 1=Admin, 2=SuperAdmin
     pub(crate) consent_state: i32,    // 0=Unknown, 1=Allowed, 2=Denied
@@ -115,12 +116,13 @@ pub struct XmtpGroupMember {
 }
 
 /// A list of group members.
-pub struct XmtpGroupMemberList {
-    pub(crate) items: Vec<XmtpGroupMember>,
+pub struct FfiGroupMemberList {
+    pub(crate) items: Vec<FfiGroupMember>,
 }
 
 /// A single inbox state entry (batch query result).
-pub struct XmtpInboxStateItem {
+#[repr(C)]
+pub struct FfiInboxStateItem {
     pub(crate) inbox_id: *mut c_char,
     pub(crate) recovery_identifier: *mut c_char,
     pub(crate) identifiers: *mut *mut c_char,
@@ -130,13 +132,13 @@ pub struct XmtpInboxStateItem {
 }
 
 /// A list of inbox states.
-pub struct XmtpInboxStateList {
-    pub(crate) items: Vec<XmtpInboxStateItem>,
+pub struct FfiInboxStateList {
+    pub(crate) items: Vec<FfiInboxStateItem>,
 }
 
 /// A consent record exposed to C.
 #[repr(C)]
-pub struct XmtpConsentRecord {
+pub struct FfiConsentRecord {
     /// Entity type: 0=InboxId, 1=ConversationId
     pub entity_type: i32,
     /// Consent state: 0=Unknown, 1=Allowed, 2=Denied
@@ -147,11 +149,11 @@ pub struct XmtpConsentRecord {
 
 /// A preference update exposed to C.
 #[repr(C)]
-pub struct XmtpPreferenceUpdate {
+pub struct FfiPreferenceUpdate {
     /// Update kind: 0=Consent, 1=HmacKey
     pub kind: i32,
     /// For Consent: the consent record. For HmacKey: zeroed.
-    pub consent: XmtpConsentRecord,
+    pub consent: FfiConsentRecord,
     /// For HmacKey: the key bytes. For Consent: null/0.
     pub hmac_key: *mut u8,
     pub hmac_key_len: i32,
@@ -159,14 +161,14 @@ pub struct XmtpPreferenceUpdate {
 
 /// Options for sending a message.
 #[repr(C)]
-pub struct XmtpSendOpts {
+pub struct FfiSendOpts {
     /// Whether to send a push notification. 1 = yes (default), 0 = no.
     pub should_push: i32,
 }
 
 /// MLS API call statistics (request counts).
 #[repr(C)]
-pub struct XmtpApiStats {
+pub struct FfiApiStats {
     pub upload_key_package: i64,
     pub fetch_key_package: i64,
     pub send_group_messages: i64,
@@ -182,7 +184,7 @@ pub struct XmtpApiStats {
 
 /// Identity API call statistics (request counts).
 #[repr(C)]
-pub struct XmtpIdentityStats {
+pub struct FfiIdentityStats {
     pub publish_identity_update: i64,
     pub get_identity_updates_v2: i64,
     pub get_inbox_ids: i64,
@@ -191,14 +193,14 @@ pub struct XmtpIdentityStats {
 
 /// A single cursor entry (originator + sequence).
 #[repr(C)]
-pub struct XmtpCursor {
+pub struct FfiCursor {
     pub originator_id: u32,
     pub sequence_id: u64,
 }
 
 /// Conversation debug info (epoch, fork status, commit logs, cursors).
 #[repr(C)]
-pub struct XmtpConversationDebugInfo {
+pub struct FfiConversationDebugInfo {
     pub epoch: u64,
     pub maybe_forked: i32,
     pub fork_details: *mut c_char,
@@ -207,13 +209,13 @@ pub struct XmtpConversationDebugInfo {
     pub local_commit_log: *mut c_char,
     pub remote_commit_log: *mut c_char,
     /// Heap-allocated cursor array. Free with the debug_info_free function.
-    pub cursors: *mut XmtpCursor,
+    pub cursors: *mut FfiCursor,
     pub cursors_count: i32,
 }
 
 /// A single HMAC key (42-byte key + epoch).
 #[repr(C)]
-pub struct XmtpHmacKey {
+pub struct FfiHmacKey {
     pub key: *mut u8,
     pub key_len: i32,
     pub epoch: i64,
@@ -221,21 +223,21 @@ pub struct XmtpHmacKey {
 
 /// A list of HMAC keys for one conversation.
 #[repr(C)]
-pub struct XmtpHmacKeyEntry {
+pub struct FfiHmacKeyEntry {
     /// Hex-encoded group ID.
     pub group_id: *mut c_char,
-    pub keys: *mut XmtpHmacKey,
+    pub keys: *mut FfiHmacKey,
     pub keys_count: i32,
 }
 
 /// A map of conversation ID → HMAC keys.
-pub struct XmtpHmacKeyMap {
-    pub(crate) entries: Vec<XmtpHmacKeyEntry>,
+pub struct FfiHmacKeyMap {
+    pub(crate) entries: Vec<FfiHmacKeyEntry>,
 }
 
 /// Options for device sync archive operations.
 #[repr(C)]
-pub struct XmtpArchiveOptions {
+pub struct FfiArchiveOptions {
     /// Bitmask of element selections: bit 0 = Messages, bit 1 = Consent.
     pub elements: i32,
     /// Start timestamp filter (ns). 0 = no filter.
@@ -248,7 +250,7 @@ pub struct XmtpArchiveOptions {
 
 /// Info about an available archive in the sync group.
 #[repr(C)]
-pub struct XmtpAvailableArchive {
+pub struct FfiAvailableArchive {
     pub pin: *mut c_char,
     pub backup_version: u16,
     pub exported_at_ns: i64,
@@ -257,18 +259,18 @@ pub struct XmtpAvailableArchive {
 }
 
 /// A list of available archives.
-pub struct XmtpAvailableArchiveList {
-    pub(crate) items: Vec<XmtpAvailableArchive>,
+pub struct FfiAvailableArchiveList {
+    pub(crate) items: Vec<FfiAvailableArchive>,
 }
 
 /// Opaque handle for gateway authentication credentials.
-pub struct XmtpAuthHandle {
+pub struct FfiAuthHandle {
     pub(crate) inner: xmtp_api_d14n::AuthHandle,
 }
 
 /// Key package status for an installation.
 #[repr(C)]
-pub struct XmtpKeyPackageStatus {
+pub struct FfiKeyPackageStatus {
     /// Installation ID as hex string (owned).
     pub installation_id: *mut c_char,
     /// 1 if valid, 0 if validation error.
@@ -282,25 +284,25 @@ pub struct XmtpKeyPackageStatus {
 }
 
 /// A list of key package statuses.
-pub struct XmtpKeyPackageStatusList {
-    pub(crate) items: Vec<XmtpKeyPackageStatus>,
+pub struct FfiKeyPackageStatusList {
+    pub(crate) items: Vec<FfiKeyPackageStatus>,
 }
 
 /// Inbox update count entry (inbox_id → count).
 #[repr(C)]
-pub struct XmtpInboxUpdateCount {
+pub struct FfiInboxUpdateCount {
     pub inbox_id: *mut c_char,
     pub count: u32,
 }
 
 /// A list of inbox update counts.
-pub struct XmtpInboxUpdateCountList {
-    pub(crate) items: Vec<XmtpInboxUpdateCount>,
+pub struct FfiInboxUpdateCountList {
+    pub(crate) items: Vec<FfiInboxUpdateCount>,
 }
 
 /// Group metadata (creator + conversation type).
 #[repr(C)]
-pub struct XmtpGroupMetadata {
+pub struct FfiGroupMetadata {
     /// Creator inbox ID (owned string).
     pub creator_inbox_id: *mut c_char,
     /// Conversation type: 0=Group, 1=DM, 2=Sync.
@@ -311,7 +313,7 @@ pub struct XmtpGroupMetadata {
 /// Each field is an i32 encoding:
 ///   0=Allow, 1=Deny, 2=Admin, 3=SuperAdmin, 4=DoesNotExist, 5=Other
 #[repr(C)]
-pub struct XmtpPermissionPolicySet {
+pub struct FfiPermissionPolicySet {
     pub add_member_policy: i32,
     pub remove_member_policy: i32,
     pub add_admin_policy: i32,
@@ -325,16 +327,16 @@ pub struct XmtpPermissionPolicySet {
 
 /// Group permissions (policy type + policy set).
 #[repr(C)]
-pub struct XmtpGroupPermissions {
+pub struct FfiGroupPermissions {
     /// 0=Default(AllMembers), 1=AdminOnly, 2=CustomPolicy.
     pub policy_type: i32,
-    pub policy_set: XmtpPermissionPolicySet,
+    pub policy_set: FfiPermissionPolicySet,
 }
 
 /// An enriched (decoded) message exposed to C.
 /// Contains metadata + the original encoded content bytes for upper-layer decoding.
 #[repr(C)]
-pub struct XmtpEnrichedMessage {
+pub struct FfiEnrichedMessage {
     /// Message ID (hex string, owned).
     pub id: *mut c_char,
     /// Group ID (hex string, owned).
@@ -364,20 +366,20 @@ pub struct XmtpEnrichedMessage {
 }
 
 /// A list of enriched messages.
-pub struct XmtpEnrichedMessageList {
-    pub(crate) items: Vec<XmtpEnrichedMessage>,
+pub struct FfiEnrichedMessageList {
+    pub(crate) items: Vec<FfiEnrichedMessage>,
 }
 
 /// Last-read-time entry (inbox_id → timestamp_ns).
 #[repr(C)]
-pub struct XmtpLastReadTimeEntry {
+pub struct FfiLastReadTimeEntry {
     pub inbox_id: *mut c_char,
     pub timestamp_ns: i64,
 }
 
 /// A list of last-read-time entries.
-pub struct XmtpLastReadTimeList {
-    pub(crate) items: Vec<XmtpLastReadTimeEntry>,
+pub struct FfiLastReadTimeList {
+    pub(crate) items: Vec<FfiLastReadTimeEntry>,
 }
 
 // ---------------------------------------------------------------------------
@@ -741,8 +743,8 @@ pub(crate) fn i32_to_consent_type(
 /// Convert a `StoredConsentRecord` to a C `XmtpConsentRecord`.
 pub(crate) fn consent_record_to_c(
     r: &xmtp_db::consent_record::StoredConsentRecord,
-) -> XmtpConsentRecord {
-    XmtpConsentRecord {
+) -> FfiConsentRecord {
+    FfiConsentRecord {
         entity_type: consent_type_to_i32(r.entity_type),
         state: consent_state_to_i32(r.state),
         entity: to_c_string(&r.entity),

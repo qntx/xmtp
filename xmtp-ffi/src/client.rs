@@ -11,7 +11,7 @@ use crate::ffi::*;
 
 /// Options for creating a client. All string fields are borrowed (not freed by this library).
 #[repr(C)]
-pub struct XmtpClientOptions {
+pub struct FfiClientOptions {
     /// gRPC v3 host URL (required).
     pub host: *const c_char,
     /// Gateway host URL for decentralized API (nullable, enables d14n if set).
@@ -31,7 +31,7 @@ pub struct XmtpClientOptions {
     /// Nonce for identity strategy (default 1 if 0).
     pub nonce: u64,
     /// Optional auth handle for gateway authentication. Null = no auth.
-    pub auth_handle: *const XmtpAuthHandle,
+    pub auth_handle: *const FfiAuthHandle,
     /// Application version string (nullable).
     pub app_version: *const c_char,
     /// Device sync worker mode: 0 = Enabled (default), 1 = Disabled.
@@ -49,8 +49,8 @@ pub struct XmtpClientOptions {
 /// Create a new XMTP client. Caller must free with [`xmtp_client_free`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn xmtp_client_create(
-    opts: *const XmtpClientOptions,
-    out: *mut *mut XmtpClient,
+    opts: *const FfiClientOptions,
+    out: *mut *mut FfiClient,
 ) -> i32 {
     catch_async(|| async {
         let opts = unsafe { ref_from(opts)? };
@@ -183,7 +183,7 @@ pub unsafe extern "C" fn xmtp_client_create(
         unsafe {
             write_out(
                 out,
-                XmtpClient {
+                FfiClient {
                     inner: Arc::new(client),
                     account_identifier: ident_str_saved,
                     app_version: app_version_str,
@@ -194,7 +194,7 @@ pub unsafe extern "C" fn xmtp_client_create(
     })
 }
 
-free_opaque!(xmtp_client_free, XmtpClient);
+free_opaque!(xmtp_client_free, FfiClient);
 
 // ---------------------------------------------------------------------------
 // Properties
@@ -202,7 +202,7 @@ free_opaque!(xmtp_client_free, XmtpClient);
 
 /// Get the client's inbox ID. Caller must free with [`xmtp_free_string`].
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn xmtp_client_inbox_id(client: *const XmtpClient) -> *mut c_char {
+pub unsafe extern "C" fn xmtp_client_inbox_id(client: *const FfiClient) -> *mut c_char {
     match unsafe { ref_from(client) } {
         Ok(c) => to_c_string(c.inner.inbox_id()),
         Err(_) => std::ptr::null_mut(),
@@ -211,7 +211,7 @@ pub unsafe extern "C" fn xmtp_client_inbox_id(client: *const XmtpClient) -> *mut
 
 /// Get the client's installation ID (hex). Caller must free with [`xmtp_free_string`].
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn xmtp_client_installation_id(client: *const XmtpClient) -> *mut c_char {
+pub unsafe extern "C" fn xmtp_client_installation_id(client: *const FfiClient) -> *mut c_char {
     match unsafe { ref_from(client) } {
         Ok(c) => to_c_string(&hex::encode(c.inner.installation_public_key())),
         Err(_) => std::ptr::null_mut(),
@@ -220,7 +220,7 @@ pub unsafe extern "C" fn xmtp_client_installation_id(client: *const XmtpClient) 
 
 /// Check if the client identity is registered. Returns 1 = yes, 0 = no, -1 = error.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn xmtp_client_is_registered(client: *const XmtpClient) -> i32 {
+pub unsafe extern "C" fn xmtp_client_is_registered(client: *const FfiClient) -> i32 {
     match unsafe { ref_from(client) } {
         Ok(c) => i32::from(c.inner.identity().is_ready()),
         Err(_) => -1,
@@ -231,8 +231,8 @@ pub unsafe extern "C" fn xmtp_client_is_registered(client: *const XmtpClient) ->
 /// Pass null for `sig_req` if no external signature is needed.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn xmtp_client_register_identity(
-    client: *const XmtpClient,
-    sig_req: *const XmtpSignatureRequest,
+    client: *const FfiClient,
+    sig_req: *const FfiSignatureRequest,
 ) -> i32 {
     catch_async(|| async {
         let c = unsafe { ref_from(client)? };
@@ -258,7 +258,7 @@ pub unsafe extern "C" fn xmtp_client_register_identity(
 /// Results are written to `out_results` (1 = can message, 0 = cannot).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn xmtp_client_can_message(
-    client: *const XmtpClient,
+    client: *const FfiClient,
     identifiers: *const *const c_char,
     kinds: *const i32,
     count: i32,
@@ -287,7 +287,7 @@ pub unsafe extern "C" fn xmtp_client_can_message(
 
 /// Release the database connection pool.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn xmtp_client_release_db_connection(client: *const XmtpClient) -> i32 {
+pub unsafe extern "C" fn xmtp_client_release_db_connection(client: *const FfiClient) -> i32 {
     catch(|| {
         let c = unsafe { ref_from(client)? };
         c.inner.release_db_connection()?;
@@ -297,7 +297,7 @@ pub unsafe extern "C" fn xmtp_client_release_db_connection(client: *const XmtpCl
 
 /// Reconnect to the database.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn xmtp_client_reconnect_db(client: *const XmtpClient) -> i32 {
+pub unsafe extern "C" fn xmtp_client_reconnect_db(client: *const FfiClient) -> i32 {
     catch(|| {
         let c = unsafe { ref_from(client)? };
         c.inner.reconnect_db()?;
@@ -314,7 +314,7 @@ pub unsafe extern "C" fn xmtp_client_reconnect_db(client: *const XmtpClient) -> 
 /// `states`: 0 = Unknown, 1 = Allowed, 2 = Denied.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn xmtp_client_set_consent_states(
-    client: *const XmtpClient,
+    client: *const FfiClient,
     entity_types: *const i32,
     states: *const i32,
     entities: *const *const c_char,
@@ -347,7 +347,7 @@ pub unsafe extern "C" fn xmtp_client_set_consent_states(
 /// Get consent state for a single entity. Result written to `out_state`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn xmtp_client_get_consent_state(
-    client: *const XmtpClient,
+    client: *const FfiClient,
     entity_type: i32,
     entity: *const c_char,
     out_state: *mut i32,
@@ -375,9 +375,9 @@ pub unsafe extern "C" fn xmtp_client_get_consent_state(
 /// Caller must free with [`xmtp_inbox_state_list_free`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn xmtp_client_inbox_state(
-    client: *const XmtpClient,
+    client: *const FfiClient,
     refresh: i32,
-    out: *mut *mut XmtpInboxStateList,
+    out: *mut *mut FfiInboxStateList,
 ) -> i32 {
     catch_async(|| async {
         let c = unsafe { ref_from(client)? };
@@ -386,13 +386,13 @@ pub unsafe extern "C" fn xmtp_client_inbox_state(
         }
         let state = c.inner.inbox_state(refresh != 0).await?;
         let item = association_state_to_item(&state);
-        unsafe { write_out(out, XmtpInboxStateList { items: vec![item] })? };
+        unsafe { write_out(out, FfiInboxStateList { items: vec![item] })? };
         Ok(())
     })
 }
 
-/// Convert an AssociationState to an XmtpInboxStateItem.
-fn association_state_to_item(s: &xmtp_id::associations::AssociationState) -> XmtpInboxStateItem {
+/// Convert an AssociationState to an FfiInboxStateItem.
+fn association_state_to_item(s: &xmtp_id::associations::AssociationState) -> FfiInboxStateItem {
     let inbox_id = s.inbox_id().to_string();
     let recovery = s.recovery_identifier().to_string();
     let identifiers: Vec<String> = s.identifiers().into_iter().map(|i| i.to_string()).collect();
@@ -401,7 +401,7 @@ fn association_state_to_item(s: &xmtp_id::associations::AssociationState) -> Xmt
     let ident_ptrs = string_vec_to_c(identifiers, &mut ident_count);
     let mut inst_count: i32 = 0;
     let inst_ptrs = string_vec_to_c(installations, &mut inst_count);
-    XmtpInboxStateItem {
+    FfiInboxStateItem {
         inbox_id: to_c_string(&inbox_id),
         recovery_identifier: to_c_string(&recovery),
         identifiers: ident_ptrs,
@@ -419,7 +419,7 @@ fn association_state_to_item(s: &xmtp_id::associations::AssociationState) -> Xmt
 /// Writes length to `out_len`. Caller must free with [`xmtp_free_bytes`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn xmtp_client_installation_id_bytes(
-    client: *const XmtpClient,
+    client: *const FfiClient,
     out_len: *mut i32,
 ) -> *mut u8 {
     if out_len.is_null() {
@@ -454,7 +454,7 @@ pub unsafe extern "C" fn xmtp_client_installation_id_bytes(
 /// Returns 0 on success (valid), -1 on error (invalid or bad args).
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn xmtp_client_verify_signed_with_installation_key(
-    client: *const XmtpClient,
+    client: *const FfiClient,
     text: *const c_char,
     signature_bytes: *const u8,
     signature_len: i32,
@@ -486,9 +486,9 @@ pub unsafe extern "C" fn xmtp_client_verify_signed_with_installation_key(
 /// Get a message by its hex-encoded ID. Caller must free with [`xmtp_message_free`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn xmtp_client_get_message_by_id(
-    client: *const XmtpClient,
+    client: *const FfiClient,
     message_id_hex: *const c_char,
-    out: *mut *mut XmtpMessage,
+    out: *mut *mut FfiMessage,
 ) -> i32 {
     catch(|| {
         let c = unsafe { ref_from(client)? };
@@ -498,7 +498,7 @@ pub unsafe extern "C" fn xmtp_client_get_message_by_id(
         let id_hex = unsafe { c_str_to_string(message_id_hex)? };
         let id_bytes = hex::decode(&id_hex)?;
         let msg = c.inner.message(id_bytes)?;
-        unsafe { write_out(out, XmtpMessage { inner: msg })? };
+        unsafe { write_out(out, FfiMessage { inner: msg })? };
         Ok(())
     })
 }
@@ -506,7 +506,7 @@ pub unsafe extern "C" fn xmtp_client_get_message_by_id(
 /// Delete a message by its hex-encoded ID. Returns the number of deleted rows.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn xmtp_client_delete_message_by_id(
-    client: *const XmtpClient,
+    client: *const FfiClient,
     message_id_hex: *const c_char,
 ) -> i32 {
     catch(|| {
@@ -535,8 +535,8 @@ pub extern "C" fn xmtp_libxmtp_version() -> *mut c_char {
 /// Get MLS API call statistics. Writes to `out`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn xmtp_client_api_statistics(
-    client: *const XmtpClient,
-    out: *mut XmtpApiStats,
+    client: *const FfiClient,
+    out: *mut FfiApiStats,
 ) -> i32 {
     catch(|| {
         let c = unsafe { ref_from(client)? };
@@ -545,7 +545,7 @@ pub unsafe extern "C" fn xmtp_client_api_statistics(
         }
         let stats = c.inner.api_stats();
         unsafe {
-            *out = XmtpApiStats {
+            *out = FfiApiStats {
                 upload_key_package: stats.upload_key_package.get_count() as i64,
                 fetch_key_package: stats.fetch_key_package.get_count() as i64,
                 send_group_messages: stats.send_group_messages.get_count() as i64,
@@ -566,8 +566,8 @@ pub unsafe extern "C" fn xmtp_client_api_statistics(
 /// Get identity API call statistics. Writes to `out`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn xmtp_client_api_identity_statistics(
-    client: *const XmtpClient,
-    out: *mut XmtpIdentityStats,
+    client: *const FfiClient,
+    out: *mut FfiIdentityStats,
 ) -> i32 {
     catch(|| {
         let c = unsafe { ref_from(client)? };
@@ -576,7 +576,7 @@ pub unsafe extern "C" fn xmtp_client_api_identity_statistics(
         }
         let stats = c.inner.identity_api_stats();
         unsafe {
-            *out = XmtpIdentityStats {
+            *out = FfiIdentityStats {
                 publish_identity_update: stats.publish_identity_update.get_count() as i64,
                 get_identity_updates_v2: stats.get_identity_updates_v2.get_count() as i64,
                 get_inbox_ids: stats.get_inbox_ids.get_count() as i64,
@@ -592,7 +592,7 @@ pub unsafe extern "C" fn xmtp_client_api_identity_statistics(
 /// Get aggregate statistics as a debug string. Caller must free with [`xmtp_free_string`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn xmtp_client_api_aggregate_statistics(
-    client: *const XmtpClient,
+    client: *const FfiClient,
 ) -> *mut c_char {
     match unsafe { ref_from(client) } {
         Ok(c) => {
@@ -607,7 +607,7 @@ pub unsafe extern "C" fn xmtp_client_api_aggregate_statistics(
 
 /// Clear all API call statistics.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn xmtp_client_clear_all_statistics(client: *const XmtpClient) -> i32 {
+pub unsafe extern "C" fn xmtp_client_clear_all_statistics(client: *const FfiClient) -> i32 {
     catch(|| {
         let c = unsafe { ref_from(client)? };
         c.inner.clear_stats();
@@ -624,7 +624,7 @@ pub unsafe extern "C" fn xmtp_client_clear_all_statistics(client: *const XmtpCli
 /// Returns null if not found. Caller must free with [`xmtp_free_string`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn xmtp_client_get_inbox_id_by_identifier(
-    client: *const XmtpClient,
+    client: *const FfiClient,
     identifier: *const c_char,
     identifier_kind: i32,
     out: *mut *mut c_char,
@@ -658,14 +658,14 @@ pub unsafe extern "C" fn xmtp_client_get_inbox_id_by_identifier(
 
 /// Fetch inbox states for multiple inbox IDs.
 /// `inbox_ids` is a null-terminated array of C strings with `count` elements.
-/// Returns an opaque `XmtpInboxStateList` via `out`. Caller must free with [`xmtp_inbox_state_list_free`].
+/// Returns an opaque `FfiInboxStateList` via `out`. Caller must free with [`xmtp_inbox_state_list_free`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn xmtp_client_fetch_inbox_states(
-    client: *const XmtpClient,
+    client: *const FfiClient,
     inbox_ids: *const *const c_char,
     count: i32,
     refresh_from_network: i32,
-    out: *mut *mut XmtpInboxStateList,
+    out: *mut *mut FfiInboxStateList,
 ) -> i32 {
     catch_async(|| async {
         let c = unsafe { ref_from(client)? };
@@ -684,18 +684,18 @@ pub unsafe extern "C" fn xmtp_client_fetch_inbox_states(
                 ids.iter().map(|s| s.as_str()).collect(),
             )
             .await?;
-        let items: Vec<XmtpInboxStateItem> = states.iter().map(association_state_to_item).collect();
-        unsafe { write_out(out, XmtpInboxStateList { items })? };
+        let items: Vec<FfiInboxStateItem> = states.iter().map(association_state_to_item).collect();
+        unsafe { write_out(out, FfiInboxStateList { items })? };
         Ok(())
     })
 }
 
-ffi_list_len!(xmtp_inbox_state_list_len, XmtpInboxStateList);
+ffi_list_len!(xmtp_inbox_state_list_len, FfiInboxStateList);
 
 /// Get inbox ID at index. Caller must free with [`xmtp_free_string`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn xmtp_inbox_state_inbox_id(
-    list: *const XmtpInboxStateList,
+    list: *const FfiInboxStateList,
     index: i32,
 ) -> *mut c_char {
     let l = match unsafe { ref_from(list) } {
@@ -714,7 +714,7 @@ pub unsafe extern "C" fn xmtp_inbox_state_inbox_id(
 /// Get recovery identifier at index. Caller must free with [`xmtp_free_string`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn xmtp_inbox_state_recovery_identifier(
-    list: *const XmtpInboxStateList,
+    list: *const FfiInboxStateList,
     index: i32,
 ) -> *mut c_char {
     let l = match unsafe { ref_from(list) } {
@@ -733,7 +733,7 @@ pub unsafe extern "C" fn xmtp_inbox_state_recovery_identifier(
 /// Get identifiers array at index. Returns a borrowed pointer; do NOT free.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn xmtp_inbox_state_identifiers(
-    list: *const XmtpInboxStateList,
+    list: *const FfiInboxStateList,
     index: i32,
     out_count: *mut i32,
 ) -> *const *mut c_char {
@@ -762,7 +762,7 @@ pub unsafe extern "C" fn xmtp_inbox_state_identifiers(
 /// Get installation IDs (hex) at index. Returns a borrowed pointer; do NOT free.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn xmtp_inbox_state_installation_ids(
-    list: *const XmtpInboxStateList,
+    list: *const FfiInboxStateList,
     index: i32,
     out_count: *mut i32,
 ) -> *const *mut c_char {
@@ -790,7 +790,7 @@ pub unsafe extern "C" fn xmtp_inbox_state_installation_ids(
 
 /// Free an inbox state list.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn xmtp_inbox_state_list_free(list: *mut XmtpInboxStateList) {
+pub unsafe extern "C" fn xmtp_inbox_state_list_free(list: *mut FfiInboxStateList) {
     if list.is_null() {
         return;
     }
@@ -808,12 +808,12 @@ pub unsafe extern "C" fn xmtp_inbox_state_list_free(list: *mut XmtpInboxStateLis
 
 /// Create a new gateway auth handle. Caller must free with [`xmtp_auth_handle_free`].
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn xmtp_auth_handle_create(out: *mut *mut XmtpAuthHandle) -> i32 {
+pub unsafe extern "C" fn xmtp_auth_handle_create(out: *mut *mut FfiAuthHandle) -> i32 {
     catch(|| {
         if out.is_null() {
             return Err("null output pointer".into());
         }
-        let handle = XmtpAuthHandle {
+        let handle = FfiAuthHandle {
             inner: xmtp_api_d14n::AuthHandle::new(),
         };
         unsafe { write_out(out, handle)? };
@@ -827,7 +827,7 @@ pub unsafe extern "C" fn xmtp_auth_handle_create(out: *mut *mut XmtpAuthHandle) 
 /// `expires_at_seconds` is the Unix timestamp when the credential expires.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn xmtp_auth_handle_set(
-    handle: *const XmtpAuthHandle,
+    handle: *const FfiAuthHandle,
     name: *const c_char,
     value: *const c_char,
     expires_at_seconds: i64,
@@ -856,14 +856,14 @@ pub unsafe extern "C" fn xmtp_auth_handle_set(
 
 /// Get the unique ID of an auth handle.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn xmtp_auth_handle_id(handle: *const XmtpAuthHandle) -> usize {
+pub unsafe extern "C" fn xmtp_auth_handle_id(handle: *const FfiAuthHandle) -> usize {
     match unsafe { ref_from(handle) } {
         Ok(h) => h.inner.id(),
         Err(_) => 0,
     }
 }
 
-free_opaque!(xmtp_auth_handle_free, XmtpAuthHandle);
+free_opaque!(xmtp_auth_handle_free, FfiAuthHandle);
 
 // ---------------------------------------------------------------------------
 // Inbox updates count
@@ -873,11 +873,11 @@ free_opaque!(xmtp_auth_handle_free, XmtpAuthHandle);
 /// Caller must free the result with [`xmtp_inbox_update_count_list_free`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn xmtp_client_fetch_inbox_updates_count(
-    client: *const XmtpClient,
+    client: *const FfiClient,
     inbox_ids: *const *const c_char,
     inbox_ids_count: i32,
     refresh: i32,
-    out: *mut *mut XmtpInboxUpdateCountList,
+    out: *mut *mut FfiInboxUpdateCountList,
 ) -> i32 {
     catch_async(|| async {
         let c = unsafe { ref_from(client)? };
@@ -890,14 +890,14 @@ pub unsafe extern "C" fn xmtp_client_fetch_inbox_updates_count(
             .inner
             .fetch_inbox_updates_count(refresh != 0, id_refs)
             .await?;
-        let items: Vec<XmtpInboxUpdateCount> = counts
+        let items: Vec<FfiInboxUpdateCount> = counts
             .into_iter()
-            .map(|(id, cnt)| XmtpInboxUpdateCount {
+            .map(|(id, cnt)| FfiInboxUpdateCount {
                 inbox_id: to_c_string(&id),
                 count: cnt,
             })
             .collect();
-        let list = Box::new(XmtpInboxUpdateCountList { items });
+        let list = Box::new(FfiInboxUpdateCountList { items });
         unsafe { *out = Box::into_raw(list) };
         Ok(())
     })
@@ -906,7 +906,7 @@ pub unsafe extern "C" fn xmtp_client_fetch_inbox_updates_count(
 /// Fetch the number of identity updates for the client's own inbox.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn xmtp_client_fetch_own_inbox_updates_count(
-    client: *const XmtpClient,
+    client: *const FfiClient,
     refresh: i32,
     out: *mut u32,
 ) -> i32 {
@@ -921,16 +921,16 @@ pub unsafe extern "C" fn xmtp_client_fetch_own_inbox_updates_count(
     })
 }
 
-ffi_list_len!(xmtp_inbox_update_count_list_len, XmtpInboxUpdateCountList);
+ffi_list_len!(xmtp_inbox_update_count_list_len, FfiInboxUpdateCountList);
 ffi_list_get!(
     xmtp_inbox_update_count_list_get,
-    XmtpInboxUpdateCountList,
-    XmtpInboxUpdateCount
+    FfiInboxUpdateCountList,
+    FfiInboxUpdateCount
 );
 
 /// Free an inbox update count list.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn xmtp_inbox_update_count_list_free(list: *mut XmtpInboxUpdateCountList) {
+pub unsafe extern "C" fn xmtp_inbox_update_count_list_free(list: *mut FfiInboxUpdateCountList) {
     if list.is_null() {
         return;
     }
@@ -948,10 +948,10 @@ pub unsafe extern "C" fn xmtp_inbox_update_count_list_free(list: *mut XmtpInboxU
 /// Caller must free with [`xmtp_key_package_status_list_free`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn xmtp_client_fetch_key_package_statuses(
-    client: *const XmtpClient,
+    client: *const FfiClient,
     installation_ids: *const *const c_char,
     installation_ids_count: i32,
-    out: *mut *mut XmtpKeyPackageStatusList,
+    out: *mut *mut FfiKeyPackageStatusList,
 ) -> i32 {
     catch_async(|| async {
         let c = unsafe { ref_from(client)? };
@@ -969,12 +969,12 @@ pub unsafe extern "C" fn xmtp_client_fetch_key_package_statuses(
             .get_key_packages_for_installation_ids(id_bytes)
             .await?;
 
-        let items: Vec<XmtpKeyPackageStatus> = results
+        let items: Vec<FfiKeyPackageStatus> = results
             .into_iter()
             .map(|(id, result)| match result {
                 Ok(kp) => {
                     let lifetime = kp.life_time();
-                    XmtpKeyPackageStatus {
+                    FfiKeyPackageStatus {
                         installation_id: to_c_string(&hex::encode(&id)),
                         valid: 1,
                         not_before: lifetime.as_ref().map(|l| l.not_before).unwrap_or(0),
@@ -982,7 +982,7 @@ pub unsafe extern "C" fn xmtp_client_fetch_key_package_statuses(
                         validation_error: std::ptr::null_mut(),
                     }
                 }
-                Err(e) => XmtpKeyPackageStatus {
+                Err(e) => FfiKeyPackageStatus {
                     installation_id: to_c_string(&hex::encode(&id)),
                     valid: 0,
                     not_before: 0,
@@ -992,22 +992,22 @@ pub unsafe extern "C" fn xmtp_client_fetch_key_package_statuses(
             })
             .collect();
 
-        let list = Box::new(XmtpKeyPackageStatusList { items });
+        let list = Box::new(FfiKeyPackageStatusList { items });
         unsafe { *out = Box::into_raw(list) };
         Ok(())
     })
 }
 
-ffi_list_len!(xmtp_key_package_status_list_len, XmtpKeyPackageStatusList);
+ffi_list_len!(xmtp_key_package_status_list_len, FfiKeyPackageStatusList);
 ffi_list_get!(
     xmtp_key_package_status_list_get,
-    XmtpKeyPackageStatusList,
-    XmtpKeyPackageStatus
+    FfiKeyPackageStatusList,
+    FfiKeyPackageStatus
 );
 
 /// Free a key package status list.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn xmtp_key_package_status_list_free(list: *mut XmtpKeyPackageStatusList) {
+pub unsafe extern "C" fn xmtp_key_package_status_list_free(list: *mut FfiKeyPackageStatusList) {
     if list.is_null() {
         return;
     }
@@ -1024,7 +1024,7 @@ pub unsafe extern "C" fn xmtp_key_package_status_list_free(list: *mut XmtpKeyPac
 /// Get the account identifier string used to create this client.
 /// Caller must free with [`xmtp_free_string`].
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn xmtp_client_account_identifier(client: *const XmtpClient) -> *mut c_char {
+pub unsafe extern "C" fn xmtp_client_account_identifier(client: *const FfiClient) -> *mut c_char {
     match unsafe { ref_from(client) } {
         Ok(c) => to_c_string(&c.account_identifier),
         Err(_) => std::ptr::null_mut(),
@@ -1034,7 +1034,7 @@ pub unsafe extern "C" fn xmtp_client_account_identifier(client: *const XmtpClien
 /// Get the app version string set during client creation.
 /// Returns null if no app version was set. Caller must free with [`xmtp_free_string`].
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn xmtp_client_app_version(client: *const XmtpClient) -> *mut c_char {
+pub unsafe extern "C" fn xmtp_client_app_version(client: *const FfiClient) -> *mut c_char {
     match unsafe { ref_from(client) } {
         Ok(c) if !c.app_version.is_empty() => to_c_string(&c.app_version),
         _ => std::ptr::null_mut(),

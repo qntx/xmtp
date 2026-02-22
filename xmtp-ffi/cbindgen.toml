@@ -10,7 +10,7 @@ cpp_compat = true
 prefix = "Xmtp"
 
 [fn]
-prefix = "xmtp_"
+# No prefix — Rust function names already start with `xmtp_`
 
 [enum]
 prefix_with_name = true
