@@ -583,6 +583,8 @@ const fn policy_label(p: PermissionPolicy) -> &'static str {
         PermissionPolicy::Deny => "Deny",
         PermissionPolicy::AdminOnly => "Admin Only",
         PermissionPolicy::SuperAdminOnly => "Super Admin",
+        PermissionPolicy::DoesNotExist => "N/A",
+        PermissionPolicy::Other => "Other",
     }
 }
 
@@ -591,7 +593,7 @@ const fn policy_color(p: PermissionPolicy) -> Color {
         PermissionPolicy::Allow => SELF_CLR,
         PermissionPolicy::AdminOnly => ACCENT,
         PermissionPolicy::SuperAdminOnly => UNREAD,
-        PermissionPolicy::Deny => DIM,
+        PermissionPolicy::Deny | PermissionPolicy::DoesNotExist | PermissionPolicy::Other => DIM,
     }
 }
 

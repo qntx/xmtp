@@ -459,7 +459,7 @@ impl Conversation {
             xmtp_sys::xmtp_conversation_update_permission_policy(
                 self.handle.as_ptr(),
                 update_type as i32,
-                policy as i32,
+                policy.to_write_i32(),
                 c_field.as_ref().map_or(ptr::null(), |c| c.as_ptr()),
             )
         })

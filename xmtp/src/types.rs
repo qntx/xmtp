@@ -168,16 +168,31 @@ ffi_enum! {
 }
 
 ffi_enum! {
-    /// Permission policy values.
+    /// Permission policy values (0-based, matching C read struct).
+    ///
+    /// **Note:** The FFI *write* function uses 1-based values.
+    /// Use [`PermissionPolicy::to_write_i32`] when calling write APIs.
     pub enum PermissionPolicy {
         /// Allow all.
-        Allow = 1,
+        Allow = 0,
         /// Deny all.
-        Deny = 2,
+        Deny = 1,
         /// Admin only.
-        AdminOnly = 3,
+        AdminOnly = 2,
         /// Super admin only.
-        SuperAdminOnly = 4,
+        SuperAdminOnly = 3,
+        /// Policy does not exist (read-only, set by protocol).
+        DoesNotExist = 4,
+        /// Other / unknown policy (read-only, set by protocol).
+        Other = 5,
+    }
+}
+
+impl PermissionPolicy {
+    /// Convert to the 1-based i32 value expected by FFI write functions.
+    #[must_use]
+    pub const fn to_write_i32(self) -> i32 {
+        self as i32 + 1
     }
 }
 

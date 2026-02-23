@@ -708,7 +708,9 @@ const fn next_policy(p: PermissionPolicy) -> PermissionPolicy {
         PermissionPolicy::Allow => PermissionPolicy::AdminOnly,
         PermissionPolicy::AdminOnly => PermissionPolicy::SuperAdminOnly,
         PermissionPolicy::SuperAdminOnly => PermissionPolicy::Deny,
-        PermissionPolicy::Deny => PermissionPolicy::Allow,
+        PermissionPolicy::Deny | PermissionPolicy::DoesNotExist | PermissionPolicy::Other => {
+            PermissionPolicy::Allow
+        }
     }
 }
 
