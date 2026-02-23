@@ -127,7 +127,7 @@ pub fn stream_all_messages(
     } else {
         cs.as_ptr()
     };
-    let cs_len = i32::try_from(cs.len()).unwrap_or(i32::MAX);
+    let cs_len = cs.len() as i32;
     start_stream(callback, |ctx, out| unsafe {
         xmtp_sys::xmtp_stream_all_messages(
             client_ptr,

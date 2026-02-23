@@ -601,7 +601,7 @@ pub(crate) fn read_enriched_message_list(
     list: *const xmtp_sys::XmtpFfiEnrichedMessageList,
 ) -> Vec<Message> {
     let len = unsafe { xmtp_sys::xmtp_enriched_message_list_len(list) };
-    let mut msgs = Vec::with_capacity(usize::try_from(len).unwrap_or(0));
+    let mut msgs = Vec::with_capacity(len as usize);
     for i in 0..len {
         let ptr = unsafe { xmtp_sys::xmtp_enriched_message_list_get(list, i) };
         if ptr.is_null() {
@@ -643,7 +643,7 @@ pub(crate) fn read_enriched_message_list(
 /// Read all members from an FFI group member list. Caller must free the list.
 fn read_member_list(list: *const xmtp_sys::XmtpFfiGroupMemberList) -> Result<Vec<GroupMember>> {
     let len = unsafe { xmtp_sys::xmtp_group_member_list_len(list) };
-    let mut members = Vec::with_capacity(usize::try_from(len).unwrap_or(0));
+    let mut members = Vec::with_capacity(len as usize);
     for i in 0..len {
         let inbox_id = unsafe { take_c_string(xmtp_sys::xmtp_group_member_inbox_id(list, i)) }?;
         let permission_level = PermissionLevel::from_ffi(unsafe {
@@ -684,7 +684,7 @@ pub(crate) fn read_conversation_list_inner(
         return Ok(vec![]);
     }
     let len = unsafe { xmtp_sys::xmtp_conversation_list_len(list) };
-    let mut convs = Vec::with_capacity(usize::try_from(len).unwrap_or(0));
+    let mut convs = Vec::with_capacity(len as usize);
     for i in 0..len {
         let mut conv: *mut xmtp_sys::XmtpFfiConversation = ptr::null_mut();
         let rc = unsafe { xmtp_sys::xmtp_conversation_list_get(list, i, &raw mut conv) };
@@ -753,7 +753,7 @@ fn read_debug_info(d: &xmtp_sys::XmtpFfiConversationDebugInfo) -> ConversationDe
 /// Read last-read timestamps from an FFI list. Caller must free the list.
 fn read_last_read_times(list: *const xmtp_sys::XmtpFfiLastReadTimeList) -> Vec<LastReadTime> {
     let len = unsafe { xmtp_sys::xmtp_last_read_time_list_len(list) };
-    let mut result = Vec::with_capacity(usize::try_from(len).unwrap_or(0));
+    let mut result = Vec::with_capacity(len as usize);
     for i in 0..len {
         let ptr = unsafe { xmtp_sys::xmtp_last_read_time_list_get(list, i) };
         if ptr.is_null() {
@@ -771,7 +771,7 @@ fn read_last_read_times(list: *const xmtp_sys::XmtpFfiLastReadTimeList) -> Vec<L
 /// Read HMAC key map from an FFI handle. Caller must free the map.
 pub(crate) fn read_hmac_key_map(map: *const xmtp_sys::XmtpFfiHmacKeyMap) -> Vec<HmacKeyEntry> {
     let len = unsafe { xmtp_sys::xmtp_hmac_key_map_len(map) };
-    let mut entries = Vec::with_capacity(usize::try_from(len).unwrap_or(0));
+    let mut entries = Vec::with_capacity(len as usize);
     for i in 0..len {
         let gid_ptr = unsafe { xmtp_sys::xmtp_hmac_key_map_group_id(map, i) };
         let group_id = if gid_ptr.is_null() {
