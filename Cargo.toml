@@ -12,7 +12,11 @@ repository = "https://github.com/qntx/xmtp"
 description = "Client library for the XMTP messaging protocol."
 
 [workspace.dependencies]
+xmtp = { version = "0.1", path = "xmtp" }
+xmtp-sys = { version = "0.1", path = "xmtp-sys" }
+
 alloy-signer = "1.7"
+alloy-signer-ledger = "1.7"
 alloy-signer-local = { version = "1.7", default-features = false }
 bindgen = "0.72"
 flate2 = "1"
@@ -26,8 +30,6 @@ thiserror = "2"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time"] }
 unicode-width = "0.2"
 ureq = "3"
-xmtp = { version = "0.1", path = "xmtp" }
-xmtp-sys = { version = "0.1", path = "xmtp-sys" }
 zip = { version = "8", default-features = false, features = ["deflate"] }
 ratatui = "0.30"
 

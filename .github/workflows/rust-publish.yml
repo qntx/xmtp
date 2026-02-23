@@ -12,6 +12,6 @@ jobs:
   call-publish:
     uses: qntx/workflows/.github/workflows/rust-publish.yml@main
     with:
-      package: "xmtp-sys xmtp xmtp-cli"
+      package: "xmtp xmtp-cli"
     secrets:
       CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}

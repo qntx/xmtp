@@ -24,10 +24,15 @@ pub mod content;
 #[cfg(feature = "alloy")]
 mod signer;
 
+#[cfg(feature = "ledger")]
+mod ledger;
+
 // Re-export core public API at crate root.
 pub use client::{Client, ClientBuilder};
 pub use conversation::{Conversation, GroupMember, Message};
 pub use error::{Error, Result};
+#[cfg(feature = "ledger")]
+pub use ledger::LedgerSigner;
 #[cfg(feature = "alloy")]
 pub use signer::AlloySigner;
 pub use stream::{ConsentUpdate, PreferenceUpdate, StreamHandle};
