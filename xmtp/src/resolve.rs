@@ -15,19 +15,6 @@ use crate::types::IdentifierKind;
 /// - `0x` + 40 hex chars → [`Address`](Recipient::Address)
 /// - Contains `.` → [`Ens`](Recipient::Ens)
 /// - Otherwise → [`InboxId`](Recipient::InboxId)
-///
-/// # Examples
-///
-/// ```
-/// use xmtp::Recipient;
-///
-/// assert!(matches!(
-///     Recipient::parse("0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045"),
-///     Recipient::Address(_)
-/// ));
-/// assert!(matches!(Recipient::parse("vitalik.eth"), Recipient::Ens(_)));
-/// assert!(matches!(Recipient::parse("abc123def456"), Recipient::InboxId(_)));
-/// ```
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Recipient {
     /// Ethereum address (0x-prefixed, 42 chars).

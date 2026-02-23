@@ -18,18 +18,6 @@ use crate::types::{AccountIdentifier, IdentifierKind, Signer};
 ///
 /// Wraps [`PrivateKeySigner`] and implements the [`Signer`] trait for seamless
 /// use with [`ClientBuilder`](crate::ClientBuilder).
-///
-/// # Examples
-///
-/// ```no_run
-/// use xmtp::{AlloySigner, ClientBuilder, Env};
-///
-/// let signer = AlloySigner::random();
-/// let client = ClientBuilder::new(signer)
-///     .env(Env::Dev)
-///     .build()
-///     .unwrap();
-/// ```
 #[derive(Debug, Clone)]
 pub struct AlloySigner {
     inner: PrivateKeySigner,

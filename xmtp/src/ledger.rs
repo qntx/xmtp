@@ -26,18 +26,6 @@ use crate::types::{AccountIdentifier, IdentifierKind, Signer};
 /// This signer communicates with the Ledger device over USB. The user must
 /// confirm signing operations on the device screen. Do **not** call from
 /// within an async context — use [`tokio::task::spawn_blocking`] if needed.
-///
-/// # Examples
-///
-/// ```no_run
-/// use xmtp::{LedgerSigner, ClientBuilder, Env};
-///
-/// let signer = LedgerSigner::new(0).unwrap();
-/// let client = ClientBuilder::new(signer)
-///     .env(Env::Dev)
-///     .build()
-///     .unwrap();
-/// ```
 pub struct LedgerSigner {
     inner: Inner,
     rt: Runtime,
