@@ -21,16 +21,20 @@ xmtp wraps the official [`libxmtp`](https://github.com/xmtp/libxmtp) FFI layer w
 | --- | --- | --- |
 | **[`xmtp`](xmtp/)** | [![crates.io][xmtp-crate]][xmtp-crate-url] [![docs.rs][xmtp-doc]][xmtp-doc-url] | SDK — Client, Conversation, Message, content codecs, ENS, Ledger |
 | **[`xmtp-sys`](xmtp-sys/)** | [![crates.io][sys-crate]][sys-crate-url] [![docs.rs][sys-doc]][sys-doc-url] | Raw FFI bindings to `libxmtp_ffi` static library |
-| **[`xmtp-cli`](xmtp-cli/)** | | TUI chat client + profile management CLI |
+| **[`xmtp-cli`](xmtp-cli/)** | [![crates.io][cli-crate]][cli-crate-url] [![docs.rs][cli-doc]][cli-doc-url] | TUI chat client + profile management CLI |
 
 [xmtp-crate]: https://img.shields.io/crates/v/xmtp.svg
 [xmtp-crate-url]: https://crates.io/crates/xmtp
 [sys-crate]: https://img.shields.io/crates/v/xmtp-sys.svg
 [sys-crate-url]: https://crates.io/crates/xmtp-sys
+[cli-crate]: https://img.shields.io/crates/v/xmtp-cli.svg
+[cli-crate-url]: https://crates.io/crates/xmtp-cli
 [xmtp-doc]: https://img.shields.io/docsrs/xmtp.svg
 [xmtp-doc-url]: https://docs.rs/xmtp
 [sys-doc]: https://img.shields.io/docsrs/xmtp-sys.svg
 [sys-doc-url]: https://docs.rs/xmtp-sys
+[cli-doc]: https://img.shields.io/docsrs/xmtp-cli.svg
+[cli-doc-url]: https://docs.rs/xmtp-cli
 
 ## Quick Start
 
@@ -89,21 +93,6 @@ xmtp revoke alice
 
 ## Architecture
 
-```text
-┌─────────────────────────────────────────────┐
-│  xmtp-cli (TUI + profile management)       │
-├─────────────────────────────────────────────┤
-│  xmtp (safe Rust SDK)                       │
-│    Client · Conversation · Message          │
-│    Content codecs · ENS · Ledger · Streams  │
-├─────────────────────────────────────────────┤
-│  xmtp-sys (raw FFI bindings)                │
-├─────────────────────────────────────────────┤
-│  libxmtp_ffi (static library, C ABI)        │
-│    MLS · gRPC · SQLite · Identity           │
-└─────────────────────────────────────────────┘
-```
-
 - **xmtp** — High-level SDK. Owns all unsafe FFI calls behind safe types. `Client` is built via `ClientBuilder` with optional signer, ENS resolver, and environment selection. `Conversation` provides send/receive/sync/metadata/consent operations. Content codecs handle text, markdown, reactions, replies, attachments, and read receipts.
 - **xmtp-sys** — Auto-generated bindings from `xmtp_ffi.h`. Downloads pre-built static libraries at build time. No `libclang` required for end users.
 - **xmtp-cli** — Profile-based TUI chat client. Profiles persist configuration (environment, signer type, wallet address) in platform data directories. Signer is only required for identity-changing operations (`new`, `revoke`); TUI and `info` operate without it.
@@ -112,12 +101,12 @@ xmtp revoke alice
 
 ### `xmtp` crate
 
-| Feature | Default | Description |
-| --- | --- | --- |
-| `content` | ✅ | Content type codecs (text, reactions, replies, attachments, read receipts) |
-| `alloy` | | Local private key signer via `alloy-signer-local` |
-| `ledger` | | Ledger hardware wallet signer via `alloy-signer-ledger` |
-| `ens` | | ENS name resolution via `alloy-ens` + `alloy-provider` |
+| Feature | Description |
+| --- | --- |
+| `content` | Content type codecs (text, reactions, replies, attachments, read receipts) — enabled by default |
+| `alloy` | Local private key signer via `alloy-signer-local` |
+| `ledger` | Ledger hardware wallet signer via `alloy-signer-ledger` |
+| `ens` | ENS name resolution via `alloy-ens` + `alloy-provider` |
 
 ### `xmtp-sys` crate
 
