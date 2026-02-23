@@ -22,8 +22,8 @@ use std::{fs, process};
 
 use xmtp::{
     AccountIdentifier, AlloySigner, Client, ConsentState, ConversationOrderBy, ConversationType,
-    CreateGroupOptions, Env, IdentifierKind, ListConversationsOptions, ListMessagesOptions,
-    SortDirection, stream,
+    CreateGroupOptions, DeliveryStatus, Env, IdentifierKind, ListConversationsOptions,
+    ListMessagesOptions, Message, SortDirection, stream,
 };
 
 use crate::app::{App, decode_preview, truncate_id};
@@ -106,6 +106,14 @@ fn worker(client: Client, inbox_id: String, rx: mpsc::Receiver<Cmd>, tx: Tx) {
         ..Default::default()
     };
 
+    // Helper: load messages with stable sort so Unpublished always appear last.
+    // Fixes clock-skew ordering where optimistic messages sort before received ones.
+    let load_messages = |conv: &xmtp::Conversation| -> Vec<Message> {
+        let mut msgs = conv.list_messages(&list_opts).unwrap_or_default();
+        msgs.sort_by_key(|m| m.delivery_status == DeliveryStatus::Unpublished);
+        msgs
+    };
+
     while let Ok(cmd) = rx.recv() {
         match cmd {
             Cmd::Open(id) => {
@@ -113,7 +121,7 @@ fn worker(client: Client, inbox_id: String, rx: mpsc::Receiver<Cmd>, tx: Tx) {
                     continue;
                 }
                 if let Ok(Some(conv)) = client.conversation(&id) {
-                    let msgs = conv.list_messages(&list_opts).unwrap_or_default();
+                    let msgs = load_messages(&conv);
                     let _ = tx.send(Event::Messages {
                         conv_id: id.clone(),
                         msgs,
@@ -129,8 +137,8 @@ fn worker(client: Client, inbox_id: String, rx: mpsc::Receiver<Cmd>, tx: Tx) {
                 let encoded = xmtp::content::encode_text(&text);
                 match conv.send_optimistic(&encoded) {
                     Ok(_) => {
-                        // Show message with ⏳ instantly.
-                        let msgs = conv.list_messages(&list_opts).unwrap_or_default();
+                        // Show message with ○ instantly.
+                        let msgs = load_messages(conv);
                         let _ = tx.send(Event::Messages {
                             conv_id: id.clone(),
                             msgs,
@@ -140,7 +148,7 @@ fn worker(client: Client, inbox_id: String, rx: mpsc::Receiver<Cmd>, tx: Tx) {
                             let _ = tx.send(Event::Flash(format!("Publish: {e}")));
                         }
                         // Update status to ✓.
-                        let msgs = conv.list_messages(&list_opts).unwrap_or_default();
+                        let msgs = load_messages(conv);
                         let _ = tx.send(Event::Messages {
                             conv_id: id.clone(),
                             msgs,
@@ -175,7 +183,7 @@ fn worker(client: Client, inbox_id: String, rx: mpsc::Receiver<Cmd>, tx: Tx) {
                         let _ = tx.send(Event::Created {
                             conv_id: cid.clone(),
                         });
-                        let msgs = conv.list_messages(&list_opts).unwrap_or_default();
+                        let msgs = load_messages(&conv);
                         let _ = tx.send(Event::Messages {
                             conv_id: cid.clone(),
                             msgs,
@@ -192,12 +200,12 @@ fn worker(client: Client, inbox_id: String, rx: mpsc::Receiver<Cmd>, tx: Tx) {
 
             Cmd::CreateGroup { name, addrs: raw } => {
                 let addrs: Vec<AccountIdentifier> = raw
-                    .split(',')
+                    .into_iter()
+                    .filter(|s| !s.is_empty())
                     .map(|s| AccountIdentifier {
-                        address: s.trim().to_owned(),
+                        address: s,
                         kind: IdentifierKind::Ethereum,
                     })
-                    .filter(|a| !a.address.is_empty())
                     .collect();
                 if addrs.is_empty() {
                     let _ = tx.send(Event::Flash("No addresses".into()));
@@ -238,7 +246,7 @@ fn worker(client: Client, inbox_id: String, rx: mpsc::Receiver<Cmd>, tx: Tx) {
                         let _ = tx.send(Event::Created {
                             conv_id: cid.clone(),
                         });
-                        let msgs = conv.list_messages(&list_opts).unwrap_or_default();
+                        let msgs = load_messages(&conv);
                         let _ = tx.send(Event::Messages {
                             conv_id: cid.clone(),
                             msgs,
@@ -274,7 +282,7 @@ fn worker(client: Client, inbox_id: String, rx: mpsc::Receiver<Cmd>, tx: Tx) {
                 send_conversations(&client, &inbox_id, &tx);
                 if let Some((ref id, ref conv)) = active {
                     let _ = conv.sync();
-                    let msgs = conv.list_messages(&list_opts).unwrap_or_default();
+                    let msgs = load_messages(conv);
                     let _ = tx.send(Event::Messages {
                         conv_id: id.clone(),
                         msgs,
@@ -315,7 +323,7 @@ fn worker(client: Client, inbox_id: String, rx: mpsc::Receiver<Cmd>, tx: Tx) {
             Cmd::NewMessage { msg_id, conv_id } => {
                 let is_active = active.as_ref().is_some_and(|(aid, _)| *aid == conv_id);
                 if is_active && let Some((ref id, ref conv)) = active {
-                    let msgs = conv.list_messages(&list_opts).unwrap_or_default();
+                    let msgs = load_messages(conv);
                     let _ = tx.send(Event::Messages {
                         conv_id: id.clone(),
                         msgs,

@@ -307,14 +307,31 @@ fn draw_chat(app: &mut App, frame: &mut Frame<'_>, area: Rect) {
 }
 
 fn draw_input(app: &App, frame: &mut Frame<'_>, area: Rect) {
-    let is_overlay = matches!(app.mode, Mode::NewDm | Mode::NewGroup);
+    let is_overlay = matches!(
+        app.mode,
+        Mode::NewDm | Mode::NewGroupName | Mode::NewGroupMembers
+    );
     let focused = (app.focus == Focus::Input && app.mode == Mode::Normal) || is_overlay;
     let border = if focused { BORDER_FOCUS } else { BORDER_DIM };
 
     let (title, prompt) = match app.mode {
-        Mode::NewDm => (" New DM (wallet address) ", "0x> "),
-        Mode::NewGroup => (" New Group (addresses, comma-sep) ", "0x> "),
-        _ => ("", "> "),
+        Mode::NewDm => (" New DM (wallet address) ".to_owned(), "0x> "),
+        Mode::NewGroupName => (" New Group — Step 1: Name ".to_owned(), "> "),
+        Mode::NewGroupMembers => {
+            let n = app.group_members.len();
+            let names: Vec<_> = app
+                .group_members
+                .iter()
+                .map(|a| truncate_id(a, 10))
+                .collect();
+            let tag = if names.is_empty() {
+                String::new()
+            } else {
+                format!(" [{}]", names.join(", "))
+            };
+            (format!(" Step 2: Add Members ({n}){tag} "), "0x> ")
+        }
+        _ => (String::new(), "> "),
     };
 
     let block = Block::default()

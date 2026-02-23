@@ -30,7 +30,8 @@ pub enum Focus {
 pub enum Mode {
     Normal,
     NewDm,
-    NewGroup,
+    NewGroupName,
+    NewGroupMembers,
     Members,
     Help,
 }
@@ -39,7 +40,7 @@ const HINT_SIDEBAR: &str =
     " Tab:input  j/k:nav  1/2:tab  Enter:open  n:DM  g:group  r:sync  ?:help  q:quit";
 const HINT_INPUT: &str = " Enter:send  Esc:sidebar  PgUp/Dn:scroll  m:members";
 const HINT_NEW_DM: &str = " Enter wallet address (0x…)  Enter:create  Esc:cancel";
-const HINT_NEW_GROUP: &str = " [name:]addr1,addr2  (name optional)  Enter:create  Esc:cancel";
+const HINT_GROUP_NAME: &str = " Group name (optional)  Enter:next  Esc:cancel";
 const HINT_REQUESTS: &str = " j/k:nav  a:accept  x:reject  Enter:preview  1/2:tab  q:quit";
 const HINT_MEMBERS: &str = " Esc:close";
 const FLASH_TTL: u16 = 60;
@@ -67,6 +68,10 @@ pub struct App {
     pub input: String,
     pub cursor: usize,
 
+    /// Pending group creation state.
+    pub group_name: Option<String>,
+    pub group_members: Vec<String>,
+
     pub status: String,
     status_ttl: u16,
 
@@ -93,6 +98,8 @@ impl App {
             members: Vec::new(),
             input: String::new(),
             cursor: 0,
+            group_name: None,
+            group_members: Vec::new(),
             status: " Loading…".into(),
             status_ttl: 0,
             cmd,
@@ -201,7 +208,9 @@ impl App {
                     self.set_default_status();
                 }
             }
-            Mode::NewDm | Mode::NewGroup => self.key_overlay(key),
+            Mode::NewDm => self.key_overlay(key),
+            Mode::NewGroupName => self.key_group_name(key),
+            Mode::NewGroupMembers => self.key_group_members(key),
             Mode::Normal => match self.focus {
                 Focus::Sidebar => self.key_sidebar(key),
                 Focus::Input => self.key_input(key),
@@ -256,10 +265,12 @@ impl App {
                 self.status = HINT_NEW_DM.into();
             }
             KeyCode::Char('g') => {
-                self.mode = Mode::NewGroup;
+                self.mode = Mode::NewGroupName;
+                self.group_name = None;
+                self.group_members.clear();
                 self.input.clear();
                 self.cursor = 0;
-                self.status = HINT_NEW_GROUP.into();
+                self.status = HINT_GROUP_NAME.into();
             }
             KeyCode::Char('r') => {
                 self.cmd(Cmd::Sync);
@@ -296,42 +307,70 @@ impl App {
         }
     }
 
-    /// Merged overlay handler for `NewDm` / `NewGroup`.
+    /// Overlay handler for `NewDm`.
     fn key_overlay(&mut self, key: KeyEvent) {
         match key.code {
             KeyCode::Esc => self.cancel_overlay(),
             KeyCode::Enter => {
                 let text = self.input.trim().to_owned();
                 if !text.is_empty() {
-                    let c = match self.mode {
-                        Mode::NewDm => Cmd::CreateDm(text),
-                        Mode::NewGroup => {
-                            // Parse optional "name:addr1,addr2" format.
-                            if let Some((name, addrs)) = text.split_once(':') {
-                                let n = name.trim();
-                                Cmd::CreateGroup {
-                                    name: if n.is_empty() {
-                                        None
-                                    } else {
-                                        Some(n.to_owned())
-                                    },
-                                    addrs: addrs.to_owned(),
-                                }
-                            } else {
-                                Cmd::CreateGroup {
-                                    name: None,
-                                    addrs: text,
-                                }
-                            }
-                        }
-                        _ => unreachable!(),
-                    };
-                    self.cmd(c);
+                    self.cmd(Cmd::CreateDm(text));
                 }
                 self.cancel_overlay();
             }
             _ => self.edit_input(key.code),
         }
+    }
+
+    /// Step 1: enter group name (optional).
+    fn key_group_name(&mut self, key: KeyEvent) {
+        match key.code {
+            KeyCode::Esc => self.cancel_overlay(),
+            KeyCode::Enter => {
+                let name = self.input.trim().to_owned();
+                self.group_name = if name.is_empty() { None } else { Some(name) };
+                self.input.clear();
+                self.cursor = 0;
+                self.mode = Mode::NewGroupMembers;
+                self.update_group_members_hint();
+            }
+            _ => self.edit_input(key.code),
+        }
+    }
+
+    /// Step 2: add members one by one; Esc finishes and creates the group.
+    fn key_group_members(&mut self, key: KeyEvent) {
+        match key.code {
+            KeyCode::Esc => {
+                if self.group_members.is_empty() {
+                    self.cancel_overlay();
+                    return;
+                }
+                let addrs = std::mem::take(&mut self.group_members);
+                let name = self.group_name.take();
+                self.cmd(Cmd::CreateGroup { name, addrs });
+                self.cancel_overlay();
+            }
+            KeyCode::Enter => {
+                let addr = self.input.trim().to_owned();
+                if !addr.is_empty() && !self.group_members.contains(&addr) {
+                    self.group_members.push(addr);
+                }
+                self.input.clear();
+                self.cursor = 0;
+                self.update_group_members_hint();
+            }
+            _ => self.edit_input(key.code),
+        }
+    }
+
+    /// Update status bar to show accumulated members.
+    fn update_group_members_hint(&mut self) {
+        let n = self.group_members.len();
+        self.status = format!(
+            " Enter address to add  Esc:create group  ({n} member{})",
+            if n == 1 { "" } else { "s" }
+        );
     }
 
     /// Shared text editing (input bar + overlays). Eliminates duplication.
@@ -367,6 +406,8 @@ impl App {
         self.mode = Mode::Normal;
         self.input.clear();
         self.cursor = 0;
+        self.group_name = None;
+        self.group_members.clear();
         self.set_default_status();
     }
 
@@ -448,7 +489,8 @@ impl App {
                 Tab::Requests => HINT_REQUESTS,
             },
             Mode::NewDm => HINT_NEW_DM,
-            Mode::NewGroup => HINT_NEW_GROUP,
+            Mode::NewGroupName => HINT_GROUP_NAME,
+            Mode::NewGroupMembers => return, // hint managed by update_group_members_hint
             Mode::Members => HINT_MEMBERS,
         }
         .into();
