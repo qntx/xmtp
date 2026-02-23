@@ -7219,7 +7219,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp-ffi"
-version = "0.1.7"
+version = "0.1.8"
 dependencies = [
  "cbindgen",
  "const-hex",

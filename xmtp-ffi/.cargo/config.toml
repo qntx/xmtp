@@ -1,0 +1,6 @@
+# xmtp-ffi specific configuration.
+# sccache caches C/C++ build scripts (openssl-sys, etc.) and Rust crates,
+# drastically speeding up incremental rebuilds.
+
+[build]
+rustc-wrapper = "sccache"
