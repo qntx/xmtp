@@ -136,23 +136,8 @@ impl Worker {
 
     fn create_dm(&mut self, input: &str) {
         let recipient = Recipient::parse(input);
-        // Pre-check reachability for addresses.
-        if let Recipient::Address(ref addr) = recipient {
-            let ident = AccountIdentifier {
-                address: addr.clone(),
-                kind: IdentifierKind::Ethereum,
-            };
-            match self.client.can_message(&[ident]) {
-                Ok(r) if r.first() == Some(&true) => {}
-                Ok(_) => {
-                    self.flash("Not on XMTP");
-                    return;
-                }
-                Err(e) => {
-                    self.flash(&format!("canMessage: {e}"));
-                    return;
-                }
-            }
+        if !self.check_reachable(&[&recipient]) {
+            return;
         }
         match self.client.dm(&recipient) {
             Ok(conv) => {
@@ -180,9 +165,7 @@ impl Worker {
             self.flash("No members");
             return;
         }
-        // Pre-check reachability for address recipients.
-        if let Some(err) = check_reachability(&self.client, &members) {
-            self.flash(&err);
+        if !self.check_reachable(&members.iter().collect::<Vec<_>>()) {
             return;
         }
         // Auto-generate name from member strings if not provided.
@@ -277,25 +260,10 @@ impl Worker {
             return;
         };
         let recipient = Recipient::parse(input);
-        // Pre-check reachability for addresses.
-        if let Recipient::Address(ref addr) = recipient {
-            let ident = AccountIdentifier {
-                address: addr.clone(),
-                kind: IdentifierKind::Ethereum,
-            };
-            match self.client.can_message(std::slice::from_ref(&ident)) {
-                Ok(r) if r.first() == Some(&true) => {}
-                Ok(_) => {
-                    self.flash("Not on XMTP");
-                    return;
-                }
-                Err(e) => {
-                    self.flash(&format!("canMessage: {e}"));
-                    return;
-                }
-            }
+        if !self.check_reachable(&[&recipient]) {
+            return;
         }
-        match self.client.add_group_members(conv, &[recipient]) {
+        match self.client.add_members(conv, &[recipient]) {
             Ok(()) => {
                 self.flash("Member added");
                 send_members(conv, &self.tx);
@@ -309,7 +277,7 @@ impl Worker {
         let Some((_, ref conv)) = self.active else {
             return;
         };
-        match conv.remove_members(&[inbox_id]) {
+        match conv.remove_members_by_inbox_id(&[inbox_id]) {
             Ok(()) => {
                 self.flash("Removed");
                 send_members(conv, &self.tx);
@@ -358,38 +326,41 @@ impl Worker {
             });
         }
     }
-}
-
-/// Check reachability for address recipients. Returns error message if any are unreachable.
-fn check_reachability(client: &Client, members: &[Recipient]) -> Option<String> {
-    let addr_idents: Vec<AccountIdentifier> = members
-        .iter()
-        .filter_map(|r| match r {
-            Recipient::Address(a) => Some(AccountIdentifier {
-                address: a.clone(),
-                kind: IdentifierKind::Ethereum,
-            }),
-            _ => None,
-        })
-        .collect();
-    if addr_idents.is_empty() {
-        return None;
-    }
-    match client.can_message(&addr_idents) {
-        Ok(results) => {
-            let bad: Vec<_> = addr_idents
-                .iter()
-                .zip(&results)
-                .filter(|&(_, ok)| !*ok)
-                .map(|(a, _)| truncate_id(&a.address, 12))
-                .collect();
-            if bad.is_empty() {
-                None
-            } else {
-                Some(format!("Not on XMTP: {}", bad.join(", ")))
+    /// Pre-check reachability for address recipients. Returns `false` if any are unreachable.
+    fn check_reachable(&self, recipients: &[&Recipient]) -> bool {
+        let idents: Vec<AccountIdentifier> = recipients
+            .iter()
+            .filter_map(|r| match r {
+                Recipient::Address(a) => Some(AccountIdentifier {
+                    address: a.clone(),
+                    kind: IdentifierKind::Ethereum,
+                }),
+                _ => None,
+            })
+            .collect();
+        if idents.is_empty() {
+            return true;
+        }
+        match self.client.can_message(&idents) {
+            Ok(results) => {
+                let bad: Vec<_> = idents
+                    .iter()
+                    .zip(&results)
+                    .filter(|&(_, ok)| !*ok)
+                    .map(|(a, _)| truncate_id(&a.address, 12))
+                    .collect();
+                if bad.is_empty() {
+                    true
+                } else {
+                    self.flash(&format!("Not on XMTP: {}", bad.join(", ")));
+                    false
+                }
+            }
+            Err(e) => {
+                self.flash(&format!("canMessage: {e}"));
+                false
             }
         }
-        Err(e) => Some(format!("canMessage: {e}")),
     }
 }
 

@@ -326,7 +326,7 @@ impl Conversation {
     }
 
     /// Add members by inbox IDs.
-    pub fn add_members(&self, inbox_ids: &[&str]) -> Result<()> {
+    pub fn add_members_by_inbox_id(&self, inbox_ids: &[&str]) -> Result<()> {
         let (_owned, ptrs) = to_c_string_array(inbox_ids)?;
         error::check(unsafe {
             xmtp_sys::xmtp_conversation_add_members(
@@ -338,7 +338,7 @@ impl Conversation {
     }
 
     /// Remove members by inbox IDs.
-    pub fn remove_members(&self, inbox_ids: &[&str]) -> Result<()> {
+    pub fn remove_members_by_inbox_id(&self, inbox_ids: &[&str]) -> Result<()> {
         let (_owned, ptrs) = to_c_string_array(inbox_ids)?;
         error::check(unsafe {
             xmtp_sys::xmtp_conversation_remove_members(

@@ -68,14 +68,14 @@ impl Client {
     ///
     /// Accepts Ethereum addresses, inbox IDs, and ENS names (if a
     /// [`Resolver`](crate::Resolver) is configured).
-    pub fn add_group_members(&self, conv: &Conversation, members: &[Recipient]) -> Result<()> {
-        let (identifiers, inbox_ids) = self.resolve_recipients(members)?;
-        if !identifiers.is_empty() {
-            conv.add_members_by_identity(&identifiers)?;
+    pub fn add_members(&self, conv: &Conversation, members: &[Recipient]) -> Result<()> {
+        let (idents, inbox_ids) = self.resolve_recipients(members)?;
+        if !idents.is_empty() {
+            conv.add_members_by_identity(&idents)?;
         }
         if !inbox_ids.is_empty() {
             let ids: Vec<&str> = inbox_ids.iter().map(String::as_str).collect();
-            conv.add_members(&ids)?;
+            conv.add_members_by_inbox_id(&ids)?;
         }
         Ok(())
     }
@@ -84,45 +84,47 @@ impl Client {
     ///
     /// Accepts Ethereum addresses, inbox IDs, and ENS names (if a
     /// [`Resolver`](crate::Resolver) is configured).
-    pub fn remove_group_members(&self, conv: &Conversation, members: &[Recipient]) -> Result<()> {
-        let (identifiers, inbox_ids) = self.resolve_recipients(members)?;
-        if !identifiers.is_empty() {
-            conv.remove_members_by_identity(&identifiers)?;
+    pub fn remove_members(&self, conv: &Conversation, members: &[Recipient]) -> Result<()> {
+        let (idents, inbox_ids) = self.resolve_recipients(members)?;
+        if !idents.is_empty() {
+            conv.remove_members_by_identity(&idents)?;
         }
         if !inbox_ids.is_empty() {
             let ids: Vec<&str> = inbox_ids.iter().map(String::as_str).collect();
-            conv.remove_members(&ids)?;
+            conv.remove_members_by_inbox_id(&ids)?;
         }
         Ok(())
     }
 
-    /// Resolve recipients to identifiers and inbox IDs.
-    ///
-    /// ENS names require a [`Resolver`](crate::Resolver) to be configured.
+    /// Resolve an ENS name to an Ethereum address.
+    fn resolve_ens(&self, name: &str) -> Result<String> {
+        self.resolver
+            .as_ref()
+            .ok_or(crate::Error::NoResolver)?
+            .resolve(name)
+    }
+
+    /// Resolve recipients into identifiers and inbox IDs.
     pub(crate) fn resolve_recipients(
         &self,
         members: &[Recipient],
     ) -> Result<(Vec<AccountIdentifier>, Vec<String>)> {
-        let mut identifiers = Vec::new();
+        let mut idents = Vec::new();
         let mut inbox_ids = Vec::new();
         for m in members {
             match m {
-                Recipient::Address(addr) => identifiers.push(AccountIdentifier {
+                Recipient::Address(addr) => idents.push(AccountIdentifier {
                     address: addr.clone(),
                     kind: IdentifierKind::Ethereum,
                 }),
                 Recipient::InboxId(id) => inbox_ids.push(id.clone()),
-                Recipient::Ens(name) => {
-                    let resolver = self.resolver.as_ref().ok_or(crate::Error::NoResolver)?;
-                    let addr = resolver.resolve(name)?;
-                    identifiers.push(AccountIdentifier {
-                        address: addr,
-                        kind: IdentifierKind::Ethereum,
-                    });
-                }
+                Recipient::Ens(name) => idents.push(AccountIdentifier {
+                    address: self.resolve_ens(name)?,
+                    kind: IdentifierKind::Ethereum,
+                }),
             }
         }
-        Ok((identifiers, inbox_ids))
+        Ok((idents, inbox_ids))
     }
 
     /// Create a group without syncing (optimistic / offline).
@@ -218,11 +220,7 @@ impl Client {
         match to {
             Recipient::Address(addr) => self.dm_by_address(addr, opts),
             Recipient::InboxId(id) => self.dm_by_inbox_id(id, opts),
-            Recipient::Ens(name) => {
-                let resolver = self.resolver.as_ref().ok_or(crate::Error::NoResolver)?;
-                let addr = resolver.resolve(name)?;
-                self.dm_by_address(&addr, opts)
-            }
+            Recipient::Ens(name) => self.dm_by_address(&self.resolve_ens(name)?, opts),
         }
     }
 
