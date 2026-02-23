@@ -12,5 +12,3 @@ env:
 jobs:
   call-ci:
     uses: qntx/workflows/.github/workflows/rust.yml@main
-    with:
-      submodules: true

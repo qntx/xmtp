@@ -6,29 +6,29 @@ license = "MIT OR Apache-2.0"
 publish = false
 description = "C FFI wrapper around libxmtp for xmtp-sys"
 
-# Make this crate its own workspace root so Cargo doesn't inherit from
-# the parent workspace. libxmtp crates need their own workspace root
-# at third_party/libxmtp/Cargo.toml for dependency resolution.
+# Standalone workspace root — keeps libxmtp's dependency tree separate from the
+# parent workspace. libxmtp crates are pulled as git dependencies from the
+# qntx/libxmtp fork.
 [workspace]
 
 [lib]
 crate-type = ["staticlib", "cdylib"]
 
 [dependencies]
-# libxmtp core crates
-xmtp_mls = { path = "../third_party/libxmtp/crates/xmtp_mls" }
-xmtp_api = { path = "../third_party/libxmtp/crates/xmtp_api" }
-xmtp_api_grpc = { path = "../third_party/libxmtp/crates/xmtp_api_grpc" }
-xmtp_api_d14n = { path = "../third_party/libxmtp/crates/xmtp_api_d14n" }
-xmtp_db = { path = "../third_party/libxmtp/crates/xmtp_db" }
-xmtp_id = { path = "../third_party/libxmtp/crates/xmtp_id" }
-xmtp_proto = { path = "../third_party/libxmtp/crates/xmtp_proto" }
-xmtp_common = { path = "../third_party/libxmtp/crates/xmtp_common", features = ["logging"] }
-xmtp_cryptography = { path = "../third_party/libxmtp/crates/xmtp_cryptography" }
-xmtp_content_types = { path = "../third_party/libxmtp/crates/xmtp_content_types" }
-xmtp_configuration = { path = "../third_party/libxmtp/crates/xmtp_configuration" }
-xmtp_mls_common = { path = "../third_party/libxmtp/crates/xmtp_mls_common" }
-xmtp_archive = { path = "../third_party/libxmtp/crates/xmtp_archive" }
+# libxmtp core crates (pinned to qntx fork at a fixed commit)
+xmtp_mls = { git = "https://github.com/qntx/libxmtp", rev = "fff77f2" }
+xmtp_api = { git = "https://github.com/qntx/libxmtp", rev = "fff77f2" }
+xmtp_api_grpc = { git = "https://github.com/qntx/libxmtp", rev = "fff77f2" }
+xmtp_api_d14n = { git = "https://github.com/qntx/libxmtp", rev = "fff77f2" }
+xmtp_db = { git = "https://github.com/qntx/libxmtp", rev = "fff77f2" }
+xmtp_id = { git = "https://github.com/qntx/libxmtp", rev = "fff77f2" }
+xmtp_proto = { git = "https://github.com/qntx/libxmtp", rev = "fff77f2" }
+xmtp_common = { git = "https://github.com/qntx/libxmtp", rev = "fff77f2", features = ["logging"] }
+xmtp_cryptography = { git = "https://github.com/qntx/libxmtp", rev = "fff77f2" }
+xmtp_content_types = { git = "https://github.com/qntx/libxmtp", rev = "fff77f2" }
+xmtp_configuration = { git = "https://github.com/qntx/libxmtp", rev = "fff77f2" }
+xmtp_mls_common = { git = "https://github.com/qntx/libxmtp", rev = "fff77f2" }
+xmtp_archive = { git = "https://github.com/qntx/libxmtp", rev = "fff77f2" }
 
 # Runtime & utilities
 http = "1"
