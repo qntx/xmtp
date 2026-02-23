@@ -104,52 +104,58 @@ pub enum ReactionSchema {
     Custom = 3,
 }
 
+/// Metadata for a remotely hosted encrypted attachment.
+#[derive(Clone, PartialEq, Eq, Hash, ProstMessage)]
+pub struct RemoteAttachmentInfo {
+    /// SHA-256 digest of the encrypted payload (hex string).
+    #[prost(string, tag = "1")]
+    pub content_digest: String,
+    /// 32-byte secret key for decryption.
+    #[prost(bytes = "vec", tag = "2")]
+    pub secret: Vec<u8>,
+    /// Nonce used for encryption.
+    #[prost(bytes = "vec", tag = "3")]
+    pub nonce: Vec<u8>,
+    /// Salt used for key derivation.
+    #[prost(bytes = "vec", tag = "4")]
+    pub salt: Vec<u8>,
+    /// URL scheme (e.g. `"https"`).
+    #[prost(string, tag = "5")]
+    pub scheme: String,
+    /// URL of the encrypted payload.
+    #[prost(string, tag = "6")]
+    pub url: String,
+    /// Size of the encrypted content in bytes.
+    #[prost(uint32, optional, tag = "7")]
+    pub content_length: Option<u32>,
+    /// Original filename.
+    #[prost(string, optional, tag = "8")]
+    pub filename: Option<String>,
+}
+
 const XMTP_ORG: &str = "xmtp.org";
 
-fn text_type_id() -> ContentTypeId {
+/// Create a [`ContentTypeId`] for a well-known XMTP content type.
+const fn xmtp_type(type_id: &'static str, major: u32) -> (&'static str, &'static str, u32, u32) {
+    (XMTP_ORG, type_id, major, 0)
+}
+
+fn make_type_id(t: (&str, &str, u32, u32)) -> ContentTypeId {
     ContentTypeId {
-        authority_id: XMTP_ORG.into(),
-        type_id: "text".into(),
-        version_major: 1,
-        version_minor: 0,
+        authority_id: t.0.into(),
+        type_id: t.1.into(),
+        version_major: t.2,
+        version_minor: t.3,
     }
 }
 
-fn markdown_type_id() -> ContentTypeId {
-    ContentTypeId {
-        authority_id: XMTP_ORG.into(),
-        type_id: "markdown".into(),
-        version_major: 1,
-        version_minor: 0,
-    }
-}
-
-fn reaction_type_id() -> ContentTypeId {
-    ContentTypeId {
-        authority_id: XMTP_ORG.into(),
-        type_id: "reaction".into(),
-        version_major: 2,
-        version_minor: 0,
-    }
-}
-
-fn read_receipt_type_id() -> ContentTypeId {
-    ContentTypeId {
-        authority_id: XMTP_ORG.into(),
-        type_id: "readReceipt".into(),
-        version_major: 1,
-        version_minor: 0,
-    }
-}
-
-fn reply_type_id() -> ContentTypeId {
-    ContentTypeId {
-        authority_id: XMTP_ORG.into(),
-        type_id: "reply".into(),
-        version_major: 1,
-        version_minor: 0,
-    }
-}
+const TEXT: (&str, &str, u32, u32) = xmtp_type("text", 1);
+const MARKDOWN: (&str, &str, u32, u32) = xmtp_type("markdown", 1);
+const REACTION: (&str, &str, u32, u32) = xmtp_type("reaction", 2);
+const READ_RECEIPT: (&str, &str, u32, u32) = xmtp_type("readReceipt", 1);
+const REPLY: (&str, &str, u32, u32) = xmtp_type("reply", 1);
+const ATTACHMENT: (&str, &str, u32, u32) = xmtp_type("attachment", 1);
+const REMOTE_ATTACHMENT: (&str, &str, u32, u32) = xmtp_type("remoteStaticAttachment", 1);
 
 /// Decoded message content.
 #[derive(Debug, Clone)]
@@ -164,6 +170,10 @@ pub enum Content {
     Reply(Reply),
     /// Read receipt (no payload).
     ReadReceipt,
+    /// Inline file attachment.
+    Attachment(Attachment),
+    /// Remote (URL-hosted) encrypted attachment.
+    RemoteAttachment(RemoteAttachment),
     /// Unknown or unsupported content type.
     Unknown {
         /// The content type string (e.g. `"xmtp.org/text:1.0"`).
@@ -171,6 +181,107 @@ pub enum Content {
         /// Raw protobuf-encoded [`EncodedContent`] bytes.
         raw: Vec<u8>,
     },
+}
+
+impl Content {
+    /// Returns `true` if this is a [`Content::Text`].
+    #[must_use]
+    pub const fn is_text(&self) -> bool {
+        matches!(self, Self::Text(_))
+    }
+
+    /// Returns `true` if this is a [`Content::Markdown`].
+    #[must_use]
+    pub const fn is_markdown(&self) -> bool {
+        matches!(self, Self::Markdown(_))
+    }
+
+    /// Returns `true` if this is a [`Content::Reaction`].
+    #[must_use]
+    pub const fn is_reaction(&self) -> bool {
+        matches!(self, Self::Reaction(_))
+    }
+
+    /// Returns `true` if this is a [`Content::Reply`].
+    #[must_use]
+    pub const fn is_reply(&self) -> bool {
+        matches!(self, Self::Reply(_))
+    }
+
+    /// Returns `true` if this is a [`Content::ReadReceipt`].
+    #[must_use]
+    pub const fn is_read_receipt(&self) -> bool {
+        matches!(self, Self::ReadReceipt)
+    }
+
+    /// Returns `true` if this is a [`Content::Attachment`].
+    #[must_use]
+    pub const fn is_attachment(&self) -> bool {
+        matches!(self, Self::Attachment(_))
+    }
+
+    /// Returns `true` if this is a [`Content::RemoteAttachment`].
+    #[must_use]
+    pub const fn is_remote_attachment(&self) -> bool {
+        matches!(self, Self::RemoteAttachment(_))
+    }
+
+    /// Returns `true` if this is a [`Content::Unknown`].
+    #[must_use]
+    pub const fn is_unknown(&self) -> bool {
+        matches!(self, Self::Unknown { .. })
+    }
+
+    /// Returns the text if this is a [`Content::Text`], or `None`.
+    #[must_use]
+    pub fn as_text(&self) -> Option<&str> {
+        if let Self::Text(s) = self {
+            Some(s)
+        } else {
+            None
+        }
+    }
+
+    /// Returns the reaction if this is a [`Content::Reaction`], or `None`.
+    #[must_use]
+    pub const fn as_reaction(&self) -> Option<&Reaction> {
+        if let Self::Reaction(r) = self {
+            Some(r)
+        } else {
+            None
+        }
+    }
+
+    /// Returns the reply if this is a [`Content::Reply`], or `None`.
+    #[must_use]
+    pub const fn as_reply(&self) -> Option<&Reply> {
+        if let Self::Reply(r) = self {
+            Some(r)
+        } else {
+            None
+        }
+    }
+
+    /// Returns the attachment if this is a [`Content::Attachment`], or `None`.
+    #[must_use]
+    pub const fn as_attachment(&self) -> Option<&Attachment> {
+        if let Self::Attachment(a) = self {
+            Some(a)
+        } else {
+            None
+        }
+    }
+
+    /// Returns the remote attachment if this is a
+    /// [`Content::RemoteAttachment`], or `None`.
+    #[must_use]
+    pub const fn as_remote_attachment(&self) -> Option<&RemoteAttachment> {
+        if let Self::RemoteAttachment(r) = self {
+            Some(r)
+        } else {
+            None
+        }
+    }
 }
 
 /// A decoded reaction.
@@ -199,30 +310,62 @@ pub struct Reply {
     pub content: EncodedContent,
 }
 
+/// An inline file attachment.
+#[derive(Debug, Clone)]
+pub struct Attachment {
+    /// Optional filename.
+    pub filename: Option<String>,
+    /// MIME type (e.g. `"image/png"`).
+    pub mime_type: String,
+    /// Raw file content.
+    pub data: Vec<u8>,
+}
+
+/// A remote (URL-hosted) encrypted attachment.
+#[derive(Debug, Clone)]
+pub struct RemoteAttachment {
+    /// URL of the encrypted payload.
+    pub url: String,
+    /// SHA-256 digest of the encrypted content (hex string).
+    pub content_digest: String,
+    /// 32-byte secret key for decryption.
+    pub secret: Vec<u8>,
+    /// Nonce used for encryption.
+    pub nonce: Vec<u8>,
+    /// Salt used for key derivation.
+    pub salt: Vec<u8>,
+    /// URL scheme (e.g. `"https"`).
+    pub scheme: String,
+    /// Size of the encrypted content in bytes.
+    pub content_length: Option<u32>,
+    /// Original filename.
+    pub filename: Option<String>,
+}
+
 /// Encode a text string into protobuf bytes ready for [`Conversation::send`].
 #[must_use]
 pub fn encode_text(text: &str) -> Vec<u8> {
-    let ec = EncodedContent {
-        r#type: Some(text_type_id()),
+    EncodedContent {
+        r#type: Some(make_type_id(TEXT)),
         parameters: HashMap::from([("encoding".into(), "UTF-8".into())]),
         fallback: None,
         content: text.as_bytes().to_vec(),
         compression: None,
-    };
-    ec.encode_to_vec()
+    }
+    .encode_to_vec()
 }
 
 /// Encode a markdown string into protobuf bytes.
 #[must_use]
 pub fn encode_markdown(markdown: &str) -> Vec<u8> {
-    let ec = EncodedContent {
-        r#type: Some(markdown_type_id()),
+    EncodedContent {
+        r#type: Some(make_type_id(MARKDOWN)),
         parameters: HashMap::from([("encoding".into(), "UTF-8".into())]),
         fallback: None,
         content: markdown.as_bytes().to_vec(),
         compression: None,
-    };
-    ec.encode_to_vec()
+    }
+    .encode_to_vec()
 }
 
 /// Encode a reaction into protobuf bytes.
@@ -235,27 +378,27 @@ pub fn encode_reaction(reference: &str, emoji: &str, action: ReactionAction) -> 
         content: emoji.into(),
         schema: ReactionSchema::Unicode as i32,
     };
-    let ec = EncodedContent {
-        r#type: Some(reaction_type_id()),
+    EncodedContent {
+        r#type: Some(make_type_id(REACTION)),
         parameters: HashMap::new(),
         fallback: Some(format!("Reacted with \"{emoji}\" to an earlier message")),
         content: rv2.encode_to_vec(),
         compression: None,
-    };
-    ec.encode_to_vec()
+    }
+    .encode_to_vec()
 }
 
 /// Encode a read receipt into protobuf bytes.
 #[must_use]
 pub fn encode_read_receipt() -> Vec<u8> {
-    let ec = EncodedContent {
-        r#type: Some(read_receipt_type_id()),
+    EncodedContent {
+        r#type: Some(make_type_id(READ_RECEIPT)),
         parameters: HashMap::new(),
         fallback: None,
         content: Vec::new(),
         compression: None,
-    };
-    ec.encode_to_vec()
+    }
+    .encode_to_vec()
 }
 
 /// Encode a reply into protobuf bytes.
@@ -264,20 +407,74 @@ pub fn encode_read_receipt() -> Vec<u8> {
 /// `inner_content` is the protobuf-encoded [`EncodedContent`] of the reply body.
 #[must_use]
 pub fn encode_reply(reference: &str, inner_content: &[u8]) -> Vec<u8> {
-    let ec = EncodedContent {
-        r#type: Some(reply_type_id()),
+    EncodedContent {
+        r#type: Some(make_type_id(REPLY)),
         parameters: HashMap::from([("reference".into(), reference.into())]),
         fallback: Some("Replied to an earlier message".into()),
         content: inner_content.to_vec(),
         compression: None,
-    };
-    ec.encode_to_vec()
+    }
+    .encode_to_vec()
 }
 
 /// Encode a text reply into protobuf bytes (convenience).
 #[must_use]
 pub fn encode_text_reply(reference: &str, text: &str) -> Vec<u8> {
     encode_reply(reference, &encode_text(text))
+}
+
+/// Encode an inline file attachment into protobuf bytes.
+#[must_use]
+pub fn encode_attachment(attachment: &Attachment) -> Vec<u8> {
+    let mut params = HashMap::from([("mimeType".into(), attachment.mime_type.clone())]);
+    if let Some(f) = &attachment.filename {
+        params.insert("filename".into(), f.clone());
+    }
+    let fallback = Some(format!(
+        "Can't display {}. This app doesn't support attachments.",
+        attachment.filename.as_deref().unwrap_or("this content")
+    ));
+    EncodedContent {
+        r#type: Some(make_type_id(ATTACHMENT)),
+        parameters: params,
+        fallback,
+        content: attachment.data.clone(),
+        compression: None,
+    }
+    .encode_to_vec()
+}
+
+/// Encode a remote attachment into protobuf bytes.
+///
+/// Crypto fields (secret, nonce, salt) are hex-encoded in the parameters,
+/// matching the official `xmtp.org/remoteStaticAttachment` wire format.
+#[must_use]
+pub fn encode_remote_attachment(ra: &RemoteAttachment) -> Vec<u8> {
+    let mut params = HashMap::from([
+        ("contentDigest".into(), ra.content_digest.clone()),
+        ("salt".into(), hex::encode(&ra.salt)),
+        ("nonce".into(), hex::encode(&ra.nonce)),
+        ("secret".into(), hex::encode(&ra.secret)),
+        ("scheme".into(), ra.scheme.clone()),
+    ]);
+    if let Some(len) = ra.content_length {
+        params.insert("contentLength".into(), len.to_string());
+    }
+    if let Some(f) = &ra.filename {
+        params.insert("filename".into(), f.clone());
+    }
+    let fallback = Some(format!(
+        "Can't display {}. This app doesn't support remote attachments.",
+        ra.filename.as_deref().unwrap_or("this content")
+    ));
+    EncodedContent {
+        r#type: Some(make_type_id(REMOTE_ATTACHMENT)),
+        parameters: params,
+        fallback,
+        content: ra.url.as_bytes().to_vec(),
+        compression: None,
+    }
+    .encode_to_vec()
 }
 
 /// Decode raw `Message::content` bytes into a [`Content`] variant.
@@ -314,6 +511,55 @@ pub fn decode(raw: &[u8]) -> Result<Content> {
             }))
         }
         Some("readReceipt") => Ok(Content::ReadReceipt),
+        Some("attachment") => {
+            let mime_type = ec.parameters.get("mimeType").cloned().unwrap_or_default();
+            let filename = ec.parameters.get("filename").cloned();
+            Ok(Content::Attachment(Attachment {
+                filename,
+                mime_type,
+                data: ec.content,
+            }))
+        }
+        Some("remoteStaticAttachment") => {
+            let content_digest = ec
+                .parameters
+                .get("contentDigest")
+                .cloned()
+                .unwrap_or_default();
+            let salt = ec
+                .parameters
+                .get("salt")
+                .and_then(|s| hex::decode(s).ok())
+                .unwrap_or_default();
+            let nonce = ec
+                .parameters
+                .get("nonce")
+                .and_then(|s| hex::decode(s).ok())
+                .unwrap_or_default();
+            let secret = ec
+                .parameters
+                .get("secret")
+                .and_then(|s| hex::decode(s).ok())
+                .unwrap_or_default();
+            let scheme = ec.parameters.get("scheme").cloned().unwrap_or_default();
+            let content_length = ec
+                .parameters
+                .get("contentLength")
+                .and_then(|s| s.parse().ok());
+            let filename = ec.parameters.get("filename").cloned();
+            let url = String::from_utf8(ec.content)
+                .map_err(|e| crate::Error::Ffi(format!("invalid URL: {e}")))?;
+            Ok(Content::RemoteAttachment(RemoteAttachment {
+                url,
+                content_digest,
+                secret,
+                nonce,
+                salt,
+                scheme,
+                content_length,
+                filename,
+            }))
+        }
         Some("reply") => {
             let inner = EncodedContent::decode(ec.content.as_slice()).unwrap_or_default();
             let reference = ec.parameters.get("reference").cloned().unwrap_or_default();
@@ -384,5 +630,15 @@ impl Conversation {
     /// Send a reply with arbitrary encoded content.
     pub fn send_reply(&self, reference_id: &str, inner_content: &[u8]) -> Result<String> {
         self.send(&encode_reply(reference_id, inner_content))
+    }
+
+    /// Send an inline file attachment.
+    pub fn send_attachment(&self, attachment: &Attachment) -> Result<String> {
+        self.send(&encode_attachment(attachment))
+    }
+
+    /// Send a remote (URL-hosted) encrypted attachment.
+    pub fn send_remote_attachment(&self, ra: &RemoteAttachment) -> Result<String> {
+        self.send(&encode_remote_attachment(ra))
     }
 }

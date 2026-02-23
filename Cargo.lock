@@ -3226,6 +3226,7 @@ version = "0.1.4"
 dependencies = [
  "alloy-signer",
  "alloy-signer-local",
+ "hex",
  "prost",
  "thiserror",
  "xmtp-sys",

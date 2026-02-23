@@ -13,12 +13,13 @@ rust-version = "1.85"
 
 [features]
 default = ["content"]
-content = ["dep:prost"]
+content = ["dep:prost", "dep:hex"]
 alloy = ["dep:alloy-signer", "dep:alloy-signer-local"]
 
 [dependencies]
 xmtp-sys.workspace = true
 thiserror.workspace = true
+hex = { workspace = true, optional = true }
 prost = { workspace = true, optional = true }
 alloy-signer = { workspace = true, optional = true }
 alloy-signer-local = { workspace = true, optional = true }
