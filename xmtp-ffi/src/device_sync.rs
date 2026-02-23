@@ -145,7 +145,9 @@ pub unsafe extern "C" fn xmtp_device_sync_list_available_archives(
             .map(|a| {
                 let inst = a.sent_by_installation;
                 let inst_len = inst.len() as i32;
-                let (inst_ptr, _, _) = inst.into_raw_parts();
+                // Use into_boxed_slice to guarantee cap == len for safe deallocation
+                let inst_boxed = inst.into_boxed_slice();
+                let inst_ptr = Box::into_raw(inst_boxed) as *mut u8;
                 FfiAvailableArchive {
                     pin: to_c_string(&a.pin),
                     backup_version: a.metadata.backup_version,

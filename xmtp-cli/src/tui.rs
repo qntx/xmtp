@@ -1,14 +1,14 @@
 //! Terminal setup and teardown.
 
-use std::io::{self, stdout, Stdout};
+use std::io::{self, Stdout, stdout};
 use std::panic;
 
-use ratatui::backend::CrosstermBackend;
-use ratatui::crossterm::terminal::{
-    disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
-};
-use ratatui::crossterm::ExecutableCommand as _;
 use ratatui::Terminal;
+use ratatui::backend::CrosstermBackend;
+use ratatui::crossterm::ExecutableCommand as _;
+use ratatui::crossterm::terminal::{
+    EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
+};
 
 /// The terminal type used throughout the application.
 pub type Tui = Terminal<CrosstermBackend<Stdout>>;

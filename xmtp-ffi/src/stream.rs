@@ -12,6 +12,7 @@
 
 use std::ffi::c_void;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use xmtp_common::StreamHandle;
 use xmtp_mls::Client as MlsClient;
@@ -33,15 +34,36 @@ fn parse_conv_type(v: i32) -> Option<xmtp_db::group::ConversationType> {
     }
 }
 
+/// Guard ensuring `on_close` is called at most once across data-error and close paths.
+type OnCloseGuard = Arc<AtomicBool>;
+
+/// Create a fresh guard (shared between data-callback and close-callback closures).
+fn new_on_close_guard() -> OnCloseGuard {
+    Arc::new(AtomicBool::new(false))
+}
+
 /// Invoke the on_close callback with a null error (normal close).
-fn invoke_on_close_ok(on_close: Option<FnOnCloseCallback>, ctx: usize) {
+/// No-op if already called.
+fn invoke_on_close_ok(on_close: Option<FnOnCloseCallback>, ctx: usize, guard: &OnCloseGuard) {
+    if guard.swap(true, Ordering::AcqRel) {
+        return; // already fired
+    }
     if let Some(cb) = on_close {
         unsafe { cb(std::ptr::null(), ctx as *mut c_void) };
     }
 }
 
 /// Invoke the on_close callback with an error message.
-fn invoke_on_close_err(on_close: Option<FnOnCloseCallback>, ctx: usize, err: &str) {
+/// No-op if already called.
+fn invoke_on_close_err(
+    on_close: Option<FnOnCloseCallback>,
+    ctx: usize,
+    err: &str,
+    guard: &OnCloseGuard,
+) {
+    if guard.swap(true, Ordering::AcqRel) {
+        return; // already fired
+    }
     if let Some(cb) = on_close {
         let c_err = std::ffi::CString::new(err).unwrap_or_default();
         unsafe { cb(c_err.as_ptr(), ctx as *mut c_void) };
@@ -89,6 +111,9 @@ pub unsafe extern "C" fn xmtp_stream_conversations(
         }
         let conv_type = parse_conv_type(conversation_type);
         let ctx = context as usize;
+        let guard = new_on_close_guard();
+        let g1 = guard.clone();
+        let g2 = guard;
 
         let mut handle = MlsClient::stream_conversations_with_callback(
             c.inner.clone(),
@@ -98,9 +123,9 @@ pub unsafe extern "C" fn xmtp_stream_conversations(
                     let ptr = into_raw(FfiConversation { inner: group });
                     unsafe { callback(ptr, ctx as *mut c_void) };
                 }
-                Err(e) => invoke_on_close_err(on_close, ctx, &e.to_string()),
+                Err(e) => invoke_on_close_err(on_close, ctx, &e.to_string(), &g1),
             },
-            move || invoke_on_close_ok(on_close, ctx),
+            move || invoke_on_close_ok(on_close, ctx, &g2),
             false,
         );
         finalize_stream(&mut handle, out)
@@ -133,6 +158,9 @@ pub unsafe extern "C" fn xmtp_stream_all_messages(
         let conv_type = parse_conv_type(conversation_type);
         let consents = parse_consent_states(consent_states, consent_states_count);
         let ctx = context as usize;
+        let guard = new_on_close_guard();
+        let g1 = guard.clone();
+        let g2 = guard;
 
         let mut handle = MlsClient::stream_all_messages_with_callback(
             c.inner.context.clone(),
@@ -143,9 +171,9 @@ pub unsafe extern "C" fn xmtp_stream_all_messages(
                     let ptr = into_raw(FfiMessage { inner: msg });
                     unsafe { callback(ptr, ctx as *mut c_void) };
                 }
-                Err(e) => invoke_on_close_err(on_close, ctx, &e.to_string()),
+                Err(e) => invoke_on_close_err(on_close, ctx, &e.to_string(), &g1),
             },
-            move || invoke_on_close_ok(on_close, ctx),
+            move || invoke_on_close_ok(on_close, ctx, &g2),
         );
         finalize_stream(&mut handle, out)
     })
@@ -171,6 +199,9 @@ pub unsafe extern "C" fn xmtp_conversation_stream_messages(
             return Err("null output pointer".into());
         }
         let ctx = context as usize;
+        let guard = new_on_close_guard();
+        let g1 = guard.clone();
+        let g2 = guard;
 
         let mut handle = MlsGroup::stream_with_callback(
             c.inner.context.clone(),
@@ -180,9 +211,9 @@ pub unsafe extern "C" fn xmtp_conversation_stream_messages(
                     let ptr = into_raw(FfiMessage { inner: msg });
                     unsafe { callback(ptr, ctx as *mut c_void) };
                 }
-                Err(e) => invoke_on_close_err(on_close, ctx, &e.to_string()),
+                Err(e) => invoke_on_close_err(on_close, ctx, &e.to_string(), &g1),
             },
-            move || invoke_on_close_ok(on_close, ctx),
+            move || invoke_on_close_ok(on_close, ctx, &g2),
         );
         finalize_stream(&mut handle, out)
     })
@@ -210,6 +241,10 @@ pub unsafe extern "C" fn xmtp_stream_consent(
         }
         let ctx = context as usize;
 
+        let guard = new_on_close_guard();
+        let g1 = guard.clone();
+        let g2 = guard;
+
         let mut handle = MlsClient::stream_consent_with_callback(
             c.inner.clone(),
             move |result| match result {
@@ -223,11 +258,16 @@ pub unsafe extern "C" fn xmtp_stream_consent(
                             ctx as *mut c_void,
                         )
                     };
-                    // c_records dropped here — Rust retains ownership, no C-side free needed
+                    // Free inner allocations that FfiConsentRecord doesn't Drop
+                    for r in &c_records {
+                        if !r.entity.is_null() {
+                            drop(unsafe { std::ffi::CString::from_raw(r.entity) });
+                        }
+                    }
                 }
-                Err(e) => invoke_on_close_err(on_close, ctx, &e.to_string()),
+                Err(e) => invoke_on_close_err(on_close, ctx, &e.to_string(), &g1),
             },
-            move || invoke_on_close_ok(on_close, ctx),
+            move || invoke_on_close_ok(on_close, ctx, &g2),
         );
         finalize_stream(&mut handle, out)
     })
@@ -254,6 +294,10 @@ pub unsafe extern "C" fn xmtp_stream_preferences(
             return Err("null output pointer".into());
         }
         let ctx = context as usize;
+
+        let guard = new_on_close_guard();
+        let g1 = guard.clone();
+        let g2 = guard;
 
         let mut handle = MlsClient::stream_preferences_with_callback(
             c.inner.clone(),
@@ -293,11 +337,24 @@ pub unsafe extern "C" fn xmtp_stream_preferences(
                             ctx as *mut c_void,
                         )
                     };
-                    // c_updates dropped here — Rust retains ownership
+                    // Free inner allocations that FfiPreferenceUpdate doesn't Drop
+                    for u in &c_updates {
+                        if !u.consent.entity.is_null() {
+                            drop(unsafe { std::ffi::CString::from_raw(u.consent.entity) });
+                        }
+                        if !u.hmac_key.is_null() && u.hmac_key_len > 0 {
+                            drop(unsafe {
+                                Box::from_raw(std::slice::from_raw_parts_mut(
+                                    u.hmac_key,
+                                    u.hmac_key_len as usize,
+                                ))
+                            });
+                        }
+                    }
                 }
-                Err(e) => invoke_on_close_err(on_close, ctx, &e.to_string()),
+                Err(e) => invoke_on_close_err(on_close, ctx, &e.to_string(), &g1),
             },
-            move || invoke_on_close_ok(on_close, ctx),
+            move || invoke_on_close_ok(on_close, ctx, &g2),
         );
         finalize_stream(&mut handle, out)
     })
@@ -326,6 +383,9 @@ pub unsafe extern "C" fn xmtp_stream_message_deletions(
         }
         let ctx = context as usize;
 
+        let guard = new_on_close_guard();
+        let g1 = guard;
+
         let mut handle =
             MlsClient::stream_message_deletions_with_callback(c.inner.clone(), move |result| {
                 match result {
@@ -335,7 +395,7 @@ pub unsafe extern "C" fn xmtp_stream_message_deletions(
                         unsafe { callback(c_str.as_ptr(), ctx as *mut c_void) };
                         // c_str dropped here — borrowed during callback only
                     }
-                    Err(e) => invoke_on_close_err(on_close, ctx, &e.to_string()),
+                    Err(e) => invoke_on_close_err(on_close, ctx, &e.to_string(), &g1),
                 }
             });
         finalize_stream(&mut handle, out)

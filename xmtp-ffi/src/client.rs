@@ -411,7 +411,9 @@ fn association_state_to_item(s: &xmtp_id::associations::AssociationState) -> Ffi
     let ident_ptrs = string_vec_to_c(identifiers, &mut ident_count);
     let mut inst_count: i32 = 0;
     let inst_ptrs = string_vec_to_c(installations, &mut inst_count);
-    let (ts_ptr, _, _) = timestamps.into_raw_parts();
+    // Use into_boxed_slice to guarantee cap == len for safe deallocation
+    let ts_boxed = timestamps.into_boxed_slice();
+    let ts_ptr = Box::into_raw(ts_boxed) as *mut i64;
     FfiInboxStateItem {
         inbox_id: to_c_string(&inbox_id),
         recovery_identifier: to_c_string(&recovery),
@@ -805,6 +807,16 @@ pub unsafe extern "C" fn xmtp_inbox_state_list_free(list: *mut FfiInboxStateList
         free_c_strings!(item, inbox_id, recovery_identifier);
         free_c_string_array(item.identifiers, item.identifiers_count);
         free_c_string_array(item.installation_ids, item.installation_ids_count);
+        // Free the parallel timestamp array (heap-allocated via into_raw_parts)
+        if !item.installation_client_timestamps.is_null() && item.installation_ids_count > 0 {
+            drop(unsafe {
+                Vec::from_raw_parts(
+                    item.installation_client_timestamps,
+                    item.installation_ids_count as usize,
+                    item.installation_ids_count as usize,
+                )
+            });
+        }
     }
 }
 

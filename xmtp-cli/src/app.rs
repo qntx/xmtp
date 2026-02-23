@@ -105,12 +105,9 @@ pub struct App {
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
-const STATUS_DEFAULT: &str =
-    " Tab:panel  j/k:nav  Enter:open  n:new DM  ?:help  q:quit";
-const STATUS_INPUT: &str =
-    " Enter:send  Esc:cancel  Tab:sidebar  n:new DM  ?:help";
-const STATUS_NEW_DM: &str =
-    " Enter peer inbox-id  ·  Enter:create  Esc:cancel";
+const STATUS_DEFAULT: &str = " Tab:panel  j/k:nav  Enter:open  n:new DM  ?:help  q:quit";
+const STATUS_INPUT: &str = " Enter:send  Esc:cancel  Tab:sidebar  n:new DM  ?:help";
+const STATUS_NEW_DM: &str = " Enter peer inbox-id  ·  Enter:create  Esc:cancel";
 const STATUS_TTL: u16 = 60; // ~3 s at 50 ms tick
 
 impl App {
@@ -162,7 +159,8 @@ impl App {
             let id = conv.id().unwrap_or_default();
             let is_group = conv.conversation_type() == Some(ConversationType::Group);
             let label = if is_group {
-                conv.name().unwrap_or_else(|| format!("Group {}", truncate_id(&id, 8)))
+                conv.name()
+                    .unwrap_or_else(|| format!("Group {}", truncate_id(&id, 8)))
             } else {
                 conv.dm_peer_inbox_id()
                     .map_or_else(|| "unknown".into(), |s| truncate_id(&s, 16))
@@ -537,9 +535,7 @@ impl App {
 
 /// Convert a char-index to a byte-index in a UTF-8 string.
 fn char_to_byte(s: &str, char_idx: usize) -> usize {
-    s.char_indices()
-        .nth(char_idx)
-        .map_or(s.len(), |(i, _)| i)
+    s.char_indices().nth(char_idx).map_or(s.len(), |(i, _)| i)
 }
 
 /// Decode a message to a short preview string for the sidebar.
@@ -557,9 +553,7 @@ fn decode_preview(msg: &Message) -> String {
             format!("[file: {}]", truncate_str(name, 20))
         }
         Ok(Content::RemoteAttachment(_)) => "[attachment]".into(),
-        Ok(Content::Unknown { .. }) | Err(_) => {
-            msg.fallback.clone().unwrap_or_default()
-        }
+        Ok(Content::Unknown { .. }) | Err(_) => msg.fallback.clone().unwrap_or_default(),
     }
 }
 

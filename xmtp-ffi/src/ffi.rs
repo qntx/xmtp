@@ -731,7 +731,9 @@ pub(crate) unsafe fn collect_strings(
 pub(crate) fn string_vec_to_c(v: Vec<String>, out_count: *mut i32) -> *mut *mut c_char {
     let count = v.len();
     let ptrs: Vec<*mut c_char> = v.into_iter().map(|s| to_c_string(&s)).collect();
-    let (ptr, _len, _cap) = ptrs.into_raw_parts();
+    // Use into_boxed_slice to guarantee cap == len, avoiding UB in from_raw_parts
+    let boxed = ptrs.into_boxed_slice();
+    let ptr = Box::into_raw(boxed) as *mut *mut c_char;
     unsafe {
         *out_count = count as i32;
     }

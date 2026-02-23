@@ -8,8 +8,8 @@ use k256::ecdsa::{RecoveryId, Signature, SigningKey};
 use k256::elliptic_curve::rand_core::OsRng;
 use sha3::{Digest as _, Keccak256};
 
-use xmtp::types::{AccountIdentifier, IdentifierKind};
 use xmtp::Signer;
+use xmtp::types::{AccountIdentifier, IdentifierKind};
 
 /// A file-backed ECDSA signer for development use.
 pub struct LocalSigner {

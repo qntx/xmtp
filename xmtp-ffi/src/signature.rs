@@ -354,8 +354,10 @@ pub unsafe extern "C" fn xmtp_client_sign_with_installation_key(
         }
         let text = unsafe { c_str_to_string(text)? };
         let sig = c.inner.context.sign_with_public_context(text)?;
-        let len = sig.len();
-        let ptr = sig.leak().as_mut_ptr();
+        // Use into_boxed_slice to guarantee cap == len for safe deallocation
+        let boxed = sig.into_boxed_slice();
+        let len = boxed.len();
+        let ptr = Box::into_raw(boxed) as *mut u8;
         unsafe {
             *out = ptr;
             *out_len = len as i32;

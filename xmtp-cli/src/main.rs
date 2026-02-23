@@ -28,7 +28,7 @@ mod ui;
 use std::time::Duration;
 use std::{fs, process};
 
-use xmtp::{stream, Client, Env};
+use xmtp::{Client, Env, stream};
 
 use crate::app::App;
 use crate::event::{Event, XmtpEvent};
@@ -134,10 +134,9 @@ fn start_streams(
     tx: &event::EventTx,
 ) -> xmtp::Result<(xmtp::StreamHandle, xmtp::StreamHandle)> {
     let msg_tx = tx.clone();
-    let msg_stream =
-        stream::stream_all_messages(client, None, &[], move |msg_id, conv_id| {
-            let _ = msg_tx.send(Event::Xmtp(XmtpEvent::NewMessage { msg_id, conv_id }));
-        })?;
+    let msg_stream = stream::stream_all_messages(client, None, &[], move |msg_id, conv_id| {
+        let _ = msg_tx.send(Event::Xmtp(XmtpEvent::NewMessage { msg_id, conv_id }));
+    })?;
 
     let conv_tx = tx.clone();
     let conv_stream = stream::stream_conversations(client, None, move |_| {

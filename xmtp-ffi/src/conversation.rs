@@ -1159,7 +1159,9 @@ pub unsafe extern "C" fn xmtp_conversation_debug_info(
             })
             .collect();
         let cursors_count = cursors.len() as i32;
-        let (cursors_ptr, _, _) = cursors.into_raw_parts();
+        // Use into_boxed_slice to guarantee cap == len for safe deallocation
+        let cursors_boxed = cursors.into_boxed_slice();
+        let cursors_ptr = Box::into_raw(cursors_boxed) as *mut FfiCursor;
 
         unsafe {
             *out = FfiConversationDebugInfo {
@@ -1249,7 +1251,9 @@ pub(crate) fn hmac_keys_to_entry(
         .map(|k| {
             let key_vec = k.key.to_vec();
             let len = key_vec.len() as i32;
-            let (ptr, _, _) = key_vec.into_raw_parts();
+            // Use into_boxed_slice to guarantee cap == len for safe deallocation
+            let boxed = key_vec.into_boxed_slice();
+            let ptr = Box::into_raw(boxed) as *mut u8;
             FfiHmacKey {
                 key: ptr,
                 key_len: len,
@@ -1258,7 +1262,8 @@ pub(crate) fn hmac_keys_to_entry(
         })
         .collect();
     let keys_count = c_keys.len() as i32;
-    let (keys_ptr, _, _) = c_keys.into_raw_parts();
+    let keys_boxed = c_keys.into_boxed_slice();
+    let keys_ptr = Box::into_raw(keys_boxed) as *mut FfiHmacKey;
     FfiHmacKeyEntry {
         group_id: to_c_string(&hex::encode(group_id)),
         keys: keys_ptr,

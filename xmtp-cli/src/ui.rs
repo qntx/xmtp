@@ -2,18 +2,16 @@
 
 use std::time::SystemTime;
 
+use ratatui::Frame;
 use ratatui::layout::{Alignment, Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span, Text};
-use ratatui::widgets::{
-    Block, Borders, Clear, List, ListItem, ListState, Paragraph, Wrap,
-};
-use ratatui::Frame;
+use ratatui::widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph, Wrap};
 use unicode_width::UnicodeWidthStr;
 
 use xmtp::MessageKind;
 
-use crate::app::{message_body, truncate_id, App, Focus, Mode};
+use crate::app::{App, Focus, Mode, message_body, truncate_id};
 
 // ── Palette ──────────────────────────────────────────────────────────────────
 
@@ -163,7 +161,10 @@ fn draw_chat(app: &App, frame: &mut Frame<'_>, area: Rect) {
             Line::from("  Welcome to XMTP Chat"),
             Line::default(),
             Line::from(vec![
-                Span::styled("  Select a conversation or press ", Style::default().fg(DIM)),
+                Span::styled(
+                    "  Select a conversation or press ",
+                    Style::default().fg(DIM),
+                ),
                 Span::styled("n", Style::default().fg(ACCENT)),
                 Span::styled(" to start a new DM", Style::default().fg(DIM)),
             ]),
@@ -267,9 +268,7 @@ fn draw_input(app: &App, frame: &mut Frame<'_>, area: Rect) {
 // ── Status bar ───────────────────────────────────────────────────────────────
 
 fn draw_status(app: &App, frame: &mut Frame<'_>, area: Rect) {
-    let line = Line::from(vec![
-        Span::styled(&app.status, Style::default().fg(DIM)),
-    ]);
+    let line = Line::from(vec![Span::styled(&app.status, Style::default().fg(DIM))]);
     frame.render_widget(Paragraph::new(line), area);
 }
 
