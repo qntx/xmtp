@@ -12,12 +12,14 @@ keywords = ["xmtp", "messaging", "e2e-encryption", "mls", "web3"]
 rust-version = "1.85"
 
 [features]
-default = []
+default = ["content"]
+content = ["dep:prost"]
 alloy = ["dep:alloy-signer", "dep:alloy-signer-local"]
 
 [dependencies]
 xmtp-sys.workspace = true
 thiserror.workspace = true
+prost = { workspace = true, optional = true }
 alloy-signer = { workspace = true, optional = true }
 alloy-signer-local = { workspace = true, optional = true }
 

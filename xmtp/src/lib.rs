@@ -18,6 +18,9 @@ pub mod types;
 
 mod ffi;
 
+#[cfg(feature = "content")]
+pub mod content;
+
 #[cfg(feature = "alloy")]
 mod signer;
 

@@ -21,6 +21,7 @@ hex = "0.4"
 k256 = { version = "0.13", features = ["ecdsa"] }
 sha3 = "0.10"
 tar = "0.4"
+prost = { version = "0.13", features = ["derive"] }
 thiserror = "2"
 ureq = "3"
 xmtp = { version = "0.1", path = "xmtp" }
