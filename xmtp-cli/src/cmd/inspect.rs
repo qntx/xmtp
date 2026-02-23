@@ -5,15 +5,17 @@ use crate::app::truncate_id;
 use super::config::{self, SignerKind, env_name};
 
 /// Show profile information and all installations.
+///
+/// Uses `open_client()` — no signer needed, Ledger users don't need
+/// their device connected just to view info.
 pub fn info(profile: &str) -> xmtp::Result<()> {
-    let (cfg, signer, client) = config::open(profile)?;
-    let address = signer.identifier().address;
+    let (cfg, client) = config::open_client(profile)?;
     let inbox_id = client.inbox_id()?;
 
     // Profile info.
     println!("Profile:       {profile}");
     println!("Environment:   {}", env_name(cfg.env));
-    println!("Address:       {address}");
+    println!("Address:       {}", cfg.address);
     println!("Inbox ID:      {inbox_id}");
     match cfg.signer {
         SignerKind::File => {
@@ -47,8 +49,10 @@ pub fn info(profile: &str) -> xmtp::Result<()> {
 }
 
 /// Revoke all installations except the current one.
+///
+/// Uses `open_with_signer()` — signing is required for revocation.
 pub fn revoke(profile: &str) -> xmtp::Result<()> {
-    let (_cfg, signer, client) = config::open(profile)?;
+    let (_cfg, signer, client) = config::open_with_signer(profile)?;
 
     let current = client.installation_id()?;
     let states = client.inbox_state(true)?;

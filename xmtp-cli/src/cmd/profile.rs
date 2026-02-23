@@ -3,13 +3,15 @@
 use std::fs;
 use std::io;
 
-use xmtp::{AlloySigner, LedgerSigner, Signer};
+use xmtp::{AlloySigner, Client, LedgerSigner, Signer};
 
 use super::NewArgs;
 use super::config::{self, ProfileConfig, SignerKind};
 
 /// Create a new profile, register with the XMTP network, and save config.
-pub fn create(args: &NewArgs) -> xmtp::Result<()> {
+///
+/// Returns the config (with address) and a ready-to-use client.
+pub fn create(args: &NewArgs) -> xmtp::Result<(ProfileConfig, Client)> {
     let dir = config::profile_dir(&args.name);
     if dir.join("profile.conf").exists() {
         return Err(xmtp::Error::InvalidArgument(format!(
@@ -43,18 +45,19 @@ pub fn create(args: &NewArgs) -> xmtp::Result<()> {
         fs::copy(src, &db_path).map_err(|e| xmtp::Error::Ffi(format!("copy db: {e}")))?;
     }
 
-    // Save profile config.
+    // Register with the XMTP network.
+    let address = signer.identifier().address;
     let cfg = ProfileConfig {
         env: args.env,
         rpc_url: args.rpc_url.clone(),
         signer: signer_kind,
+        address: address.clone(),
     };
-    cfg.save(&args.name)?;
-
-    // Register with the XMTP network.
-    let address = signer.identifier().address;
-    let client = config::create_client(signer.as_ref(), &cfg, &db_path.to_string_lossy())?;
+    let client = config::build_client(&cfg, &db_path.to_string_lossy(), Some(signer.as_ref()))?;
     let inbox_id = client.inbox_id()?;
+
+    // Save profile config (address is now known after signer creation).
+    cfg.save(&args.name)?;
 
     // Set as default if this is the first profile ever.
     if !config::data_dir().join(".default").exists() {
@@ -65,7 +68,7 @@ pub fn create(args: &NewArgs) -> xmtp::Result<()> {
     println!("  Address:  {address}");
     println!("  Inbox ID: {inbox_id}");
     println!("  Env:      {}", config::env_name(args.env));
-    Ok(())
+    Ok((cfg, client))
 }
 
 /// List all saved profiles.

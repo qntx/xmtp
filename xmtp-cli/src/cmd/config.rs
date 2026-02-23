@@ -3,7 +3,7 @@
 use std::path::PathBuf;
 use std::{fmt, fs};
 
-use xmtp::{AlloySigner, Client, EnsResolver, Env, LedgerSigner, Signer};
+use xmtp::{AlloySigner, Client, EnsResolver, Env, IdentifierKind, LedgerSigner, Signer};
 
 /// Base data directory for all profiles.
 pub fn data_dir() -> PathBuf {
@@ -54,6 +54,8 @@ pub struct ProfileConfig {
     pub env: Env,
     pub rpc_url: String,
     pub signer: SignerKind,
+    /// Cached wallet address (avoids needing signer just to read address).
+    pub address: String,
 }
 
 impl ProfileConfig {
@@ -66,6 +68,7 @@ impl ProfileConfig {
         let mut env = Env::Dev;
         let mut rpc_url = String::from("https://eth.llamarpc.com");
         let mut signer = SignerKind::File;
+        let mut address = String::new();
 
         for line in text.lines() {
             if let Some((k, v)) = line.trim().split_once('=') {
@@ -86,6 +89,7 @@ impl ProfileConfig {
                             SignerKind::File
                         };
                     }
+                    "address" => v.trim().clone_into(&mut address),
                     _ => {}
                 }
             }
@@ -95,6 +99,7 @@ impl ProfileConfig {
             env,
             rpc_url,
             signer,
+            address,
         })
     }
 
@@ -103,10 +108,11 @@ impl ProfileConfig {
         let dir = profile_dir(profile);
         fs::create_dir_all(&dir).map_err(|e| xmtp::Error::Ffi(format!("mkdir: {e}")))?;
         let content = format!(
-            "env={}\nrpc_url={}\nsigner={}\n",
+            "env={}\nrpc_url={}\nsigner={}\naddress={}\n",
             env_name(self.env),
             self.rpc_url,
             self.signer,
+            self.address,
         );
         fs::write(dir.join("profile.conf"), content)
             .map_err(|e| xmtp::Error::Ffi(format!("write config: {e}")))
@@ -136,26 +142,40 @@ pub fn create_signer(profile: &str) -> xmtp::Result<(ProfileConfig, Box<dyn Sign
     Ok((cfg, signer))
 }
 
-/// Open a profile: load config, create signer, build client.
-pub fn open(profile: &str) -> xmtp::Result<(ProfileConfig, Box<dyn Signer>, Client)> {
+/// Open a profile without a signer (for TUI and info — no signing needed).
+pub fn open_client(profile: &str) -> xmtp::Result<(ProfileConfig, Client)> {
+    let cfg = ProfileConfig::load(profile)?;
+    let db = profile_dir(profile).join("messages.db3");
+    let client = build_client(&cfg, &db.to_string_lossy(), None)?;
+    Ok((cfg, client))
+}
+
+/// Open a profile with a signer (for operations that need signing, e.g. revoke).
+pub fn open_with_signer(profile: &str) -> xmtp::Result<(ProfileConfig, Box<dyn Signer>, Client)> {
     let (cfg, signer) = create_signer(profile)?;
     let db = profile_dir(profile).join("messages.db3");
-    let client = create_client(signer.as_ref(), &cfg, &db.to_string_lossy())?;
+    let client = build_client(&cfg, &db.to_string_lossy(), Some(signer.as_ref()))?;
     Ok((cfg, signer, client))
 }
 
 /// Build an XMTP client with automatic stale-DB recovery.
-pub fn create_client(
-    signer: &dyn Signer,
+///
+/// When `signer` is `Some`, uses `build(signer)` which may register.
+/// When `None`, uses `build_existing()` with the stored address (no signing).
+pub fn build_client(
     cfg: &ProfileConfig,
     db_path: &str,
+    signer: Option<&dyn Signer>,
 ) -> xmtp::Result<Client> {
     let build = |path: &str| {
         let mut b = Client::builder().env(cfg.env).db_path(path);
         if let Ok(r) = EnsResolver::new(&cfg.rpc_url) {
             b = b.resolver(r);
         }
-        b.build(signer)
+        match signer {
+            Some(s) => b.build(s),
+            None => b.build_existing(&cfg.address, IdentifierKind::Ethereum),
+        }
     };
 
     match build(db_path) {

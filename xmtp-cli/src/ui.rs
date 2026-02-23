@@ -428,27 +428,6 @@ fn draw_help(frame: &mut Frame<'_>, area: Rect) {
         help_line("↑ / ↓", "Scroll chat (in input mode)"),
         help_line("q", "Quit"),
         Line::default(),
-        Line::from(Span::styled(
-            "  Recipient formats:",
-            Style::default().fg(ACCENT),
-        )),
-        Line::from(Span::styled(
-            "    0xABC…   Ethereum address",
-            Style::default().fg(DIM),
-        )),
-        Line::from(Span::styled(
-            "    name.eth ENS name",
-            Style::default().fg(DIM),
-        )),
-        Line::from(Span::styled(
-            "    abc123…  Inbox ID",
-            Style::default().fg(DIM),
-        )),
-        Line::default(),
-        Line::from(Span::styled(
-            "  Press any key to close",
-            Style::default().fg(DIM),
-        )),
     ];
 
     frame.render_widget(Clear, popup);

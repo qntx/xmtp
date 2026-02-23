@@ -51,31 +51,34 @@ fn run() -> xmtp::Result<()> {
     // TUI mode — resolve profile, auto-create default if needed.
     let name = resolve_profile(cli.profile);
 
-    if !config::profile_dir(&name).join("profile.conf").exists() {
+    let (cfg, client) = if config::profile_dir(&name).join("profile.conf").exists() {
+        config::open_client(&name)?
+    } else {
         eprintln!("Creating profile '{name}'...");
         cmd::profile::create(&cmd::NewArgs {
-            name: name.clone(),
+            name,
             env: xmtp::Env::Dev,
             rpc_url: "https://eth.llamarpc.com".into(),
             import: None,
             key: None,
             db: None,
             ledger: None,
-        })?;
-    }
+        })?
+    };
 
-    let (_cfg, signer, client) = config::open(&name)?;
-    let address = signer.identifier().address;
     let inbox_id = client.inbox_id()?;
 
-    eprintln!("address: {address}");
+    eprintln!("address: {}", cfg.address);
     eprintln!("inbox:   {inbox_id}");
-    run_tui(client, address, inbox_id)
+    run_tui(client, cfg.address, inbox_id)
 }
 
 fn dispatch(command: &Command) -> xmtp::Result<()> {
     match command {
-        Command::New(args) => cmd::profile::create(args),
+        Command::New(args) => {
+            cmd::profile::create(args)?;
+            Ok(())
+        }
         Command::List => cmd::profile::list(),
         Command::Remove { name } => cmd::profile::remove(name),
         Command::Clear => cmd::profile::clear(),
