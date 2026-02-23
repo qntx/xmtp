@@ -11,7 +11,9 @@ use std::sync::mpsc;
 use std::time::Duration;
 
 use ratatui::crossterm::event::{self, Event as CtEvent, KeyEvent, KeyEventKind};
-use xmtp::{ConsentState, Message, PermissionLevel};
+use xmtp::{
+    ConsentState, Message, MetadataField, PermissionLevel, PermissionPolicy, PermissionUpdateType,
+};
 
 /// Event sender (terminal poller + worker → main thread).
 pub type Tx = mpsc::Sender<Event>;
@@ -34,6 +36,15 @@ pub struct ConvEntry {
 pub enum GroupField {
     Name,
     Description,
+}
+
+/// Single row in the permissions overlay.
+#[derive(Debug, Clone, Copy)]
+pub struct PermissionRow {
+    pub label: &'static str,
+    pub policy: PermissionPolicy,
+    pub update_type: PermissionUpdateType,
+    pub metadata_field: Option<MetadataField>,
 }
 
 /// Group member entry for display.
@@ -69,6 +80,8 @@ pub enum Event {
     },
     /// Worker: group members loaded.
     Members(Vec<MemberEntry>),
+    /// Worker: permission policies loaded.
+    Permissions(Vec<PermissionRow>),
     /// Worker: DM/Group created — UI should switch to it.
     Created { conv_id: String },
     /// Worker: flash status message.
@@ -101,6 +114,14 @@ pub enum Cmd {
     Sync,
     /// Load members for the active conversation.
     LoadMembers,
+    /// Load permission policies for the active conversation.
+    LoadPermissions,
+    /// Update a single permission policy.
+    SetPermission {
+        update_type: PermissionUpdateType,
+        policy: PermissionPolicy,
+        metadata_field: Option<MetadataField>,
+    },
     /// Stream callback: new message arrived.
     NewMessage { msg_id: String, conv_id: String },
     /// Stream callback: new conversation received.

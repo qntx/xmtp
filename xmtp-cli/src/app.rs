@@ -9,7 +9,8 @@ use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use xmtp::content::Content;
 use xmtp::{ConsentState, DeliveryStatus, Message, MessageKind};
 
-use crate::event::{Cmd, CmdTx, ConvEntry, Event, GroupField, MemberEntry};
+use crate::event::{Cmd, CmdTx, ConvEntry, Event, GroupField, MemberEntry, PermissionRow};
+use xmtp::PermissionPolicy;
 
 /// Active sidebar tab.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -34,6 +35,7 @@ pub enum Mode {
     NewGroupMembers,
     Members,
     GroupEdit(GroupField),
+    Permissions,
     Help,
 }
 
@@ -43,8 +45,9 @@ const HINT_INPUT: &str = " Enter:send  Esc:sidebar  ↑/↓:scroll  Tab:members"
 const HINT_NEW_DM: &str = " Address (0x…) / ENS (name.eth) / Inbox ID  Enter:create  Esc:cancel";
 const HINT_GROUP_NAME: &str = " Group name (optional)  Enter:next step  Esc:cancel";
 const HINT_REQUESTS: &str = " ↑↓:nav  a:accept  x:reject  Enter:preview  ←→:tab  q:quit";
-const HINT_MEMBERS: &str = " ↑↓:nav  x:kick  p:admin  r:name  e:desc  Esc:close";
+const HINT_MEMBERS: &str = " ↑↓:nav  x:kick  p:admin  r:name  e:desc  s:perms  Esc:close";
 const HINT_GROUP_EDIT: &str = " Enter:save  Esc:cancel";
+const HINT_PERMISSIONS: &str = " ↑↓:nav  Enter:cycle  Esc:back";
 const FLASH_TTL: u16 = 60;
 
 /// Central application state. Holds **no FFI handles**.
@@ -66,6 +69,8 @@ pub struct App {
     pub messages: Vec<Message>,
     pub members: Vec<MemberEntry>,
     pub member_idx: usize,
+    pub permissions: Vec<PermissionRow>,
+    pub perm_idx: usize,
 
     pub input: String,
     pub cursor: usize,
@@ -98,6 +103,8 @@ impl App {
             messages: Vec::new(),
             members: Vec::new(),
             member_idx: 0,
+            permissions: Vec::new(),
+            perm_idx: 0,
             input: String::new(),
             cursor: 0,
             group_name: None,
@@ -164,6 +171,12 @@ impl App {
                     self.member_idx = self.members.len() - 1;
                 }
             }
+            Event::Permissions(p) => {
+                self.permissions = p;
+                if self.perm_idx >= self.permissions.len() && !self.permissions.is_empty() {
+                    self.perm_idx = self.permissions.len() - 1;
+                }
+            }
             Event::Created { conv_id } => {
                 self.active_id = Some(conv_id);
                 self.messages.clear();
@@ -204,6 +217,7 @@ impl App {
             }
             Mode::Members => self.key_members(key),
             Mode::GroupEdit(_) => self.key_group_edit(key),
+            Mode::Permissions => self.key_permissions(key),
             Mode::NewDm => self.key_overlay(key),
             Mode::NewGroupName => self.key_group_name(key),
             Mode::NewGroupMembers => self.key_group_members(key),
@@ -463,6 +477,47 @@ impl App {
                 self.mode = Mode::GroupEdit(GroupField::Description);
                 self.status = HINT_GROUP_EDIT.into();
             }
+            KeyCode::Char('s') => {
+                self.perm_idx = 0;
+                self.mode = Mode::Permissions;
+                self.status = HINT_PERMISSIONS.into();
+                self.cmd(Cmd::LoadPermissions);
+            }
+            _ => {}
+        }
+    }
+
+    fn key_permissions(&mut self, key: KeyEvent) {
+        match key.code {
+            KeyCode::Esc => {
+                self.mode = Mode::Members;
+                self.permissions.clear();
+                self.perm_idx = 0;
+                self.status = HINT_MEMBERS.into();
+            }
+            KeyCode::Down | KeyCode::Char('j') => {
+                if !self.permissions.is_empty() {
+                    self.perm_idx = (self.perm_idx + 1) % self.permissions.len();
+                }
+            }
+            KeyCode::Up | KeyCode::Char('k') => {
+                let len = self.permissions.len();
+                if len > 0 {
+                    self.perm_idx = self.perm_idx.checked_sub(1).unwrap_or(len - 1);
+                }
+            }
+            KeyCode::Enter => {
+                if let Some(row) = self.permissions.get(self.perm_idx) {
+                    let new_policy = next_policy(row.policy);
+                    let cmd = Cmd::SetPermission {
+                        update_type: row.update_type,
+                        policy: new_policy,
+                        metadata_field: row.metadata_field,
+                    };
+                    self.permissions[self.perm_idx].policy = new_policy;
+                    self.cmd(cmd);
+                }
+            }
             _ => {}
         }
     }
@@ -589,9 +644,20 @@ impl App {
             Mode::NewGroupMembers => return, // hint managed by update_group_members_hint
             Mode::Members => HINT_MEMBERS,
             Mode::GroupEdit(_) => HINT_GROUP_EDIT,
+            Mode::Permissions => HINT_PERMISSIONS,
         }
         .into();
         self.status_ttl = 0;
+    }
+}
+
+/// Cycle: Allow → `AdminOnly` → `SuperAdminOnly` → Deny → Allow.
+const fn next_policy(p: PermissionPolicy) -> PermissionPolicy {
+    match p {
+        PermissionPolicy::Allow => PermissionPolicy::AdminOnly,
+        PermissionPolicy::AdminOnly => PermissionPolicy::SuperAdminOnly,
+        PermissionPolicy::SuperAdminOnly => PermissionPolicy::Deny,
+        PermissionPolicy::Deny => PermissionPolicy::Allow,
     }
 }
 

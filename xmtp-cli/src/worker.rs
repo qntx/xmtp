@@ -12,7 +12,7 @@ use xmtp::{
 };
 
 use crate::app::{decode_preview, truncate_id};
-use crate::event::{Cmd, CmdTx, ConvEntry, Event, GroupField, MemberEntry, Tx};
+use crate::event::{Cmd, CmdTx, ConvEntry, Event, GroupField, MemberEntry, PermissionRow, Tx};
 
 /// Run the worker loop. Owns the [`Client`], processes [`Cmd`], sends [`Event`].
 ///
@@ -80,6 +80,16 @@ impl Worker {
                 }
             }
             Cmd::SetGroupMeta { field, value } => self.set_group_meta(field, &value),
+            Cmd::LoadPermissions => {
+                if let Some((_, ref conv)) = self.active {
+                    send_permissions(conv, &self.tx);
+                }
+            }
+            Cmd::SetPermission {
+                update_type,
+                policy,
+                metadata_field,
+            } => self.set_permission(update_type, policy, metadata_field),
             Cmd::RemoveMember(id) => self.remove_member(&id),
             Cmd::ToggleAdmin(id) => self.toggle_admin(&id),
             Cmd::NewMessage { msg_id, conv_id } => self.new_message(&msg_id, conv_id),
@@ -244,6 +254,21 @@ impl Worker {
         }
     }
 
+    fn set_permission(
+        &self,
+        update_type: xmtp::PermissionUpdateType,
+        policy: xmtp::PermissionPolicy,
+        metadata_field: Option<xmtp::MetadataField>,
+    ) {
+        let Some((_, ref conv)) = self.active else {
+            return;
+        };
+        match conv.set_permission_policy(update_type, policy, metadata_field) {
+            Ok(()) => self.flash("Policy updated"),
+            Err(e) => self.flash(&format!("Permission: {e}")),
+        }
+    }
+
     fn remove_member(&self, inbox_id: &str) {
         let Some((_, ref conv)) = self.active else {
             return;
@@ -348,6 +373,76 @@ pub fn start_streams(
     })?;
 
     Ok((msg_stream, conv_stream))
+}
+
+/// Load and send permission policies for the given conversation.
+fn send_permissions(conv: &xmtp::Conversation, tx: &Tx) {
+    use xmtp::{MetadataField, PermissionUpdateType};
+    match conv.permissions() {
+        Ok(perms) => {
+            let p = perms.policies;
+            let rows = vec![
+                PermissionRow {
+                    label: "Add Members",
+                    policy: p.add_member,
+                    update_type: PermissionUpdateType::AddMember,
+                    metadata_field: None,
+                },
+                PermissionRow {
+                    label: "Remove Members",
+                    policy: p.remove_member,
+                    update_type: PermissionUpdateType::RemoveMember,
+                    metadata_field: None,
+                },
+                PermissionRow {
+                    label: "Add Admins",
+                    policy: p.add_admin,
+                    update_type: PermissionUpdateType::AddAdmin,
+                    metadata_field: None,
+                },
+                PermissionRow {
+                    label: "Remove Admins",
+                    policy: p.remove_admin,
+                    update_type: PermissionUpdateType::RemoveAdmin,
+                    metadata_field: None,
+                },
+                PermissionRow {
+                    label: "Group Name",
+                    policy: p.update_group_name,
+                    update_type: PermissionUpdateType::UpdateMetadata,
+                    metadata_field: Some(MetadataField::GroupName),
+                },
+                PermissionRow {
+                    label: "Description",
+                    policy: p.update_group_description,
+                    update_type: PermissionUpdateType::UpdateMetadata,
+                    metadata_field: Some(MetadataField::Description),
+                },
+                PermissionRow {
+                    label: "Image URL",
+                    policy: p.update_group_image_url,
+                    update_type: PermissionUpdateType::UpdateMetadata,
+                    metadata_field: Some(MetadataField::ImageUrl),
+                },
+                PermissionRow {
+                    label: "Disappearing",
+                    policy: p.update_message_disappearing,
+                    update_type: PermissionUpdateType::UpdateMetadata,
+                    metadata_field: Some(MetadataField::MessageDisappearing),
+                },
+                PermissionRow {
+                    label: "App Data",
+                    policy: p.update_app_data,
+                    update_type: PermissionUpdateType::UpdateMetadata,
+                    metadata_field: Some(MetadataField::AppData),
+                },
+            ];
+            let _ = tx.send(Event::Permissions(rows));
+        }
+        Err(e) => {
+            let _ = tx.send(Event::Flash(format!("Permissions: {e}")));
+        }
+    }
 }
 
 /// Load and send group members for the given conversation.

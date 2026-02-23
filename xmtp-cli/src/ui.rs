@@ -13,6 +13,7 @@ use xmtp::{MessageKind, PermissionLevel};
 
 use crate::app::{App, Focus, Mode, Tab, decode_body, delivery_icon, truncate_id};
 use crate::event::GroupField;
+use xmtp::PermissionPolicy;
 
 /// Muted lavender accent — gentle, never harsh.
 const ACCENT: Color = Color::Rgb(180, 160, 220);
@@ -61,6 +62,7 @@ pub fn render(app: &mut App, frame: &mut Frame<'_>) {
     match app.mode {
         Mode::Help => draw_help(frame, area),
         Mode::Members | Mode::GroupEdit(_) => draw_members(app, frame, area),
+        Mode::Permissions => draw_permissions(app, frame, area),
         _ => {}
     }
 }
@@ -506,6 +508,72 @@ fn draw_members(app: &App, frame: &mut Frame<'_>, area: Rect) {
         )),
         rows[1],
     );
+}
+
+fn draw_permissions(app: &App, frame: &mut Frame<'_>, area: Rect) {
+    let w = 50.min(area.width.saturating_sub(4));
+    #[allow(clippy::cast_possible_truncation)]
+    let h = (app.permissions.len() as u16 + 4).min(area.height.saturating_sub(4));
+    let popup = centered(area, w, h);
+
+    let block = Block::default()
+        .title(" Permissions ")
+        .title_alignment(Alignment::Center)
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(ACCENT));
+
+    let inner = block.inner(popup);
+    frame.render_widget(Clear, popup);
+    frame.render_widget(block, popup);
+
+    let rows = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Min(1), Constraint::Length(1)])
+        .split(inner);
+
+    let items: Vec<ListItem<'_>> = app
+        .permissions
+        .iter()
+        .map(|r| {
+            let plabel = policy_label(r.policy);
+            ListItem::new(Line::from(vec![
+                Span::styled(format!("  {:18}", r.label), Style::default().fg(PEER_CLR)),
+                Span::styled(plabel, Style::default().fg(policy_color(r.policy))),
+            ]))
+        })
+        .collect();
+
+    let list = List::new(items)
+        .highlight_style(Style::default().bg(SELECT_BG))
+        .highlight_symbol("▸ ");
+    let mut state = ListState::default().with_selected(Some(app.perm_idx));
+    frame.render_stateful_widget(list, rows[0], &mut state);
+
+    frame.render_widget(
+        Paragraph::new(Span::styled(
+            " ↑↓:nav  Enter:cycle  Esc:back",
+            Style::default().fg(DIM),
+        )),
+        rows[1],
+    );
+}
+
+const fn policy_label(p: PermissionPolicy) -> &'static str {
+    match p {
+        PermissionPolicy::Allow => "Allow",
+        PermissionPolicy::Deny => "Deny",
+        PermissionPolicy::AdminOnly => "Admin Only",
+        PermissionPolicy::SuperAdminOnly => "Super Admin",
+    }
+}
+
+const fn policy_color(p: PermissionPolicy) -> Color {
+    match p {
+        PermissionPolicy::Allow => SELF_CLR,
+        PermissionPolicy::AdminOnly => ACCENT,
+        PermissionPolicy::SuperAdminOnly => UNREAD,
+        PermissionPolicy::Deny => DIM,
+    }
 }
 
 const fn role_label(p: PermissionLevel) -> &'static str {
