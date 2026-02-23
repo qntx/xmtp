@@ -11,7 +11,7 @@ use std::sync::mpsc;
 use std::time::Duration;
 
 use ratatui::crossterm::event::{self, Event as CtEvent, KeyEvent, KeyEventKind};
-use xmtp::Message;
+use xmtp::{ConsentState, Message, PermissionLevel};
 
 /// Event sender (terminal poller + worker → main thread).
 pub type Tx = mpsc::Sender<Event>;
@@ -32,8 +32,9 @@ pub struct ConvEntry {
 /// Group member entry for display.
 #[derive(Debug, Clone)]
 pub struct MemberEntry {
+    pub inbox_id: String,
     pub address: String,
-    pub role: &'static str,
+    pub permission: PermissionLevel,
 }
 
 /// Events consumed by the main loop. Worker results are non-blocking.
@@ -81,10 +82,12 @@ pub enum Cmd {
         name: Option<String>,
         addrs: Vec<String>,
     },
-    /// Accept a message request by conversation ID.
-    Accept(String),
-    /// Reject a message request by conversation ID.
-    Reject(String),
+    /// Update consent state for a conversation.
+    SetConsent { id: String, state: ConsentState },
+    /// Remove a member from the active group by inbox ID.
+    RemoveMember(String),
+    /// Toggle admin status for a member in the active group.
+    ToggleAdmin(String),
     /// Full network sync (welcomes + refresh + active reload).
     Sync,
     /// Load members for the active conversation.

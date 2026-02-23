@@ -9,7 +9,7 @@ use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph, Wrap};
 use unicode_width::UnicodeWidthStr;
 
-use xmtp::MessageKind;
+use xmtp::{MessageKind, PermissionLevel};
 
 use crate::app::{App, Focus, Mode, Tab, decode_body, delivery_icon, truncate_id};
 
@@ -413,8 +413,10 @@ fn draw_help(frame: &mut Frame<'_>, area: Rect) {
         help_line("Esc", "Back to sidebar"),
         help_line("n", "New DM"),
         help_line("g", "New group (name → members)"),
-        help_line("Tab", "View group members (in chat)"),
+        help_line("d", "Hide conversation (deny)"),
         help_line("a / x", "Accept / Reject request"),
+        help_line("Tab", "View members (in chat)"),
+        help_line("x / p", "Kick / Toggle admin (members)"),
         help_line("r", "Sync conversations"),
         help_line("↑ / ↓", "Scroll chat (in input mode)"),
         help_line("Ctrl+C / q", "Quit"),
@@ -444,33 +446,76 @@ fn draw_help(frame: &mut Frame<'_>, area: Rect) {
 }
 
 fn draw_members(app: &App, frame: &mut Frame<'_>, area: Rect) {
-    let w = 50.min(area.width.saturating_sub(4));
+    let w = 54.min(area.width.saturating_sub(4));
     #[allow(clippy::cast_possible_truncation)]
     let h = (app.members.len() as u16 + 4).min(area.height.saturating_sub(4));
     let popup = centered(area, w, h);
 
     let block = Block::default()
-        .title(" Group Members ")
+        .title(" Members ")
         .title_alignment(Alignment::Center)
         .borders(Borders::ALL)
         .border_style(Style::default().fg(ACCENT));
 
-    let mut lines = vec![Line::default()];
-    for m in &app.members {
-        let addr = truncate_id(&m.address, 32);
-        lines.push(Line::from(vec![
-            Span::styled(format!("  {addr}"), Style::default().fg(PEER_CLR)),
-            Span::styled(format!("  ({})", m.role), Style::default().fg(DIM)),
-        ]));
-    }
-    lines.push(Line::default());
-    lines.push(Line::from(Span::styled(
-        "  Esc to close",
-        Style::default().fg(DIM),
-    )));
-
+    let inner = block.inner(popup);
     frame.render_widget(Clear, popup);
-    frame.render_widget(Paragraph::new(lines).block(block), popup);
+    frame.render_widget(block, popup);
+
+    let rows = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Min(1), Constraint::Length(1)])
+        .split(inner);
+
+    let items: Vec<ListItem<'_>> = app
+        .members
+        .iter()
+        .map(|m| {
+            let addr = truncate_id(&m.address, 24);
+            let you = if m.inbox_id == app.inbox_id {
+                " (you)"
+            } else {
+                ""
+            };
+            let role = role_label(m.permission);
+            ListItem::new(Line::from(vec![
+                Span::styled(format!("  {addr}{you}"), Style::default().fg(PEER_CLR)),
+                Span::styled(
+                    format!("  {role}"),
+                    Style::default().fg(role_color(m.permission)),
+                ),
+            ]))
+        })
+        .collect();
+
+    let list = List::new(items)
+        .highlight_style(Style::default().bg(SELECT_BG))
+        .highlight_symbol("▸ ");
+    let mut state = ListState::default().with_selected(Some(app.member_idx));
+    frame.render_stateful_widget(list, rows[0], &mut state);
+
+    frame.render_widget(
+        Paragraph::new(Span::styled(
+            " ↑↓:nav  x:kick  p:admin  Esc:close",
+            Style::default().fg(DIM),
+        )),
+        rows[1],
+    );
+}
+
+const fn role_label(p: PermissionLevel) -> &'static str {
+    match p {
+        PermissionLevel::SuperAdmin => "super admin",
+        PermissionLevel::Admin => "admin",
+        PermissionLevel::Member => "member",
+    }
+}
+
+const fn role_color(p: PermissionLevel) -> Color {
+    match p {
+        PermissionLevel::SuperAdmin => UNREAD,
+        PermissionLevel::Admin => ACCENT,
+        PermissionLevel::Member => DIM,
+    }
 }
 
 fn help_line<'a>(key: &'a str, desc: &'a str) -> Line<'a> {

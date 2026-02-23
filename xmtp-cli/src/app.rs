@@ -7,7 +7,7 @@
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 use xmtp::content::Content;
-use xmtp::{DeliveryStatus, Message, MessageKind};
+use xmtp::{ConsentState, DeliveryStatus, Message, MessageKind};
 
 use crate::event::{Cmd, CmdTx, ConvEntry, Event, MemberEntry};
 
@@ -37,12 +37,12 @@ pub enum Mode {
 }
 
 const HINT_SIDEBAR: &str =
-    " Tab:input  ↑↓:nav  ←→:tab  Enter:open  n:DM  g:group  r:sync  ?:help  q:quit";
+    " Tab:input  ↑↓:nav  ←→:tab  n:DM  g:group  d:hide  r:sync  ?:help  q:quit";
 const HINT_INPUT: &str = " Enter:send  Esc:sidebar  ↑/↓:scroll  Tab:members";
 const HINT_NEW_DM: &str = " Address (0x…) / ENS (name.eth) / Inbox ID  Enter:create  Esc:cancel";
 const HINT_GROUP_NAME: &str = " Group name (optional)  Enter:next step  Esc:cancel";
 const HINT_REQUESTS: &str = " ↑↓:nav  a:accept  x:reject  Enter:preview  ←→:tab  q:quit";
-const HINT_MEMBERS: &str = " Tab/Esc:close";
+const HINT_MEMBERS: &str = " ↑↓:nav  x:kick  p:admin  Esc:close";
 const FLASH_TTL: u16 = 60;
 
 /// Central application state. Holds **no FFI handles**.
@@ -63,6 +63,7 @@ pub struct App {
     pub active_id: Option<String>,
     pub messages: Vec<Message>,
     pub members: Vec<MemberEntry>,
+    pub member_idx: usize,
 
     pub input: String,
     pub cursor: usize,
@@ -94,6 +95,7 @@ impl App {
             active_id: None,
             messages: Vec::new(),
             members: Vec::new(),
+            member_idx: 0,
             input: String::new(),
             cursor: 0,
             group_name: None,
@@ -156,6 +158,9 @@ impl App {
             }
             Event::Members(m) => {
                 self.members = m;
+                if self.member_idx >= self.members.len() && !self.members.is_empty() {
+                    self.member_idx = self.members.len() - 1;
+                }
             }
             Event::Created { conv_id } => {
                 self.active_id = Some(conv_id);
@@ -195,13 +200,7 @@ impl App {
                     self.set_default_status();
                 }
             }
-            Mode::Members => {
-                if matches!(key.code, KeyCode::Esc | KeyCode::Tab) {
-                    self.mode = Mode::Normal;
-                    self.members.clear();
-                    self.set_default_status();
-                }
-            }
+            Mode::Members => self.key_members(key),
             Mode::NewDm => self.key_overlay(key),
             Mode::NewGroupName => self.key_group_name(key),
             Mode::NewGroupMembers => self.key_group_members(key),
@@ -244,12 +243,32 @@ impl App {
             }
             KeyCode::Char('a') if self.tab == Tab::Requests => {
                 if let Some(e) = self.requests.get(self.sidebar_idx) {
-                    self.cmd(Cmd::Accept(e.id.clone()));
+                    self.cmd(Cmd::SetConsent {
+                        id: e.id.clone(),
+                        state: ConsentState::Allowed,
+                    });
                 }
             }
             KeyCode::Char('x') if self.tab == Tab::Requests => {
                 if let Some(e) = self.requests.get(self.sidebar_idx) {
-                    self.cmd(Cmd::Reject(e.id.clone()));
+                    self.cmd(Cmd::SetConsent {
+                        id: e.id.clone(),
+                        state: ConsentState::Denied,
+                    });
+                }
+            }
+            KeyCode::Char('d') if self.tab == Tab::Inbox => {
+                if let Some(e) = self.sidebar().get(self.sidebar_idx) {
+                    let id = e.id.clone();
+                    self.cmd(Cmd::SetConsent {
+                        id: id.clone(),
+                        state: ConsentState::Denied,
+                    });
+                    if self.active_id.as_deref() == Some(&id) {
+                        self.active_id = None;
+                        self.messages.clear();
+                        self.scroll = 0;
+                    }
                 }
             }
             KeyCode::Char('n') => {
@@ -391,6 +410,43 @@ impl App {
                 let idx = byte_offset(&self.input, self.cursor);
                 self.input.insert(idx, c);
                 self.cursor += 1;
+            }
+            _ => {}
+        }
+    }
+
+    fn key_members(&mut self, key: KeyEvent) {
+        match key.code {
+            KeyCode::Esc | KeyCode::Tab => {
+                self.mode = Mode::Normal;
+                self.members.clear();
+                self.member_idx = 0;
+                self.set_default_status();
+            }
+            KeyCode::Down | KeyCode::Char('j') => {
+                if !self.members.is_empty() {
+                    self.member_idx = (self.member_idx + 1) % self.members.len();
+                }
+            }
+            KeyCode::Up | KeyCode::Char('k') => {
+                let len = self.members.len();
+                if len > 0 {
+                    self.member_idx = self.member_idx.checked_sub(1).unwrap_or(len - 1);
+                }
+            }
+            KeyCode::Char('x') => {
+                if let Some(m) = self.members.get(self.member_idx)
+                    && m.inbox_id != self.inbox_id
+                {
+                    self.cmd(Cmd::RemoveMember(m.inbox_id.clone()));
+                }
+            }
+            KeyCode::Char('p') => {
+                if let Some(m) = self.members.get(self.member_idx)
+                    && m.inbox_id != self.inbox_id
+                {
+                    self.cmd(Cmd::ToggleAdmin(m.inbox_id.clone()));
+                }
             }
             _ => {}
         }
