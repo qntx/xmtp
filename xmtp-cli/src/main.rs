@@ -102,7 +102,7 @@ fn run() -> xmtp::Result<()> {
             c
         }
         None => {
-            let c = client.create_dm_by_inbox_id(peer, None)?;
+            let c = client.create_dm_by_inbox_id(peer)?;
             println!("dm      : {} (created)", c.id()?);
             c
         }
@@ -140,7 +140,7 @@ fn run() -> xmtp::Result<()> {
         // Sync welcomes (discover new conversations) + sync this conversation.
         let _ = client.sync_welcomes();
         conv.sync()?;
-        let msgs = conv.messages_with(&ListMessagesOptions {
+        let msgs = conv.list_messages(&ListMessagesOptions {
             sent_after_ns: last_ns,
             direction: Some(SortDirection::Ascending),
             ..Default::default()
@@ -152,17 +152,13 @@ fn run() -> xmtp::Result<()> {
             if msg.sender_inbox_id == my_inbox {
                 continue;
             }
-            let text = String::from_utf8_lossy(&msg.content);
+            let text = msg.fallback.as_deref().unwrap_or("<no fallback>");
             println!("  \x1b[36m[peer]\x1b[0m {text}");
         }
 
         thread::sleep(Duration::from_secs(2));
     }
 }
-
-// ---------------------------------------------------------------------------
-// Local ECDSA Signer (secp256k1 / Ethereum-compatible)
-// ---------------------------------------------------------------------------
 
 struct LocalSigner {
     key: SigningKey,

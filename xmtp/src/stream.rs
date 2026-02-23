@@ -13,10 +13,6 @@ use crate::error::{self, Result};
 use crate::ffi::OwnedHandle;
 use crate::types::*;
 
-// ---------------------------------------------------------------------------
-// StreamHandle
-// ---------------------------------------------------------------------------
-
 /// RAII handle for an active FFI stream.
 ///
 /// Signals the stream to stop on drop and frees the underlying handle.
@@ -45,10 +41,6 @@ fn no_on_close() -> xmtp_sys::XmtpOption_FnOnCloseCallback {
     unsafe { std::mem::zeroed() }
 }
 
-// ---------------------------------------------------------------------------
-// Helper: start a stream and wrap the result
-// ---------------------------------------------------------------------------
-
 /// Generic helper to start a stream. Handles context boxing, error recovery,
 /// and wrapping the result in a `StreamHandle`.
 fn start_stream<F: Send + 'static>(
@@ -71,10 +63,6 @@ fn start_stream<F: Send + 'static>(
         _ctx: Some(ctx_box),
     })
 }
-
-// ---------------------------------------------------------------------------
-// Conversation stream
-// ---------------------------------------------------------------------------
 
 /// Stream new conversations. The callback receives each new [`Conversation`].
 ///
@@ -112,10 +100,6 @@ unsafe extern "C" fn conv_trampoline(
         }
     }
 }
-
-// ---------------------------------------------------------------------------
-// Message streams (notification-only: FfiMessage is opaque)
-// ---------------------------------------------------------------------------
 
 /// Stream all messages across conversations. The callback fires for each new
 /// message. The opaque FFI message is freed automatically; use
@@ -183,10 +167,6 @@ unsafe extern "C" fn msg_trampoline(msg: *mut xmtp_sys::XmtpFfiMessage, context:
     }
 }
 
-// ---------------------------------------------------------------------------
-// Consent stream
-// ---------------------------------------------------------------------------
-
 /// A consent state change event.
 #[derive(Debug, Clone)]
 pub struct ConsentUpdate {
@@ -244,10 +224,6 @@ unsafe extern "C" fn consent_trampoline(
         }
     }
 }
-
-// ---------------------------------------------------------------------------
-// Preference stream
-// ---------------------------------------------------------------------------
 
 /// A user preference update event.
 #[derive(Debug, Clone)]
@@ -319,10 +295,6 @@ unsafe extern "C" fn pref_trampoline(
         }
     }
 }
-
-// ---------------------------------------------------------------------------
-// Message deletion stream
-// ---------------------------------------------------------------------------
 
 /// Stream message deletion events. The callback receives the hex message ID.
 pub fn stream_message_deletions(

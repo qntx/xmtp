@@ -1,4 +1,4 @@
-//! SDK types: enumerations, signer trait, and network environment.
+//! SDK types: enumerations, option structs, data structs, and signer trait.
 
 /// XMTP network environment.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
@@ -223,6 +223,13 @@ pub struct CreateGroupOptions {
     pub disappearing: Option<DisappearingSettings>,
 }
 
+/// Options for creating a DM conversation.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct CreateDmOptions {
+    /// Disappearing message settings. `None` = disabled.
+    pub disappearing: Option<DisappearingSettings>,
+}
+
 /// Options for listing messages.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct ListMessagesOptions {
@@ -255,6 +262,13 @@ pub struct ListConversationsOptions {
     pub consent_states: Vec<ConsentState>,
 }
 
+/// Options for sending a message.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct SendOptions {
+    /// Whether to include in push notifications (default: true).
+    pub should_push: bool,
+}
+
 /// Disappearing message settings.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct DisappearingSettings {
@@ -264,16 +278,185 @@ pub struct DisappearingSettings {
     pub in_ns: i64,
 }
 
+/// Full permission policy set for a conversation.
+#[derive(Debug, Clone, Copy)]
+pub struct PermissionPolicySet {
+    /// Policy for adding members.
+    pub add_member: PermissionPolicy,
+    /// Policy for removing members.
+    pub remove_member: PermissionPolicy,
+    /// Policy for adding admins.
+    pub add_admin: PermissionPolicy,
+    /// Policy for removing admins.
+    pub remove_admin: PermissionPolicy,
+    /// Policy for updating the group name.
+    pub update_group_name: PermissionPolicy,
+    /// Policy for updating the group description.
+    pub update_group_description: PermissionPolicy,
+    /// Policy for updating the group image URL.
+    pub update_group_image_url: PermissionPolicy,
+    /// Policy for updating disappearing message settings.
+    pub update_message_disappearing: PermissionPolicy,
+    /// Policy for updating app data.
+    pub update_app_data: PermissionPolicy,
+}
+
+/// Group permissions (preset + full policy set).
+#[derive(Debug, Clone, Copy)]
+pub struct Permissions {
+    /// The permissions preset used when creating the group.
+    pub preset: GroupPermissionsPreset,
+    /// The full set of per-action policies.
+    pub policies: PermissionPolicySet,
+}
+
+/// Conversation metadata (creator + type).
+#[derive(Debug, Clone)]
+pub struct ConversationMetadata {
+    /// The inbox ID of the conversation creator.
+    pub creator_inbox_id: String,
+    /// The type of conversation.
+    pub conversation_type: ConversationType,
+}
+
+/// A single cursor entry for debug info.
+#[derive(Debug, Clone, Copy)]
+pub struct Cursor {
+    /// Originator node ID.
+    pub originator_id: u32,
+    /// Sequence number within the originator.
+    pub sequence_id: u64,
+}
+
+/// Conversation debug information.
+#[derive(Debug, Clone)]
+pub struct ConversationDebugInfo {
+    /// Current MLS epoch.
+    pub epoch: u64,
+    /// Whether a fork has been detected.
+    pub maybe_forked: bool,
+    /// Human-readable fork details.
+    pub fork_details: Option<String>,
+    /// Whether the commit log is forked. `None` = unknown.
+    pub is_commit_log_forked: Option<bool>,
+    /// Local commit log summary.
+    pub local_commit_log: Option<String>,
+    /// Remote commit log summary.
+    pub remote_commit_log: Option<String>,
+    /// Cursor entries for each originator.
+    pub cursors: Vec<Cursor>,
+}
+
+/// A single HMAC key entry.
+#[derive(Debug, Clone)]
+pub struct HmacKey {
+    /// The raw key bytes.
+    pub key: Vec<u8>,
+    /// The epoch this key belongs to.
+    pub epoch: i64,
+}
+
+/// HMAC keys for a conversation group.
+#[derive(Debug, Clone)]
+pub struct HmacKeyEntry {
+    /// Hex-encoded group ID.
+    pub group_id: String,
+    /// HMAC keys for each epoch.
+    pub keys: Vec<HmacKey>,
+}
+
+/// Per-inbox last-read timestamp.
+#[derive(Debug, Clone)]
+pub struct LastReadTime {
+    /// The inbox ID.
+    pub inbox_id: String,
+    /// Last-read timestamp in nanoseconds.
+    pub timestamp_ns: i64,
+}
+
+/// MLS API call statistics.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct ApiStats {
+    /// Number of `upload_key_package` calls.
+    pub upload_key_package: i64,
+    /// Number of `fetch_key_package` calls.
+    pub fetch_key_package: i64,
+    /// Number of `send_group_messages` calls.
+    pub send_group_messages: i64,
+    /// Number of `send_welcome_messages` calls.
+    pub send_welcome_messages: i64,
+    /// Number of `query_group_messages` calls.
+    pub query_group_messages: i64,
+    /// Number of `query_welcome_messages` calls.
+    pub query_welcome_messages: i64,
+    /// Number of `subscribe_messages` calls.
+    pub subscribe_messages: i64,
+    /// Number of `subscribe_welcomes` calls.
+    pub subscribe_welcomes: i64,
+    /// Number of `publish_commit_log` calls.
+    pub publish_commit_log: i64,
+    /// Number of `query_commit_log` calls.
+    pub query_commit_log: i64,
+    /// Number of `get_newest_group_message` calls.
+    pub get_newest_group_message: i64,
+}
+
+/// Identity API call statistics.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct IdentityStats {
+    /// Number of `publish_identity_update` calls.
+    pub publish_identity_update: i64,
+    /// Number of `get_identity_updates_v2` calls.
+    pub get_identity_updates_v2: i64,
+    /// Number of `get_inbox_ids` calls.
+    pub get_inbox_ids: i64,
+    /// Number of `verify_smart_contract_wallet_signature` calls.
+    pub verify_smart_contract_wallet_signature: i64,
+}
+
+/// Key package status for an installation.
+#[derive(Debug, Clone)]
+pub struct KeyPackageStatus {
+    /// Hex-encoded installation ID.
+    pub installation_id: String,
+    /// Whether the key package is valid.
+    pub valid: bool,
+    /// `not_before` timestamp (0 if unavailable).
+    pub not_before: u64,
+    /// `not_after` timestamp (0 if unavailable).
+    pub not_after: u64,
+    /// Validation error message, if any.
+    pub validation_error: Option<String>,
+}
+
+/// Result of a sync operation.
+#[derive(Debug, Clone, Copy)]
+pub struct SyncResult {
+    /// Number of conversations successfully synced.
+    pub synced: u32,
+    /// Number of conversations eligible for sync.
+    pub eligible: u32,
+}
+
+/// Snapshot of an inbox's identity state.
+#[derive(Debug, Clone)]
+pub struct InboxState {
+    /// The inbox ID.
+    pub inbox_id: String,
+    /// Recovery identifier.
+    pub recovery_identifier: String,
+    /// Associated account identifiers.
+    pub identifiers: Vec<String>,
+    /// Installation IDs (hex).
+    pub installation_ids: Vec<String>,
+}
+
 /// Trait for signing messages during XMTP identity operations.
 pub trait Signer: Send + Sync {
     /// The account identifier for this signer.
     fn identifier(&self) -> AccountIdentifier;
 
     /// Sign the given text and return raw signature bytes.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if signing fails.
     fn sign(&self, text: &str) -> crate::error::Result<Vec<u8>>;
 
     /// Whether this is a smart contract wallet (ERC-1271). Default: `false`.
@@ -281,7 +464,7 @@ pub trait Signer: Send + Sync {
         false
     }
 
-    /// EVM chain ID for SCW verification. Only used when [`is_smart_wallet`](Self::is_smart_wallet) returns `true`.
+    /// EVM chain ID for SCW verification.
     fn chain_id(&self) -> u64 {
         1
     }

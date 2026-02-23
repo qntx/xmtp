@@ -1,8 +1,8 @@
 #![allow(unsafe_code)]
 //! Conversation operations: send, messages, members, metadata, consent,
-//! disappearing messages, admin management, and permissions.
+//! disappearing messages, admin management, permissions, debug info, and HMAC keys.
 
-use std::ffi::c_char;
+use std::ffi::{CStr, c_char};
 use std::ptr;
 
 use crate::error::{self, Result};
@@ -33,21 +33,35 @@ macro_rules! metadata_setter {
     };
 }
 
-/// A decoded message from a conversation.
+/// An enriched message from a conversation.
 #[derive(Debug, Clone)]
 pub struct Message {
     /// Hex-encoded message ID.
     pub id: String,
+    /// Hex-encoded group/conversation ID.
+    pub conversation_id: String,
     /// Sender's inbox ID.
     pub sender_inbox_id: String,
+    /// Sender's installation ID (hex).
+    pub sender_installation_id: String,
     /// Sent timestamp in nanoseconds.
     pub sent_at_ns: i64,
-    /// Message kind (application vs membership change).
+    /// Inserted-into-DB timestamp in nanoseconds.
+    pub inserted_at_ns: i64,
+    /// Message kind.
     pub kind: MessageKind,
     /// Delivery status.
     pub delivery_status: DeliveryStatus,
-    /// Raw decrypted content bytes (encoded `EncodedContent` protobuf).
-    pub content: Vec<u8>,
+    /// Content type ID (e.g. `"xmtp.org/text:1.0"`).
+    pub content_type: Option<String>,
+    /// Fallback text for unsupported content types.
+    pub fallback: Option<String>,
+    /// Expiration timestamp in nanoseconds (0 = no expiration).
+    pub expires_at_ns: i64,
+    /// Number of reactions to this message.
+    pub num_reactions: i32,
+    /// Number of replies to this message.
+    pub num_replies: i32,
 }
 
 /// A member of a group conversation.
@@ -77,7 +91,7 @@ impl Conversation {
         OwnedHandle::new(ptr, xmtp_sys::xmtp_conversation_free).map(|h| Self { handle: h })
     }
 
-    /// Raw const pointer for internal use by the stream module.
+    /// Raw const pointer for the stream module.
     pub(crate) fn handle_ptr(&self) -> *const xmtp_sys::XmtpFfiConversation {
         self.handle.as_ptr()
     }
@@ -117,8 +131,24 @@ impl Conversation {
 
     metadata_getter!(/// DM peer's inbox ID. Returns `None` if not a DM.
         dm_peer_inbox_id, xmtp_sys::xmtp_conversation_dm_peer_inbox_id);
-    metadata_getter!(/// Inbox ID of the member who added this client to the conversation.
+    metadata_getter!(/// Inbox ID of the member who added this client.
         added_by_inbox_id, xmtp_sys::xmtp_conversation_added_by_inbox_id);
+    metadata_getter!(/// Get the group name.
+        name, xmtp_sys::xmtp_conversation_group_name);
+    metadata_setter!(/// Set the group name.
+        set_name, xmtp_sys::xmtp_conversation_update_group_name);
+    metadata_getter!(/// Get the group description.
+        description, xmtp_sys::xmtp_conversation_group_description);
+    metadata_setter!(/// Set the group description.
+        set_description, xmtp_sys::xmtp_conversation_update_group_description);
+    metadata_getter!(/// Get the group image URL.
+        image_url, xmtp_sys::xmtp_conversation_group_image_url);
+    metadata_setter!(/// Set the group image URL.
+        set_image_url, xmtp_sys::xmtp_conversation_update_group_image_url);
+    metadata_getter!(/// Get app data string.
+        app_data, xmtp_sys::xmtp_conversation_app_data);
+    metadata_setter!(/// Set app data (max 8192 bytes).
+        set_app_data, xmtp_sys::xmtp_conversation_update_app_data);
 
     /// Check if conversation is paused for a version upgrade.
     pub fn paused_for_version(&self) -> Result<Option<String>> {
@@ -134,6 +164,42 @@ impl Conversation {
         }
     }
 
+    /// Get the conversation metadata (creator inbox ID + type).
+    pub fn metadata(&self) -> Result<ConversationMetadata> {
+        let mut out: *mut xmtp_sys::XmtpFfiGroupMetadata = ptr::null_mut();
+        let rc =
+            unsafe { xmtp_sys::xmtp_conversation_group_metadata(self.handle.as_ptr(), &mut out) };
+        error::check(rc)?;
+        if out.is_null() {
+            return Err(crate::Error::NullPointer);
+        }
+        let meta = unsafe { &*out };
+        let creator = unsafe { take_c_string(meta.creator_inbox_id) }.unwrap_or_default();
+        let conv_type = ConversationType::from_ffi(meta.conversation_type as i32)
+            .unwrap_or(ConversationType::Group);
+        unsafe { xmtp_sys::xmtp_group_metadata_free(out) };
+        Ok(ConversationMetadata {
+            creator_inbox_id: creator,
+            conversation_type: conv_type,
+        })
+    }
+
+    /// Get the group permissions (preset + full policy set).
+    pub fn permissions(&self) -> Result<Permissions> {
+        let mut out: *mut xmtp_sys::XmtpFfiGroupPermissions = ptr::null_mut();
+        let rc = unsafe {
+            xmtp_sys::xmtp_conversation_group_permissions(self.handle.as_ptr(), &mut out)
+        };
+        error::check(rc)?;
+        if out.is_null() {
+            return Err(crate::Error::NullPointer);
+        }
+        let perms = unsafe { &*out };
+        let result = read_permissions(perms);
+        unsafe { xmtp_sys::xmtp_group_permissions_free(out) };
+        result
+    }
+
     /// Sync this conversation with the network.
     pub fn sync(&self) -> Result<()> {
         error::check(unsafe { xmtp_sys::xmtp_conversation_sync(self.handle.as_ptr()) })
@@ -141,29 +207,50 @@ impl Conversation {
 
     /// Send raw encoded content bytes. Returns the hex-encoded message ID.
     pub fn send(&self, content: &[u8]) -> Result<String> {
-        let mut out: *mut c_char = ptr::null_mut();
-        let rc = unsafe {
-            xmtp_sys::xmtp_conversation_send(
-                self.handle.as_ptr(),
-                content.as_ptr(),
-                content.len() as i32,
-                ptr::null(),
-                &mut out,
-            )
-        };
-        error::check(rc)?;
-        unsafe { take_c_string(out) }
+        self.send_inner(content, ptr::null(), xmtp_sys::xmtp_conversation_send)
+    }
+
+    /// Send with options. Returns the hex-encoded message ID.
+    pub fn send_with(&self, content: &[u8], opts: &SendOptions) -> Result<String> {
+        let ffi = send_opts_to_ffi(opts);
+        self.send_inner(content, &ffi, xmtp_sys::xmtp_conversation_send)
     }
 
     /// Send optimistically (returns immediately, publishes in background).
     pub fn send_optimistic(&self, content: &[u8]) -> Result<String> {
+        self.send_inner(
+            content,
+            ptr::null(),
+            xmtp_sys::xmtp_conversation_send_optimistic,
+        )
+    }
+
+    /// Send optimistically with options.
+    pub fn send_optimistic_with(&self, content: &[u8], opts: &SendOptions) -> Result<String> {
+        let ffi = send_opts_to_ffi(opts);
+        self.send_inner(content, &ffi, xmtp_sys::xmtp_conversation_send_optimistic)
+    }
+
+    /// Shared send implementation.
+    fn send_inner(
+        &self,
+        content: &[u8],
+        opts: *const xmtp_sys::XmtpFfiSendOpts,
+        ffi_fn: unsafe extern "C" fn(
+            *const xmtp_sys::XmtpFfiConversation,
+            *const u8,
+            i32,
+            *const xmtp_sys::XmtpFfiSendOpts,
+            *mut *mut c_char,
+        ) -> i32,
+    ) -> Result<String> {
         let mut out: *mut c_char = ptr::null_mut();
         let rc = unsafe {
-            xmtp_sys::xmtp_conversation_send_optimistic(
+            ffi_fn(
                 self.handle.as_ptr(),
                 content.as_ptr(),
                 content.len() as i32,
-                ptr::null(),
+                opts,
                 &mut out,
             )
         };
@@ -178,22 +265,26 @@ impl Conversation {
 
     /// List all messages with default options.
     pub fn messages(&self) -> Result<Vec<Message>> {
-        self.messages_with(&ListMessagesOptions::default())
+        self.list_messages(&ListMessagesOptions::default())
     }
 
     /// List messages with filtering options.
-    pub fn messages_with(&self, options: &ListMessagesOptions) -> Result<Vec<Message>> {
+    pub fn list_messages(&self, options: &ListMessagesOptions) -> Result<Vec<Message>> {
         let ffi_opts = msg_opts_to_ffi(options);
-        let mut list: *mut xmtp_sys::XmtpFfiMessageList = ptr::null_mut();
+        let mut list: *mut xmtp_sys::XmtpFfiEnrichedMessageList = ptr::null_mut();
         let rc = unsafe {
-            xmtp_sys::xmtp_conversation_list_messages(self.handle.as_ptr(), &ffi_opts, &mut list)
+            xmtp_sys::xmtp_conversation_list_enriched_messages(
+                self.handle.as_ptr(),
+                &ffi_opts,
+                &mut list,
+            )
         };
         error::check(rc)?;
         if list.is_null() {
             return Ok(vec![]);
         }
-        let result = read_message_list(list);
-        unsafe { xmtp_sys::xmtp_message_list_free(list) };
+        let result = read_enriched_message_list(list);
+        unsafe { xmtp_sys::xmtp_enriched_message_list_free(list) };
         result
     }
 
@@ -282,29 +373,12 @@ impl Conversation {
             .ok_or_else(|| crate::Error::Ffi(format!("unknown consent state: {out}")))
     }
 
-    /// Update the consent state for this conversation.
-    pub fn update_consent_state(&self, state: ConsentState) -> Result<()> {
+    /// Set the consent state for this conversation.
+    pub fn set_consent(&self, state: ConsentState) -> Result<()> {
         error::check(unsafe {
             xmtp_sys::xmtp_conversation_update_consent_state(self.handle.as_ptr(), state as i32)
         })
     }
-
-    metadata_getter!(/// Get the group name.
-        group_name, xmtp_sys::xmtp_conversation_group_name);
-    metadata_setter!(/// Update the group name.
-        update_group_name, xmtp_sys::xmtp_conversation_update_group_name);
-    metadata_getter!(/// Get the group description.
-        group_description, xmtp_sys::xmtp_conversation_group_description);
-    metadata_setter!(/// Update the group description.
-        update_group_description, xmtp_sys::xmtp_conversation_update_group_description);
-    metadata_getter!(/// Get the group image URL.
-        group_image_url, xmtp_sys::xmtp_conversation_group_image_url);
-    metadata_setter!(/// Update the group image URL.
-        update_group_image_url, xmtp_sys::xmtp_conversation_update_group_image_url);
-    metadata_getter!(/// Get app data string.
-        app_data, xmtp_sys::xmtp_conversation_app_data);
-    metadata_setter!(/// Update app data (max 8192 bytes).
-        update_app_data, xmtp_sys::xmtp_conversation_update_app_data);
 
     /// Get the current disappearing message settings.
     pub fn disappearing_settings(&self) -> Option<DisappearingSettings> {
@@ -322,8 +396,8 @@ impl Conversation {
         }
     }
 
-    /// Update disappearing message settings.
-    pub fn update_disappearing_settings(&self, settings: DisappearingSettings) -> Result<()> {
+    /// Set disappearing message settings.
+    pub fn set_disappearing(&self, settings: DisappearingSettings) -> Result<()> {
         let ffi = xmtp_sys::XmtpFfiDisappearingSettings {
             from_ns: settings.from_ns,
             in_ns: settings.in_ns,
@@ -333,8 +407,8 @@ impl Conversation {
         })
     }
 
-    /// Remove disappearing message settings.
-    pub fn remove_disappearing_settings(&self) -> Result<()> {
+    /// Clear disappearing message settings.
+    pub fn clear_disappearing(&self) -> Result<()> {
         error::check(unsafe {
             xmtp_sys::xmtp_conversation_remove_disappearing_settings(self.handle.as_ptr())
         })
@@ -346,8 +420,8 @@ impl Conversation {
         unsafe { xmtp_sys::xmtp_conversation_is_disappearing_enabled(self.handle.as_ptr()) == 1 }
     }
 
-    /// Update a permission policy on this conversation.
-    pub fn update_permission_policy(
+    /// Set a permission policy on this conversation.
+    pub fn set_permission_policy(
         &self,
         update_type: PermissionUpdateType,
         policy: PermissionPolicy,
@@ -384,24 +458,24 @@ impl Conversation {
         self.update_admin_list(inbox_id, 3)
     }
 
-    /// Low-level admin list update. `action`: 0=AddAdmin, 1=RemoveAdmin, 2=AddSuperAdmin, 3=RemoveSuperAdmin.
-    pub fn update_admin_list(&self, inbox_id: &str, action: i32) -> Result<()> {
+    /// Low-level admin list update.
+    fn update_admin_list(&self, inbox_id: &str, action: i32) -> Result<()> {
         let c = to_c_string(inbox_id)?;
         error::check(unsafe {
             xmtp_sys::xmtp_conversation_update_admin_list(self.handle.as_ptr(), c.as_ptr(), action)
         })
     }
 
-    /// List admin inbox IDs.
-    pub fn list_admins(&self) -> Vec<String> {
+    /// Admin inbox IDs.
+    pub fn admins(&self) -> Vec<String> {
         let mut count = 0i32;
         let ptr =
             unsafe { xmtp_sys::xmtp_conversation_list_admins(self.handle.as_ptr(), &mut count) };
         unsafe { read_borrowed_strings(ptr.cast_const(), count) }
     }
 
-    /// List super admin inbox IDs.
-    pub fn list_super_admins(&self) -> Vec<String> {
+    /// Super admin inbox IDs.
+    pub fn super_admins(&self) -> Vec<String> {
         let mut count = 0i32;
         let ptr = unsafe {
             xmtp_sys::xmtp_conversation_list_super_admins(self.handle.as_ptr(), &mut count)
@@ -431,25 +505,58 @@ impl Conversation {
         let rc =
             unsafe { xmtp_sys::xmtp_conversation_duplicate_dms(self.handle.as_ptr(), &mut list) };
         error::check(rc)?;
+        read_conversation_list_inner(list)
+    }
+
+    /// Get debug information for this conversation.
+    pub fn debug_info(&self) -> Result<ConversationDebugInfo> {
+        let mut out = xmtp_sys::XmtpFfiConversationDebugInfo::default();
+        let rc = unsafe { xmtp_sys::xmtp_conversation_debug_info(self.handle.as_ptr(), &mut out) };
+        error::check(rc)?;
+        let info = read_debug_info(&out);
+        unsafe { xmtp_sys::xmtp_conversation_debug_info_free(&mut out) };
+        info
+    }
+
+    /// Get per-inbox last-read timestamps.
+    pub fn last_read_times(&self) -> Result<Vec<LastReadTime>> {
+        let mut list: *mut xmtp_sys::XmtpFfiLastReadTimeList = ptr::null_mut();
+        let rc =
+            unsafe { xmtp_sys::xmtp_conversation_last_read_times(self.handle.as_ptr(), &mut list) };
+        error::check(rc)?;
         if list.is_null() {
             return Ok(vec![]);
         }
-        let len = unsafe { xmtp_sys::xmtp_conversation_list_len(list) };
-        let mut convs = Vec::with_capacity(len.max(0) as usize);
-        for i in 0..len {
-            let mut conv: *mut xmtp_sys::XmtpFfiConversation = ptr::null_mut();
-            let rc = unsafe { xmtp_sys::xmtp_conversation_list_get(list, i, &mut conv) };
-            if rc == 0 && !conv.is_null() {
-                convs.push(Conversation::from_raw(conv)?);
-            }
+        let result = read_last_read_times(list);
+        unsafe { xmtp_sys::xmtp_last_read_time_list_free(list) };
+        result
+    }
+
+    /// Get HMAC keys for this conversation (including duplicate DMs).
+    pub fn hmac_keys(&self) -> Result<Vec<HmacKeyEntry>> {
+        let mut map: *mut xmtp_sys::XmtpFfiHmacKeyMap = ptr::null_mut();
+        let rc = unsafe { xmtp_sys::xmtp_conversation_hmac_keys(self.handle.as_ptr(), &mut map) };
+        error::check(rc)?;
+        if map.is_null() {
+            return Ok(vec![]);
         }
-        unsafe { xmtp_sys::xmtp_conversation_list_free(list) };
-        Ok(convs)
+        let result = read_hmac_key_map(map);
+        unsafe { xmtp_sys::xmtp_hmac_key_map_free(map) };
+        Ok(result)
+    }
+}
+
+/// Convert `SendOptions` to the FFI struct.
+fn send_opts_to_ffi(opts: &SendOptions) -> xmtp_sys::XmtpFfiSendOpts {
+    xmtp_sys::XmtpFfiSendOpts {
+        should_push: i32::from(opts.should_push),
     }
 }
 
 /// Convert `ListMessagesOptions` to the FFI struct.
-fn msg_opts_to_ffi(options: &ListMessagesOptions) -> xmtp_sys::XmtpFfiListMessagesOptions {
+pub(crate) fn msg_opts_to_ffi(
+    options: &ListMessagesOptions,
+) -> xmtp_sys::XmtpFfiListMessagesOptions {
     xmtp_sys::XmtpFfiListMessagesOptions {
         sent_after_ns: options.sent_after_ns,
         sent_before_ns: options.sent_before_ns,
@@ -461,43 +568,39 @@ fn msg_opts_to_ffi(options: &ListMessagesOptions) -> xmtp_sys::XmtpFfiListMessag
     }
 }
 
-/// Read all messages from an FFI message list. The list must be freed by the caller.
-fn read_message_list(list: *const xmtp_sys::XmtpFfiMessageList) -> Result<Vec<Message>> {
-    let len = unsafe { xmtp_sys::xmtp_message_list_len(list) };
+/// Read enriched messages from an FFI list. Caller must free the list.
+pub(crate) fn read_enriched_message_list(
+    list: *const xmtp_sys::XmtpFfiEnrichedMessageList,
+) -> Result<Vec<Message>> {
+    let len = unsafe { xmtp_sys::xmtp_enriched_message_list_len(list) };
     let mut msgs = Vec::with_capacity(len.max(0) as usize);
     for i in 0..len {
-        let id = unsafe { take_c_string(xmtp_sys::xmtp_message_id(list, i)) }?;
-        let sender = unsafe { take_c_string(xmtp_sys::xmtp_message_sender_inbox_id(list, i)) }?;
-        let sent_at_ns = unsafe { xmtp_sys::xmtp_message_sent_at_ns(list, i) };
-        let kind = MessageKind::from_ffi(unsafe { xmtp_sys::xmtp_message_kind(list, i) })
-            .unwrap_or(MessageKind::Application);
-        let delivery_status =
-            DeliveryStatus::from_ffi(unsafe { xmtp_sys::xmtp_message_delivery_status(list, i) })
-                .unwrap_or(DeliveryStatus::Unpublished);
-
-        // Content bytes are borrowed from the list -- copy before the list is freed.
-        let mut content_len = 0i32;
-        let content_ptr =
-            unsafe { xmtp_sys::xmtp_message_content_bytes(list, i, &mut content_len) };
-        let content = if content_ptr.is_null() || content_len <= 0 {
-            vec![]
-        } else {
-            unsafe { std::slice::from_raw_parts(content_ptr, content_len as usize) }.to_vec()
-        };
-
+        let ptr = unsafe { xmtp_sys::xmtp_enriched_message_list_get(list, i) };
+        if ptr.is_null() {
+            continue;
+        }
+        let m = unsafe { &*ptr };
         msgs.push(Message {
-            id,
-            sender_inbox_id: sender,
-            sent_at_ns,
-            kind,
-            delivery_status,
-            content,
+            id: unsafe { c_str_to_string(m.id) },
+            conversation_id: unsafe { c_str_to_string(m.group_id) },
+            sender_inbox_id: unsafe { c_str_to_string(m.sender_inbox_id) },
+            sender_installation_id: unsafe { c_str_to_string(m.sender_installation_id) },
+            sent_at_ns: m.sent_at_ns,
+            inserted_at_ns: m.inserted_at_ns,
+            kind: MessageKind::from_ffi(m.kind as i32).unwrap_or(MessageKind::Application),
+            delivery_status: DeliveryStatus::from_ffi(m.delivery_status as i32)
+                .unwrap_or(DeliveryStatus::Unpublished),
+            content_type: unsafe { nullable_c_str(m.content_type) },
+            fallback: unsafe { nullable_c_str(m.fallback_text) },
+            expires_at_ns: m.expires_at_ns,
+            num_reactions: m.num_reactions,
+            num_replies: m.num_replies,
         });
     }
     Ok(msgs)
 }
 
-/// Read all members from an FFI group member list. The list must be freed by the caller.
+/// Read all members from an FFI group member list. Caller must free the list.
 fn read_member_list(list: *const xmtp_sys::XmtpFfiGroupMemberList) -> Result<Vec<GroupMember>> {
     let len = unsafe { xmtp_sys::xmtp_group_member_list_len(list) };
     let mut members = Vec::with_capacity(len.max(0) as usize);
@@ -530,4 +633,162 @@ fn read_member_list(list: *const xmtp_sys::XmtpFfiGroupMemberList) -> Result<Vec
         });
     }
     Ok(members)
+}
+
+/// Read a conversation list into a `Vec<Conversation>`. Handles null.
+pub(crate) fn read_conversation_list_inner(
+    list: *mut xmtp_sys::XmtpFfiConversationList,
+) -> Result<Vec<Conversation>> {
+    if list.is_null() {
+        return Ok(vec![]);
+    }
+    let len = unsafe { xmtp_sys::xmtp_conversation_list_len(list) };
+    let mut convs = Vec::with_capacity(len.max(0) as usize);
+    for i in 0..len {
+        let mut conv: *mut xmtp_sys::XmtpFfiConversation = ptr::null_mut();
+        let rc = unsafe { xmtp_sys::xmtp_conversation_list_get(list, i, &mut conv) };
+        if rc == 0 && !conv.is_null() {
+            convs.push(Conversation::from_raw(conv)?);
+        }
+    }
+    unsafe { xmtp_sys::xmtp_conversation_list_free(list) };
+    Ok(convs)
+}
+
+/// Read permissions from an FFI struct.
+fn read_permissions(p: &xmtp_sys::XmtpFfiGroupPermissions) -> Result<Permissions> {
+    let ps = &p.policy_set;
+    let policy = |v: xmtp_sys::XmtpFfiPermissionPolicy| -> PermissionPolicy {
+        PermissionPolicy::from_ffi(v as i32).unwrap_or(PermissionPolicy::Deny)
+    };
+    Ok(Permissions {
+        preset: GroupPermissionsPreset::from_ffi(p.policy_type as i32)
+            .unwrap_or(GroupPermissionsPreset::Custom),
+        policies: PermissionPolicySet {
+            add_member: policy(ps.add_member_policy),
+            remove_member: policy(ps.remove_member_policy),
+            add_admin: policy(ps.add_admin_policy),
+            remove_admin: policy(ps.remove_admin_policy),
+            update_group_name: policy(ps.update_group_name_policy),
+            update_group_description: policy(ps.update_group_description_policy),
+            update_group_image_url: policy(ps.update_group_image_url_square_policy),
+            update_message_disappearing: policy(ps.update_message_disappearing_policy),
+            update_app_data: policy(ps.update_app_data_policy),
+        },
+    })
+}
+
+/// Read debug info from an FFI struct.
+fn read_debug_info(d: &xmtp_sys::XmtpFfiConversationDebugInfo) -> Result<ConversationDebugInfo> {
+    let cursors = if d.cursors.is_null() || d.cursors_count <= 0 {
+        vec![]
+    } else {
+        let slice = unsafe { std::slice::from_raw_parts(d.cursors, d.cursors_count as usize) };
+        slice
+            .iter()
+            .map(|c| Cursor {
+                originator_id: c.originator_id,
+                sequence_id: c.sequence_id,
+            })
+            .collect()
+    };
+    Ok(ConversationDebugInfo {
+        epoch: d.epoch,
+        maybe_forked: d.maybe_forked != 0,
+        fork_details: unsafe { nullable_c_str(d.fork_details) },
+        is_commit_log_forked: match d.is_commit_log_forked {
+            0 => Some(false),
+            1 => Some(true),
+            _ => None,
+        },
+        local_commit_log: unsafe { nullable_c_str(d.local_commit_log) },
+        remote_commit_log: unsafe { nullable_c_str(d.remote_commit_log) },
+        cursors,
+    })
+}
+
+/// Read last-read timestamps from an FFI list. Caller must free the list.
+fn read_last_read_times(
+    list: *const xmtp_sys::XmtpFfiLastReadTimeList,
+) -> Result<Vec<LastReadTime>> {
+    let len = unsafe { xmtp_sys::xmtp_last_read_time_list_len(list) };
+    let mut result = Vec::with_capacity(len.max(0) as usize);
+    for i in 0..len {
+        let ptr = unsafe { xmtp_sys::xmtp_last_read_time_list_get(list, i) };
+        if ptr.is_null() {
+            continue;
+        }
+        let entry = unsafe { &*ptr };
+        result.push(LastReadTime {
+            inbox_id: unsafe { c_str_to_string(entry.inbox_id) },
+            timestamp_ns: entry.timestamp_ns,
+        });
+    }
+    Ok(result)
+}
+
+/// Read HMAC key map from an FFI handle. Caller must free the map.
+pub(crate) fn read_hmac_key_map(map: *const xmtp_sys::XmtpFfiHmacKeyMap) -> Vec<HmacKeyEntry> {
+    let len = unsafe { xmtp_sys::xmtp_hmac_key_map_len(map) };
+    let mut entries = Vec::with_capacity(len.max(0) as usize);
+    for i in 0..len {
+        let gid_ptr = unsafe { xmtp_sys::xmtp_hmac_key_map_group_id(map, i) };
+        let group_id = if gid_ptr.is_null() {
+            String::new()
+        } else {
+            unsafe { CStr::from_ptr(gid_ptr) }
+                .to_str()
+                .unwrap_or_default()
+                .to_owned()
+        };
+        let mut key_count = 0i32;
+        let keys_ptr = unsafe { xmtp_sys::xmtp_hmac_key_map_keys(map, i, &mut key_count) };
+        let keys = if keys_ptr.is_null() || key_count <= 0 {
+            vec![]
+        } else {
+            let slice = unsafe { std::slice::from_raw_parts(keys_ptr, key_count as usize) };
+            slice
+                .iter()
+                .map(|k| {
+                    let key = if k.key.is_null() || k.key_len <= 0 {
+                        vec![]
+                    } else {
+                        unsafe { std::slice::from_raw_parts(k.key, k.key_len as usize) }.to_vec()
+                    };
+                    HmacKey {
+                        key,
+                        epoch: k.epoch,
+                    }
+                })
+                .collect()
+        };
+        entries.push(HmacKeyEntry { group_id, keys });
+    }
+    entries
+}
+
+/// Read a borrowed (non-owned) C string pointer. Returns empty string if null.
+unsafe fn c_str_to_string(ptr: *mut c_char) -> String {
+    if ptr.is_null() {
+        String::new()
+    } else {
+        unsafe { CStr::from_ptr(ptr) }
+            .to_str()
+            .unwrap_or_default()
+            .to_owned()
+    }
+}
+
+/// Read a nullable borrowed C string pointer. Returns `None` if null.
+unsafe fn nullable_c_str(ptr: *mut c_char) -> Option<String> {
+    if ptr.is_null() {
+        None
+    } else {
+        Some(
+            unsafe { CStr::from_ptr(ptr) }
+                .to_str()
+                .unwrap_or_default()
+                .to_owned(),
+        )
+    }
 }

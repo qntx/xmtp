@@ -1,9 +1,12 @@
 #![allow(unsafe_code)]
-//! Conversation creation, listing, and synchronization.
+//! Conversation creation, listing, synchronization, and message lookup.
 
 use std::ptr;
 
-use crate::conversation::Conversation;
+use crate::conversation::{
+    Conversation, Message, read_conversation_list_inner, read_enriched_message_list,
+    read_hmac_key_map,
+};
 use crate::error::{self, Result};
 use crate::ffi::{
     c_str_ptr, identifiers_to_ffi, optional_c_string, to_c_string, to_c_string_array,
@@ -13,13 +16,8 @@ use crate::types::*;
 use super::Client;
 
 impl Client {
-    /// Create a group conversation with default options.
-    pub fn create_group(&self, member_inbox_ids: &[&str]) -> Result<Conversation> {
-        self.create_group_with_options(member_inbox_ids, &CreateGroupOptions::default())
-    }
-
-    /// Create a group conversation with custom options.
-    pub fn create_group_with_options(
+    /// Create a group conversation.
+    pub fn create_group(
         &self,
         member_inbox_ids: &[&str],
         options: &CreateGroupOptions,
@@ -88,15 +86,26 @@ impl Client {
 
     /// Find or create a DM by address and identifier kind.
     pub fn create_dm(&self, address: &str, kind: IdentifierKind) -> Result<Conversation> {
+        self.create_dm_with(address, kind, &CreateDmOptions::default())
+    }
+
+    /// Find or create a DM with options (e.g. disappearing messages).
+    pub fn create_dm_with(
+        &self,
+        address: &str,
+        kind: IdentifierKind,
+        opts: &CreateDmOptions,
+    ) -> Result<Conversation> {
         let c = to_c_string(address)?;
+        let ds = opts.disappearing.unwrap_or_default();
         let mut out: *mut xmtp_sys::XmtpFfiConversation = ptr::null_mut();
         let rc = unsafe {
             xmtp_sys::xmtp_client_create_dm(
                 self.handle.as_ptr(),
                 c.as_ptr(),
                 kind as i32,
-                0,
-                0,
+                ds.from_ns,
+                ds.in_ns,
                 &mut out,
             )
         };
@@ -105,13 +114,18 @@ impl Client {
     }
 
     /// Find or create a DM by inbox ID.
-    pub fn create_dm_by_inbox_id(
+    pub fn create_dm_by_inbox_id(&self, inbox_id: &str) -> Result<Conversation> {
+        self.create_dm_by_inbox_id_with(inbox_id, &CreateDmOptions::default())
+    }
+
+    /// Find or create a DM by inbox ID with options.
+    pub fn create_dm_by_inbox_id_with(
         &self,
         inbox_id: &str,
-        disappearing: Option<DisappearingSettings>,
+        opts: &CreateDmOptions,
     ) -> Result<Conversation> {
         let c = to_c_string(inbox_id)?;
-        let ds = disappearing.unwrap_or_default();
+        let ds = opts.disappearing.unwrap_or_default();
         let mut out: *mut xmtp_sys::XmtpFfiConversation = ptr::null_mut();
         let rc = unsafe {
             xmtp_sys::xmtp_client_create_dm_by_inbox_id(
@@ -156,13 +170,13 @@ impl Client {
         }
     }
 
-    /// List conversations with default options (all types).
+    /// List all conversations with default options.
     pub fn conversations(&self) -> Result<Vec<Conversation>> {
-        self.conversations_with(&ListConversationsOptions::default())
+        self.list_conversations(&ListConversationsOptions::default())
     }
 
     /// List conversations with filtering options.
-    pub fn conversations_with(
+    pub fn list_conversations(
         &self,
         options: &ListConversationsOptions,
     ) -> Result<Vec<Conversation>> {
@@ -185,11 +199,7 @@ impl Client {
             xmtp_sys::xmtp_client_list_conversations(self.handle.as_ptr(), &ffi_opts, &mut list)
         };
         error::check(rc)?;
-        let result = read_conversation_list(list);
-        if !list.is_null() {
-            unsafe { xmtp_sys::xmtp_conversation_list_free(list) };
-        }
-        result
+        read_conversation_list_inner(list)
     }
 
     /// Sync welcomes (process new group invitations).
@@ -197,13 +207,8 @@ impl Client {
         error::check(unsafe { xmtp_sys::xmtp_client_sync_welcomes(self.handle.as_ptr()) })
     }
 
-    /// Sync all conversations. Returns `(synced, eligible)` counts.
-    pub fn sync_all(&self) -> Result<(i32, i32)> {
-        self.sync_all_with(&[])
-    }
-
-    /// Sync all conversations filtered by consent states.
-    pub fn sync_all_with(&self, consent_states: &[ConsentState]) -> Result<(i32, i32)> {
+    /// Sync all conversations, optionally filtered by consent states.
+    pub fn sync_all(&self, consent_states: &[ConsentState]) -> Result<SyncResult> {
         let cs: Vec<i32> = consent_states.iter().map(|s| *s as i32).collect();
         let (mut synced, mut eligible) = (0i32, 0i32);
         let rc = unsafe {
@@ -220,11 +225,14 @@ impl Client {
             )
         };
         error::check(rc)?;
-        Ok((synced, eligible))
+        Ok(SyncResult {
+            synced: synced as u32,
+            eligible: eligible as u32,
+        })
     }
 
     /// Delete a message by its hex ID. Returns the number of deleted rows.
-    pub fn delete_message_by_id(&self, message_id_hex: &str) -> Result<i32> {
+    pub fn delete_message(&self, message_id_hex: &str) -> Result<i32> {
         let c = to_c_string(message_id_hex)?;
         let rows =
             unsafe { xmtp_sys::xmtp_client_delete_message_by_id(self.handle.as_ptr(), c.as_ptr()) };
@@ -233,6 +241,52 @@ impl Client {
         } else {
             Ok(rows)
         }
+    }
+
+    /// Get a message by its hex-encoded ID.
+    pub fn message_by_id(&self, message_id_hex: &str) -> Result<Option<Message>> {
+        let c = to_c_string(message_id_hex)?;
+        let mut out: *mut xmtp_sys::XmtpFfiEnrichedMessageList = ptr::null_mut();
+        let rc = unsafe {
+            xmtp_sys::xmtp_client_get_enriched_message_by_id(
+                self.handle.as_ptr(),
+                c.as_ptr(),
+                &mut out,
+            )
+        };
+        error::check(rc)?;
+        if out.is_null() {
+            return Ok(None);
+        }
+        let msgs = read_enriched_message_list(out)?;
+        unsafe { xmtp_sys::xmtp_enriched_message_list_free(out) };
+        Ok(msgs.into_iter().next())
+    }
+
+    /// Sync preferences (device sync groups only).
+    pub fn sync_preferences(&self) -> Result<SyncResult> {
+        let (mut synced, mut eligible) = (0i32, 0i32);
+        let rc = unsafe {
+            xmtp_sys::xmtp_client_sync_preferences(self.handle.as_ptr(), &mut synced, &mut eligible)
+        };
+        error::check(rc)?;
+        Ok(SyncResult {
+            synced: synced as u32,
+            eligible: eligible as u32,
+        })
+    }
+
+    /// Get HMAC keys for all conversations. For push notification verification.
+    pub fn hmac_keys(&self) -> Result<Vec<HmacKeyEntry>> {
+        let mut map: *mut xmtp_sys::XmtpFfiHmacKeyMap = ptr::null_mut();
+        let rc = unsafe { xmtp_sys::xmtp_client_hmac_keys(self.handle.as_ptr(), &mut map) };
+        error::check(rc)?;
+        if map.is_null() {
+            return Ok(vec![]);
+        }
+        let result = read_hmac_key_map(map);
+        unsafe { xmtp_sys::xmtp_hmac_key_map_free(map) };
+        Ok(result)
     }
 }
 
@@ -257,23 +311,4 @@ fn with_group_ffi_opts<R>(
         message_disappear_in_ns: ds.in_ns,
     };
     f(&ffi)
-}
-
-/// Read an FFI conversation list into `Vec<Conversation>`. Does NOT free the list.
-fn read_conversation_list(
-    list: *mut xmtp_sys::XmtpFfiConversationList,
-) -> Result<Vec<Conversation>> {
-    if list.is_null() {
-        return Ok(vec![]);
-    }
-    let len = unsafe { xmtp_sys::xmtp_conversation_list_len(list) };
-    let mut convs = Vec::with_capacity(len.max(0) as usize);
-    for i in 0..len {
-        let mut conv: *mut xmtp_sys::XmtpFfiConversation = ptr::null_mut();
-        let rc = unsafe { xmtp_sys::xmtp_conversation_list_get(list, i, &mut conv) };
-        if rc == 0 && !conv.is_null() {
-            convs.push(Conversation::from_raw(conv)?);
-        }
-    }
-    Ok(convs)
 }

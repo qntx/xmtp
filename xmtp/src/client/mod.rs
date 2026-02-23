@@ -104,7 +104,7 @@ impl Client {
     }
 
     /// Release the database connection pool (for background/suspend).
-    pub fn release_db_connection(&self) -> Result<()> {
+    pub fn release_db(&self) -> Result<()> {
         error::check(unsafe { xmtp_sys::xmtp_client_release_db_connection(self.handle.as_ptr()) })
     }
 
@@ -134,11 +134,7 @@ impl Client {
     }
 
     /// Look up an inbox ID by identifier using this client's connection.
-    pub fn get_inbox_id_by_identifier(
-        &self,
-        address: &str,
-        kind: IdentifierKind,
-    ) -> Result<Option<String>> {
+    pub fn inbox_id_for(&self, address: &str, kind: IdentifierKind) -> Result<Option<String>> {
         let c = to_c_string(address)?;
         let mut out: *mut c_char = ptr::null_mut();
         let rc = unsafe {
@@ -185,7 +181,7 @@ impl Client {
     }
 
     /// Fetch inbox states for multiple inbox IDs.
-    pub fn fetch_inbox_states(&self, inbox_ids: &[&str], refresh: bool) -> Result<Vec<InboxState>> {
+    pub fn inbox_states(&self, inbox_ids: &[&str], refresh: bool) -> Result<Vec<InboxState>> {
         let c_ids: Vec<_> = inbox_ids
             .iter()
             .map(|s| to_c_string(s))
@@ -232,11 +228,7 @@ impl Client {
     }
 
     /// Verify a signature produced by [`sign_with_installation_key`](Self::sign_with_installation_key).
-    pub fn verify_signed_with_installation_key(
-        &self,
-        text: &str,
-        signature: &[u8],
-    ) -> Result<bool> {
+    pub fn verify_installation_signature(&self, text: &str, signature: &[u8]) -> Result<bool> {
         let c = to_c_string(text)?;
         let rc = unsafe {
             xmtp_sys::xmtp_client_verify_signed_with_installation_key(
@@ -250,10 +242,7 @@ impl Client {
     }
 
     /// Set consent states for multiple entities.
-    pub fn set_consent_states(
-        &self,
-        entries: &[(ConsentEntityType, ConsentState, &str)],
-    ) -> Result<()> {
+    pub fn set_consent(&self, entries: &[(ConsentEntityType, ConsentState, &str)]) -> Result<()> {
         if entries.is_empty() {
             return Ok(());
         }
@@ -276,7 +265,7 @@ impl Client {
     }
 
     /// Get consent state for a single entity.
-    pub fn get_consent_state(
+    pub fn consent_state(
         &self,
         entity_type: ConsentEntityType,
         entity: &str,
@@ -294,6 +283,84 @@ impl Client {
         error::check(rc)?;
         ConsentState::from_ffi(out)
             .ok_or_else(|| crate::Error::Ffi(format!("unknown consent state: {out}")))
+    }
+
+    /// Get MLS API call statistics.
+    pub fn mls_stats(&self) -> Result<ApiStats> {
+        let mut out = xmtp_sys::XmtpFfiApiStats::default();
+        error::check(unsafe {
+            xmtp_sys::xmtp_client_api_statistics(self.handle.as_ptr(), &mut out)
+        })?;
+        Ok(ApiStats {
+            upload_key_package: out.upload_key_package,
+            fetch_key_package: out.fetch_key_package,
+            send_group_messages: out.send_group_messages,
+            send_welcome_messages: out.send_welcome_messages,
+            query_group_messages: out.query_group_messages,
+            query_welcome_messages: out.query_welcome_messages,
+            subscribe_messages: out.subscribe_messages,
+            subscribe_welcomes: out.subscribe_welcomes,
+            publish_commit_log: out.publish_commit_log,
+            query_commit_log: out.query_commit_log,
+            get_newest_group_message: out.get_newest_group_message,
+        })
+    }
+
+    /// Get identity API call statistics.
+    pub fn identity_stats(&self) -> Result<IdentityStats> {
+        let mut out = xmtp_sys::XmtpFfiIdentityStats::default();
+        error::check(unsafe {
+            xmtp_sys::xmtp_client_api_identity_statistics(self.handle.as_ptr(), &mut out)
+        })?;
+        Ok(IdentityStats {
+            publish_identity_update: out.publish_identity_update,
+            get_identity_updates_v2: out.get_identity_updates_v2,
+            get_inbox_ids: out.get_inbox_ids,
+            verify_smart_contract_wallet_signature: out.verify_smart_contract_wallet_signature,
+        })
+    }
+
+    /// Get aggregate statistics as a human-readable debug string.
+    pub fn aggregate_stats(&self) -> Result<String> {
+        unsafe {
+            take_c_string(xmtp_sys::xmtp_client_api_aggregate_statistics(
+                self.handle.as_ptr(),
+            ))
+        }
+    }
+
+    /// Clear all API call statistics.
+    pub fn clear_stats(&self) -> Result<()> {
+        error::check(unsafe { xmtp_sys::xmtp_client_clear_all_statistics(self.handle.as_ptr()) })
+    }
+
+    /// Fetch key package statuses for a list of installation IDs (hex).
+    pub fn key_package_statuses(&self, installation_ids: &[&str]) -> Result<Vec<KeyPackageStatus>> {
+        let (_owned, ptrs) = crate::ffi::to_c_string_array(installation_ids)?;
+        let mut out: *mut xmtp_sys::XmtpFfiKeyPackageStatusList = ptr::null_mut();
+        let rc = unsafe {
+            xmtp_sys::xmtp_client_fetch_key_package_statuses(
+                self.handle.as_ptr(),
+                ptrs.as_ptr(),
+                ptrs.len() as i32,
+                &mut out,
+            )
+        };
+        error::check(rc)?;
+        if out.is_null() {
+            return Ok(vec![]);
+        }
+        let result = read_key_package_status_list(out);
+        unsafe { xmtp_sys::xmtp_key_package_status_list_free(out) };
+        result
+    }
+
+    /// Send a device sync request to retrieve records from another installation.
+    pub fn request_device_sync(&self) -> Result<()> {
+        let opts = xmtp_sys::XmtpFfiArchiveOptions::default();
+        error::check(unsafe {
+            xmtp_sys::xmtp_device_sync_send_request(self.handle.as_ptr(), &opts, ptr::null())
+        })
     }
 }
 
@@ -414,19 +481,6 @@ impl ClientBuilder {
     }
 }
 
-/// Snapshot of an inbox's identity state.
-#[derive(Debug, Clone)]
-pub struct InboxState {
-    /// The inbox ID.
-    pub inbox_id: String,
-    /// Recovery identifier.
-    pub recovery_identifier: String,
-    /// Associated account identifiers.
-    pub identifiers: Vec<String>,
-    /// Installation IDs (hex).
-    pub installation_ids: Vec<String>,
-}
-
 /// Sign a signature request using the given signer.
 pub(crate) fn sign_request(
     sig_req: &OwnedHandle<xmtp_sys::XmtpFfiSignatureRequest>,
@@ -484,6 +538,100 @@ fn register_identity(client: &Client, signer: &dyn Signer) -> Result<()> {
     error::check(unsafe {
         xmtp_sys::xmtp_client_register_identity(client.handle.as_ptr(), sig_req.as_ptr())
     })
+}
+
+/// Verify a signature produced by `sign_with_installation_key` using a public key.
+/// No client handle required.
+pub fn verify_signed_with_public_key(
+    text: &str,
+    signature: &[u8],
+    public_key: &[u8],
+) -> Result<bool> {
+    let c = to_c_string(text)?;
+    let rc = unsafe {
+        xmtp_sys::xmtp_verify_signed_with_public_key(
+            c.as_ptr(),
+            signature.as_ptr(),
+            signature.len() as i32,
+            public_key.as_ptr(),
+            public_key.len() as i32,
+        )
+    };
+    Ok(rc == 0)
+}
+
+/// Check whether an Ethereum address belongs to an inbox. No client required.
+pub fn is_address_authorized(env: Env, inbox_id: &str, address: &str) -> Result<bool> {
+    let c_url = to_c_string(env.url())?;
+    let c_inbox = to_c_string(inbox_id)?;
+    let c_addr = to_c_string(address)?;
+    let mut out = 0i32;
+    let rc = unsafe {
+        xmtp_sys::xmtp_is_address_authorized(
+            c_url.as_ptr(),
+            i32::from(env.is_secure()),
+            c_inbox.as_ptr(),
+            c_addr.as_ptr(),
+            &mut out,
+        )
+    };
+    error::check(rc)?;
+    Ok(out == 1)
+}
+
+/// Check whether an installation (public key bytes) belongs to an inbox. No client required.
+pub fn is_installation_authorized(
+    env: Env,
+    inbox_id: &str,
+    installation_id: &[u8],
+) -> Result<bool> {
+    let c_url = to_c_string(env.url())?;
+    let c_inbox = to_c_string(inbox_id)?;
+    let mut out = 0i32;
+    let rc = unsafe {
+        xmtp_sys::xmtp_is_installation_authorized(
+            c_url.as_ptr(),
+            i32::from(env.is_secure()),
+            c_inbox.as_ptr(),
+            installation_id.as_ptr(),
+            installation_id.len() as i32,
+            &mut out,
+        )
+    };
+    error::check(rc)?;
+    Ok(out == 1)
+}
+
+/// Read an FFI key package status list. Does NOT free the list.
+fn read_key_package_status_list(
+    list: *const xmtp_sys::XmtpFfiKeyPackageStatusList,
+) -> Result<Vec<KeyPackageStatus>> {
+    if list.is_null() {
+        return Ok(vec![]);
+    }
+    let len = unsafe { xmtp_sys::xmtp_key_package_status_list_len(list) };
+    let mut statuses = Vec::with_capacity(len.max(0) as usize);
+    for i in 0..len {
+        let ptr = unsafe { xmtp_sys::xmtp_key_package_status_list_get(list, i) };
+        if ptr.is_null() {
+            continue;
+        }
+        let s = unsafe { &*ptr };
+        let installation_id = unsafe { take_c_string(s.installation_id) }.unwrap_or_default();
+        let validation_error = if s.validation_error.is_null() {
+            None
+        } else {
+            unsafe { take_c_string(s.validation_error) }.ok()
+        };
+        statuses.push(KeyPackageStatus {
+            installation_id,
+            valid: s.valid == 1,
+            not_before: s.not_before,
+            not_after: s.not_after,
+            validation_error,
+        });
+    }
+    Ok(statuses)
 }
 
 /// Read an FFI inbox state list into `Vec<InboxState>`. Does NOT free the list.
