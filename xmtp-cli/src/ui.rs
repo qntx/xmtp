@@ -39,7 +39,7 @@ const BORDER_FOCUS: Color = Color::Rgb(140, 130, 170);
 const BORDER_DIM: Color = Color::Rgb(60, 60, 70);
 
 /// Render the full application UI.
-pub fn render(app: &App, frame: &mut Frame<'_>) {
+pub fn render(app: &mut App, frame: &mut Frame<'_>) {
     let area = frame.area();
     let rows = Layout::default()
         .direction(Direction::Vertical)
@@ -79,7 +79,7 @@ fn draw_header(app: &App, frame: &mut Frame<'_>, area: Rect) {
     frame.render_widget(Paragraph::new(Line::from(spans)), area);
 }
 
-fn draw_body(app: &App, frame: &mut Frame<'_>, area: Rect) {
+fn draw_body(app: &mut App, frame: &mut Frame<'_>, area: Rect) {
     let sidebar_w = (area.width * 3 / 10).clamp(24, 38);
     let cols = Layout::default()
         .direction(Direction::Horizontal)
@@ -180,7 +180,7 @@ fn tab_span(label: &str, active: bool) -> Span<'_> {
     }
 }
 
-fn draw_chat(app: &App, frame: &mut Frame<'_>, area: Rect) {
+fn draw_chat(app: &mut App, frame: &mut Frame<'_>, area: Rect) {
     let block = Block::default()
         .borders(Borders::LEFT | Borders::TOP | Borders::RIGHT)
         .border_style(Style::default().fg(BORDER_DIM));
@@ -283,7 +283,9 @@ fn draw_chat(app: &App, frame: &mut Frame<'_>, area: Rect) {
     let view_h = inner.height as usize;
     let total = lines.len();
     let max_offset = total.saturating_sub(view_h);
-    let offset = app.scroll.min(max_offset);
+    // Clamp stored scroll so reverse scrolling works immediately.
+    app.scroll = app.scroll.min(max_offset);
+    let offset = app.scroll;
     let start = total.saturating_sub(view_h + offset);
     let end = total.saturating_sub(offset);
     let visible: Vec<Line<'_>> = lines.into_iter().skip(start).take(end - start).collect();

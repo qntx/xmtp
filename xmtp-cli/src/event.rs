@@ -77,8 +77,8 @@ pub enum Cmd {
     Send(String),
     /// Create DM with a wallet address.
     CreateDm(String),
-    /// Create group with comma-separated wallet addresses.
-    CreateGroup(String),
+    /// Create group: optional name and comma-separated wallet addresses.
+    CreateGroup { name: Option<String>, addrs: String },
     /// Accept a message request by conversation ID.
     Accept(String),
     /// Reject a message request by conversation ID.

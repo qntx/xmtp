@@ -80,7 +80,7 @@ fn run() -> xmtp::Result<()> {
 
     while !app.quit {
         terminal
-            .draw(|f| ui::render(&app, f))
+            .draw(|f| ui::render(&mut app, f))
             .map_err(|e| xmtp::Error::Ffi(format!("render: {e}")))?;
 
         match event_rx.recv() {
@@ -190,7 +190,7 @@ fn worker(client: Client, inbox_id: String, rx: mpsc::Receiver<Cmd>, tx: Tx) {
                 }
             }
 
-            Cmd::CreateGroup(raw) => {
+            Cmd::CreateGroup { name, addrs: raw } => {
                 let addrs: Vec<AccountIdentifier> = raw
                     .split(',')
                     .map(|s| AccountIdentifier {
@@ -222,7 +222,16 @@ fn worker(client: Client, inbox_id: String, rx: mpsc::Receiver<Cmd>, tx: Tx) {
                         continue;
                     }
                 }
-                match client.create_group_by_identifiers(&addrs, &CreateGroupOptions::default()) {
+                // Auto-generate name from member addresses if not provided.
+                let group_name = name.or_else(|| {
+                    let names: Vec<_> = addrs.iter().map(|a| truncate_id(&a.address, 10)).collect();
+                    Some(names.join(", "))
+                });
+                let opts = CreateGroupOptions {
+                    name: group_name,
+                    ..Default::default()
+                };
+                match client.create_group_by_identifiers(&addrs, &opts) {
                     Ok(conv) => {
                         let cid = conv.id().unwrap_or_default();
                         let _ = conv.set_consent(ConsentState::Allowed);

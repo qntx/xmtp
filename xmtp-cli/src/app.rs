@@ -39,7 +39,7 @@ const HINT_SIDEBAR: &str =
     " Tab:input  j/k:nav  1/2:tab  Enter:open  n:DM  g:group  r:sync  ?:help  q:quit";
 const HINT_INPUT: &str = " Enter:send  Esc:sidebar  PgUp/Dn:scroll  m:members";
 const HINT_NEW_DM: &str = " Enter wallet address (0x…)  Enter:create  Esc:cancel";
-const HINT_NEW_GROUP: &str = " Addresses comma-separated (0x…,0x…)  Enter:create  Esc:cancel";
+const HINT_NEW_GROUP: &str = " [name:]addr1,addr2  (name optional)  Enter:create  Esc:cancel";
 const HINT_REQUESTS: &str = " j/k:nav  a:accept  x:reject  Enter:preview  1/2:tab  q:quit";
 const HINT_MEMBERS: &str = " Esc:close";
 const FLASH_TTL: u16 = 60;
@@ -234,6 +234,9 @@ impl App {
                 if self.active_id.is_some() {
                     self.focus = Focus::Input;
                     self.set_default_status();
+                } else if !self.sidebar().is_empty() {
+                    // First launch: open the selected (first) conversation.
+                    self.open_selected();
                 }
             }
             KeyCode::Char('a') if self.tab == Tab::Requests => {
@@ -302,7 +305,25 @@ impl App {
                 if !text.is_empty() {
                     let c = match self.mode {
                         Mode::NewDm => Cmd::CreateDm(text),
-                        Mode::NewGroup => Cmd::CreateGroup(text),
+                        Mode::NewGroup => {
+                            // Parse optional "name:addr1,addr2" format.
+                            if let Some((name, addrs)) = text.split_once(':') {
+                                let n = name.trim();
+                                Cmd::CreateGroup {
+                                    name: if n.is_empty() {
+                                        None
+                                    } else {
+                                        Some(n.to_owned())
+                                    },
+                                    addrs: addrs.to_owned(),
+                                }
+                            } else {
+                                Cmd::CreateGroup {
+                                    name: None,
+                                    addrs: text,
+                                }
+                            }
+                        }
                         _ => unreachable!(),
                     };
                     self.cmd(c);
@@ -481,7 +502,7 @@ pub fn decode_body(msg: &Message) -> String {
 pub const fn delivery_icon(status: DeliveryStatus) -> &'static str {
     match status {
         DeliveryStatus::Published => "✓",
-        DeliveryStatus::Unpublished => "⏳",
+        DeliveryStatus::Unpublished => "○",
         DeliveryStatus::Failed => "✗",
     }
 }
