@@ -27,31 +27,26 @@ pub enum Focus {
     Input,
 }
 
-/// Interaction mode overlay.
+/// Text-input prompt variant.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Prompt {
+    Dm,
+    GroupName,
+    GroupMembers,
+    AddMember,
+    Edit(GroupField),
+}
+
+/// Interaction mode.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Mode {
     Normal,
-    NewDm,
-    NewGroupName,
-    NewGroupMembers,
+    Prompt(Prompt),
     Members,
-    AddMember,
-    GroupEdit(GroupField),
     Permissions,
     Help,
 }
 
-const HINT_SIDEBAR: &str =
-    " ↑↓:nav  ←→:tab  n:DM  N:group  r:sync  x:hide  m:members  ?:help  q:quit";
-const HINT_INPUT: &str = " Enter:send  Esc:sidebar  ↑/↓:scroll  Tab:members";
-const HINT_NEW_DM: &str = " Address (0x…) / ENS (name.eth) / Inbox ID  Enter:create  Esc:cancel";
-const HINT_GROUP_NAME: &str = " Group name (optional)  Enter:next step  Esc:cancel";
-const HINT_REQUESTS: &str = " ↑↓:nav  a:accept  x:reject  Enter:open  ←→:tab  ?:help  q:quit";
-const HINT_HIDDEN: &str = " ↑↓:nav  ←→:tab  a:allow  u:undo  r:sync  ?:help  q:quit";
-const HINT_MEMBERS: &str = " ↑↓:nav  a:add  x:kick  p:admin  r:name  e:desc  P:perms  Esc:close";
-const HINT_ADD_MEMBER: &str = " Address (0x…) / ENS / Inbox ID  Enter:add  Esc:cancel";
-const HINT_GROUP_EDIT: &str = " Enter:save  Esc:cancel";
-const HINT_PERMISSIONS: &str = " ↑↓:nav  Enter:cycle  Esc:back";
 const FLASH_TTL: u16 = 60;
 
 /// Central application state. Holds **no FFI handles**.
@@ -199,7 +194,7 @@ impl App {
                 self.tab = Tab::Inbox;
                 self.focus = Focus::Input;
                 self.scroll = 0;
-                self.set_default_status();
+                self.refresh_hint();
             }
             Event::Flash(msg) => self.flash(&msg),
             Event::Key(_) | Event::Resize | Event::Tick => {}
@@ -210,7 +205,7 @@ impl App {
         if self.status_ttl > 0 {
             self.status_ttl -= 1;
             if self.status_ttl == 0 {
-                self.set_default_status();
+                self.refresh_hint();
             }
         }
     }
@@ -228,16 +223,12 @@ impl App {
                     KeyCode::Esc | KeyCode::Char('q' | '?') | KeyCode::Enter
                 ) {
                     self.mode = Mode::Normal;
-                    self.set_default_status();
+                    self.refresh_hint();
                 }
             }
+            Mode::Prompt(_) => self.key_prompt(key),
             Mode::Members => self.key_members(key),
-            Mode::AddMember => self.key_add_member(key),
-            Mode::GroupEdit(_) => self.key_group_edit(key),
             Mode::Permissions => self.key_permissions(key),
-            Mode::NewDm => self.key_overlay(key),
-            Mode::NewGroupName => self.key_group_name(key),
-            Mode::NewGroupMembers => self.key_group_members(key),
             Mode::Normal => match self.focus {
                 Focus::Sidebar => self.key_sidebar(key),
                 Focus::Input => self.key_input(key),
@@ -272,7 +263,7 @@ impl App {
             KeyCode::Enter | KeyCode::Tab => {
                 if self.active_id.is_some() {
                     self.focus = Focus::Input;
-                    self.set_default_status();
+                    self.refresh_hint();
                 } else if !self.sidebar().is_empty() {
                     self.open_selected();
                 }
@@ -310,19 +301,11 @@ impl App {
                     });
                 }
             }
-            KeyCode::Char('n') => {
-                self.mode = Mode::NewDm;
-                self.input.clear();
-                self.cursor = 0;
-                self.status = HINT_NEW_DM.into();
-            }
+            KeyCode::Char('n') => self.open_prompt(Prompt::Dm),
             KeyCode::Char('N') => {
-                self.mode = Mode::NewGroupName;
                 self.group_name = None;
                 self.group_members.clear();
-                self.input.clear();
-                self.cursor = 0;
-                self.status = HINT_GROUP_NAME.into();
+                self.open_prompt(Prompt::GroupName);
             }
             KeyCode::Char('r') => {
                 self.cmd(Cmd::Sync);
@@ -331,7 +314,7 @@ impl App {
             KeyCode::Char('m') => {
                 if self.active_id.is_some() {
                     self.mode = Mode::Members;
-                    self.status = HINT_MEMBERS.into();
+                    self.refresh_hint();
                     self.cmd(Cmd::LoadMembers);
                 }
             }
@@ -343,12 +326,12 @@ impl App {
         match key.code {
             KeyCode::Esc => {
                 self.focus = Focus::Sidebar;
-                self.set_default_status();
+                self.refresh_hint();
             }
             KeyCode::Tab => {
                 if self.active_id.is_some() {
                     self.mode = Mode::Members;
-                    self.status = HINT_MEMBERS.into();
+                    self.refresh_hint();
                     self.cmd(Cmd::LoadMembers);
                 }
             }
@@ -366,70 +349,62 @@ impl App {
         }
     }
 
-    /// Overlay handler for `NewDm`.
-    fn key_overlay(&mut self, key: KeyEvent) {
+    /// Unified handler for all text-input prompts.
+    fn key_prompt(&mut self, key: KeyEvent) {
+        let Mode::Prompt(prompt) = self.mode else {
+            return;
+        };
         match key.code {
-            KeyCode::Esc => self.cancel_overlay(),
+            KeyCode::Esc => match prompt {
+                Prompt::GroupMembers if !self.group_members.is_empty() => {
+                    let addrs = std::mem::take(&mut self.group_members);
+                    let name = self.group_name.take();
+                    self.cmd(Cmd::CreateGroup { name, addrs });
+                    self.close_prompt();
+                }
+                Prompt::AddMember | Prompt::Edit(_) => self.back_to_members(),
+                _ => self.close_prompt(),
+            },
             KeyCode::Enter => {
                 let text = self.input.trim().to_owned();
-                if !text.is_empty() {
-                    self.cmd(Cmd::CreateDm(text));
+                match prompt {
+                    Prompt::Dm => {
+                        if !text.is_empty() {
+                            self.cmd(Cmd::CreateDm(text));
+                        }
+                        self.close_prompt();
+                    }
+                    Prompt::GroupName => {
+                        self.group_name = if text.is_empty() { None } else { Some(text) };
+                        self.input.clear();
+                        self.cursor = 0;
+                        self.mode = Mode::Prompt(Prompt::GroupMembers);
+                        self.refresh_hint();
+                    }
+                    Prompt::GroupMembers => {
+                        if !text.is_empty() && !self.group_members.contains(&text) {
+                            self.group_members.push(text);
+                        }
+                        self.input.clear();
+                        self.cursor = 0;
+                        self.refresh_hint();
+                    }
+                    Prompt::AddMember => {
+                        if !text.is_empty() {
+                            self.cmd(Cmd::AddMember(text));
+                        }
+                        self.back_to_members();
+                    }
+                    Prompt::Edit(field) => {
+                        if !text.is_empty() {
+                            self.cmd(Cmd::SetGroupMeta { field, value: text });
+                        }
+                        self.back_to_members();
+                    }
                 }
-                self.cancel_overlay();
             }
             _ => self.edit_input(key.code),
         }
-    }
-
-    /// Step 1: enter group name (optional).
-    fn key_group_name(&mut self, key: KeyEvent) {
-        match key.code {
-            KeyCode::Esc => self.cancel_overlay(),
-            KeyCode::Enter => {
-                let name = self.input.trim().to_owned();
-                self.group_name = if name.is_empty() { None } else { Some(name) };
-                self.input.clear();
-                self.cursor = 0;
-                self.mode = Mode::NewGroupMembers;
-                self.update_group_members_hint();
-            }
-            _ => self.edit_input(key.code),
-        }
-    }
-
-    /// Step 2: add members one by one; Esc finishes and creates the group.
-    fn key_group_members(&mut self, key: KeyEvent) {
-        match key.code {
-            KeyCode::Esc => {
-                if self.group_members.is_empty() {
-                    self.cancel_overlay();
-                    return;
-                }
-                let addrs = std::mem::take(&mut self.group_members);
-                let name = self.group_name.take();
-                self.cmd(Cmd::CreateGroup { name, addrs });
-                self.cancel_overlay();
-            }
-            KeyCode::Enter => {
-                let addr = self.input.trim().to_owned();
-                if !addr.is_empty() && !self.group_members.contains(&addr) {
-                    self.group_members.push(addr);
-                }
-                self.input.clear();
-                self.cursor = 0;
-                self.update_group_members_hint();
-            }
-            _ => self.edit_input(key.code),
-        }
-    }
-
-    /// Update status bar to show accumulated members.
-    fn update_group_members_hint(&mut self) {
-        let n = self.group_members.len();
-        self.status = format!(
-            " Address / ENS / Inbox ID  Esc:create group  ({n} member{})",
-            if n == 1 { "" } else { "s" }
-        );
     }
 
     /// Shared text editing (input bar + overlays). Eliminates duplication.
@@ -467,7 +442,7 @@ impl App {
                 self.mode = Mode::Normal;
                 self.members.clear();
                 self.member_idx = 0;
-                self.set_default_status();
+                self.refresh_hint();
             }
             KeyCode::Down | KeyCode::Char('j') => {
                 if !self.members.is_empty() {
@@ -480,12 +455,7 @@ impl App {
                     self.member_idx = self.member_idx.checked_sub(1).unwrap_or(len - 1);
                 }
             }
-            KeyCode::Char('a') => {
-                self.input.clear();
-                self.cursor = 0;
-                self.mode = Mode::AddMember;
-                self.status = HINT_ADD_MEMBER.into();
-            }
+            KeyCode::Char('a') => self.open_prompt(Prompt::AddMember),
             KeyCode::Char('x') => {
                 if let Some(m) = self.members.get(self.member_idx)
                     && m.inbox_id != self.inbox_id
@@ -503,44 +473,22 @@ impl App {
             KeyCode::Char('r') => {
                 self.input = self.active_label().unwrap_or_default().to_owned();
                 self.cursor = self.input.chars().count();
-                self.mode = Mode::GroupEdit(GroupField::Name);
-                self.status = HINT_GROUP_EDIT.into();
+                self.mode = Mode::Prompt(Prompt::Edit(GroupField::Name));
+                self.refresh_hint();
             }
             KeyCode::Char('e') => {
                 self.input.clone_from(&self.group_desc);
                 self.cursor = self.input.chars().count();
-                self.mode = Mode::GroupEdit(GroupField::Description);
-                self.status = HINT_GROUP_EDIT.into();
+                self.mode = Mode::Prompt(Prompt::Edit(GroupField::Description));
+                self.refresh_hint();
             }
             KeyCode::Char('P') => {
                 self.perm_idx = 0;
                 self.mode = Mode::Permissions;
-                self.status = HINT_PERMISSIONS.into();
+                self.refresh_hint();
                 self.cmd(Cmd::LoadPermissions);
             }
             _ => {}
-        }
-    }
-
-    fn key_add_member(&mut self, key: KeyEvent) {
-        match key.code {
-            KeyCode::Esc => {
-                self.input.clear();
-                self.cursor = 0;
-                self.mode = Mode::Members;
-                self.status = HINT_MEMBERS.into();
-            }
-            KeyCode::Enter => {
-                let addr = self.input.trim().to_owned();
-                if !addr.is_empty() {
-                    self.cmd(Cmd::AddMember(addr));
-                }
-                self.input.clear();
-                self.cursor = 0;
-                self.mode = Mode::Members;
-                self.status = HINT_MEMBERS.into();
-            }
-            _ => self.edit_input(key.code),
         }
     }
 
@@ -550,7 +498,7 @@ impl App {
                 self.mode = Mode::Members;
                 self.permissions.clear();
                 self.perm_idx = 0;
-                self.status = HINT_MEMBERS.into();
+                self.refresh_hint();
             }
             KeyCode::Down | KeyCode::Char('j') => {
                 if !self.permissions.is_empty() {
@@ -579,31 +527,6 @@ impl App {
         }
     }
 
-    fn key_group_edit(&mut self, key: KeyEvent) {
-        match key.code {
-            KeyCode::Esc => {
-                self.input.clear();
-                self.cursor = 0;
-                self.mode = Mode::Members;
-                self.status = HINT_MEMBERS.into();
-            }
-            KeyCode::Enter => {
-                let value = self.input.trim().to_owned();
-                if !value.is_empty() {
-                    let Mode::GroupEdit(field) = self.mode else {
-                        return;
-                    };
-                    self.cmd(Cmd::SetGroupMeta { field, value });
-                }
-                self.input.clear();
-                self.cursor = 0;
-                self.mode = Mode::Members;
-                self.status = HINT_MEMBERS.into();
-            }
-            _ => self.edit_input(key.code),
-        }
-    }
-
     /// Get the label of the currently active conversation.
     fn active_label(&self) -> Option<&str> {
         self.active_id.as_ref().and_then(|id| {
@@ -616,13 +539,30 @@ impl App {
         })
     }
 
-    fn cancel_overlay(&mut self) {
+    /// Close prompt and return to Normal mode.
+    fn close_prompt(&mut self) {
         self.mode = Mode::Normal;
         self.input.clear();
         self.cursor = 0;
         self.group_name = None;
         self.group_members.clear();
-        self.set_default_status();
+        self.refresh_hint();
+    }
+
+    /// Return from sub-prompt to Members overlay.
+    fn back_to_members(&mut self) {
+        self.input.clear();
+        self.cursor = 0;
+        self.mode = Mode::Members;
+        self.refresh_hint();
+    }
+
+    /// Open a text-input prompt overlay.
+    fn open_prompt(&mut self, prompt: Prompt) {
+        self.input.clear();
+        self.cursor = 0;
+        self.mode = Mode::Prompt(prompt);
+        self.refresh_hint();
     }
 
     fn nav(&mut self, delta: i32) {
@@ -678,7 +618,7 @@ impl App {
             self.sidebar_idx = 0;
             self.active_id = None;
             self.messages.clear();
-            self.set_default_status();
+            self.refresh_hint();
         }
     }
 
@@ -704,23 +644,30 @@ impl App {
         self.status_ttl = FLASH_TTL;
     }
 
-    fn set_default_status(&mut self) {
+    /// Update status bar hint based on current mode and context.
+    fn refresh_hint(&mut self) {
         self.status = match self.mode {
-            Mode::Help | Mode::Normal => match self.tab {
-                Tab::Inbox => match self.focus {
-                    Focus::Sidebar => HINT_SIDEBAR,
-                    Focus::Input => HINT_INPUT,
+            Mode::Help => return,
+            Mode::Normal => match self.focus {
+                Focus::Sidebar => match self.tab {
+                    Tab::Inbox => " ↑↓:nav  ←→:tab  n:DM  N:group  r:sync  x:hide  ?:help  q:quit",
+                    Tab::Requests => " ↑↓:nav  a:accept  x:reject  ←→:tab  ?:help  q:quit",
+                    Tab::Hidden => " ↑↓:nav  a:allow  u:undo  ←→:tab  r:sync  ?:help  q:quit",
                 },
-                Tab::Requests => HINT_REQUESTS,
-                Tab::Hidden => HINT_HIDDEN,
+                Focus::Input => " Enter:send  Esc:back  ↑↓:scroll  Tab:members",
             },
-            Mode::NewDm => HINT_NEW_DM,
-            Mode::NewGroupName => HINT_GROUP_NAME,
-            Mode::NewGroupMembers => return, // hint managed by update_group_members_hint
-            Mode::Members => HINT_MEMBERS,
-            Mode::AddMember => HINT_ADD_MEMBER,
-            Mode::GroupEdit(_) => HINT_GROUP_EDIT,
-            Mode::Permissions => HINT_PERMISSIONS,
+            Mode::Prompt(Prompt::GroupMembers) => {
+                let n = self.group_members.len();
+                self.status = format!(
+                    " Enter:add  Esc:{}  ({n} member{})",
+                    if n > 0 { "create" } else { "cancel" },
+                    if n == 1 { "" } else { "s" },
+                );
+                return;
+            }
+            Mode::Prompt(_) => " Enter:confirm  Esc:cancel",
+            Mode::Members => " ↑↓:nav  a:add  x:kick  p:admin  r:name  e:desc  P:perms  Esc:close",
+            Mode::Permissions => " ↑↓:nav  Enter:cycle  Esc:back",
         }
         .into();
         self.status_ttl = 0;

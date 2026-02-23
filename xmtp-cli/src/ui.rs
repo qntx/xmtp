@@ -11,7 +11,7 @@ use unicode_width::UnicodeWidthStr;
 
 use xmtp::{MessageKind, PermissionLevel};
 
-use crate::app::{App, Focus, Mode, Tab, decode_body, delivery_icon, truncate_id};
+use crate::app::{App, Focus, Mode, Prompt, Tab, decode_body, delivery_icon, truncate_id};
 use crate::event::GroupField;
 use xmtp::PermissionPolicy;
 
@@ -61,7 +61,9 @@ pub fn render(app: &mut App, frame: &mut Frame<'_>) {
     // Overlays
     match app.mode {
         Mode::Help => draw_help(frame, area),
-        Mode::Members | Mode::AddMember | Mode::GroupEdit(_) => draw_members(app, frame, area),
+        Mode::Members | Mode::Prompt(Prompt::AddMember | Prompt::Edit(_)) => {
+            draw_members(app, frame, area);
+        }
         Mode::Permissions => draw_permissions(app, frame, area),
         _ => {}
     }
@@ -321,7 +323,7 @@ fn draw_chat(app: &mut App, frame: &mut Frame<'_>, area: Rect) {
 
 fn draw_input(app: &App, frame: &mut Frame<'_>, area: Rect) {
     // AddMember input lives inside the Members popup — skip the main input box.
-    if app.mode == Mode::AddMember {
+    if app.mode == Mode::Prompt(Prompt::AddMember) {
         let block = Block::default()
             .borders(Borders::ALL)
             .border_style(Style::default().fg(BORDER_DIM));
@@ -335,21 +337,22 @@ fn draw_input(app: &App, frame: &mut Frame<'_>, area: Rect) {
         );
         return;
     }
-    let is_overlay = matches!(
-        app.mode,
-        Mode::NewDm | Mode::NewGroupName | Mode::NewGroupMembers | Mode::GroupEdit(_)
-    );
+    let is_overlay = matches!(app.mode, Mode::Prompt(_));
     let focused = (app.focus == Focus::Input && app.mode == Mode::Normal) || is_overlay;
     let border = if focused { BORDER_FOCUS } else { BORDER_DIM };
 
     let (title, placeholder) = match app.mode {
-        Mode::GroupEdit(GroupField::Name) => (" Rename Group ".to_owned(), "New group name"),
-        Mode::GroupEdit(GroupField::Description) => {
+        Mode::Prompt(Prompt::Edit(GroupField::Name)) => {
+            (" Rename Group ".to_owned(), "New group name")
+        }
+        Mode::Prompt(Prompt::Edit(GroupField::Description)) => {
             (" Edit Description ".to_owned(), "New description")
         }
-        Mode::NewDm => (" New DM ".to_owned(), "Address / ENS / Inbox ID"),
-        Mode::NewGroupName => (" New Group — Name ".to_owned(), "Group name (optional)"),
-        Mode::NewGroupMembers => {
+        Mode::Prompt(Prompt::Dm) => (" New DM ".to_owned(), "Address / ENS / Inbox ID"),
+        Mode::Prompt(Prompt::GroupName) => {
+            (" New Group — Name ".to_owned(), "Group name (optional)")
+        }
+        Mode::Prompt(Prompt::GroupMembers) => {
             let n = app.group_members.len();
             let names: Vec<_> = app
                 .group_members
@@ -482,7 +485,7 @@ fn draw_help(frame: &mut Frame<'_>, area: Rect) {
 fn draw_members(app: &App, frame: &mut Frame<'_>, area: Rect) {
     let w = 64.min(area.width.saturating_sub(4));
     let has_desc = !app.group_desc.is_empty();
-    let adding = app.mode == Mode::AddMember;
+    let adding = app.mode == Mode::Prompt(Prompt::AddMember);
     // Footer: 1 hint + optional desc + optional input.
     let footer_h = 1 + u16::from(has_desc) + u16::from(adding);
     #[allow(clippy::cast_possible_truncation)]
