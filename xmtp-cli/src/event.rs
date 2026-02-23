@@ -29,6 +29,13 @@ pub struct ConvEntry {
     pub unread: bool,
 }
 
+/// Which group metadata field is being edited.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GroupField {
+    Name,
+    Description,
+}
+
 /// Group member entry for display.
 #[derive(Debug, Clone)]
 pub struct MemberEntry {
@@ -88,6 +95,8 @@ pub enum Cmd {
     RemoveMember(String),
     /// Toggle admin status for a member in the active group.
     ToggleAdmin(String),
+    /// Update group metadata (name or description).
+    SetGroupMeta { field: GroupField, value: String },
     /// Full network sync (welcomes + refresh + active reload).
     Sync,
     /// Load members for the active conversation.

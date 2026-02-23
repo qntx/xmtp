@@ -9,7 +9,7 @@ use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use xmtp::content::Content;
 use xmtp::{ConsentState, DeliveryStatus, Message, MessageKind};
 
-use crate::event::{Cmd, CmdTx, ConvEntry, Event, MemberEntry};
+use crate::event::{Cmd, CmdTx, ConvEntry, Event, GroupField, MemberEntry};
 
 /// Active sidebar tab.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -33,6 +33,7 @@ pub enum Mode {
     NewGroupName,
     NewGroupMembers,
     Members,
+    GroupEdit(GroupField),
     Help,
 }
 
@@ -42,7 +43,8 @@ const HINT_INPUT: &str = " Enter:send  Esc:sidebar  ↑/↓:scroll  Tab:members"
 const HINT_NEW_DM: &str = " Address (0x…) / ENS (name.eth) / Inbox ID  Enter:create  Esc:cancel";
 const HINT_GROUP_NAME: &str = " Group name (optional)  Enter:next step  Esc:cancel";
 const HINT_REQUESTS: &str = " ↑↓:nav  a:accept  x:reject  Enter:preview  ←→:tab  q:quit";
-const HINT_MEMBERS: &str = " ↑↓:nav  x:kick  p:admin  Esc:close";
+const HINT_MEMBERS: &str = " ↑↓:nav  x:kick  p:admin  r:name  e:desc  Esc:close";
+const HINT_GROUP_EDIT: &str = " Enter:save  Esc:cancel";
 const FLASH_TTL: u16 = 60;
 
 /// Central application state. Holds **no FFI handles**.
@@ -201,6 +203,7 @@ impl App {
                 }
             }
             Mode::Members => self.key_members(key),
+            Mode::GroupEdit(_) => self.key_group_edit(key),
             Mode::NewDm => self.key_overlay(key),
             Mode::NewGroupName => self.key_group_name(key),
             Mode::NewGroupMembers => self.key_group_members(key),
@@ -448,8 +451,56 @@ impl App {
                     self.cmd(Cmd::ToggleAdmin(m.inbox_id.clone()));
                 }
             }
+            KeyCode::Char('r') => {
+                self.input = self.active_label().unwrap_or_default().to_owned();
+                self.cursor = self.input.chars().count();
+                self.mode = Mode::GroupEdit(GroupField::Name);
+                self.status = HINT_GROUP_EDIT.into();
+            }
+            KeyCode::Char('e') => {
+                self.input.clear();
+                self.cursor = 0;
+                self.mode = Mode::GroupEdit(GroupField::Description);
+                self.status = HINT_GROUP_EDIT.into();
+            }
             _ => {}
         }
+    }
+
+    fn key_group_edit(&mut self, key: KeyEvent) {
+        match key.code {
+            KeyCode::Esc => {
+                self.input.clear();
+                self.cursor = 0;
+                self.mode = Mode::Members;
+                self.status = HINT_MEMBERS.into();
+            }
+            KeyCode::Enter => {
+                let value = self.input.trim().to_owned();
+                if !value.is_empty() {
+                    let Mode::GroupEdit(field) = self.mode else {
+                        return;
+                    };
+                    self.cmd(Cmd::SetGroupMeta { field, value });
+                }
+                self.input.clear();
+                self.cursor = 0;
+                self.mode = Mode::Members;
+                self.status = HINT_MEMBERS.into();
+            }
+            _ => self.edit_input(key.code),
+        }
+    }
+
+    /// Get the label of the currently active conversation.
+    fn active_label(&self) -> Option<&str> {
+        self.active_id.as_ref().and_then(|id| {
+            self.inbox
+                .iter()
+                .chain(self.requests.iter())
+                .find(|e| e.id == *id)
+                .map(|e| e.label.as_str())
+        })
     }
 
     fn cancel_overlay(&mut self) {
@@ -537,6 +588,7 @@ impl App {
             Mode::NewGroupName => HINT_GROUP_NAME,
             Mode::NewGroupMembers => return, // hint managed by update_group_members_hint
             Mode::Members => HINT_MEMBERS,
+            Mode::GroupEdit(_) => HINT_GROUP_EDIT,
         }
         .into();
         self.status_ttl = 0;

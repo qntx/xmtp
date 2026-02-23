@@ -12,7 +12,7 @@ use xmtp::{
 };
 
 use crate::app::{decode_preview, truncate_id};
-use crate::event::{Cmd, CmdTx, ConvEntry, Event, MemberEntry, Tx};
+use crate::event::{Cmd, CmdTx, ConvEntry, Event, GroupField, MemberEntry, Tx};
 
 /// Run the worker loop. Owns the [`Client`], processes [`Cmd`], sends [`Event`].
 ///
@@ -79,6 +79,7 @@ impl Worker {
                     send_members(conv, &self.tx);
                 }
             }
+            Cmd::SetGroupMeta { field, value } => self.set_group_meta(field, &value),
             Cmd::RemoveMember(id) => self.remove_member(&id),
             Cmd::ToggleAdmin(id) => self.toggle_admin(&id),
             Cmd::NewMessage { msg_id, conv_id } => self.new_message(&msg_id, conv_id),
@@ -220,6 +221,27 @@ impl Worker {
             self.send_msgs(id, conv);
         }
         self.flash("Synced");
+    }
+
+    fn set_group_meta(&self, field: GroupField, value: &str) {
+        let Some((_, ref conv)) = self.active else {
+            return;
+        };
+        let result = match field {
+            GroupField::Name => conv.set_name(value),
+            GroupField::Description => conv.set_description(value),
+        };
+        match result {
+            Ok(()) => {
+                let msg = match field {
+                    GroupField::Name => "Renamed",
+                    GroupField::Description => "Description updated",
+                };
+                self.flash(msg);
+                send_conversations(&self.client, &self.tx);
+            }
+            Err(e) => self.flash(&format!("Update: {e}")),
+        }
     }
 
     fn remove_member(&self, inbox_id: &str) {

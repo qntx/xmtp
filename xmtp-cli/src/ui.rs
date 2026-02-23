@@ -12,6 +12,7 @@ use unicode_width::UnicodeWidthStr;
 use xmtp::{MessageKind, PermissionLevel};
 
 use crate::app::{App, Focus, Mode, Tab, decode_body, delivery_icon, truncate_id};
+use crate::event::GroupField;
 
 /// Muted lavender accent — gentle, never harsh.
 const ACCENT: Color = Color::Rgb(180, 160, 220);
@@ -59,7 +60,7 @@ pub fn render(app: &mut App, frame: &mut Frame<'_>) {
     // Overlays
     match app.mode {
         Mode::Help => draw_help(frame, area),
-        Mode::Members => draw_members(app, frame, area),
+        Mode::Members | Mode::GroupEdit(_) => draw_members(app, frame, area),
         _ => {}
     }
 }
@@ -315,12 +316,16 @@ fn draw_chat(app: &mut App, frame: &mut Frame<'_>, area: Rect) {
 fn draw_input(app: &App, frame: &mut Frame<'_>, area: Rect) {
     let is_overlay = matches!(
         app.mode,
-        Mode::NewDm | Mode::NewGroupName | Mode::NewGroupMembers
+        Mode::NewDm | Mode::NewGroupName | Mode::NewGroupMembers | Mode::GroupEdit(_)
     );
     let focused = (app.focus == Focus::Input && app.mode == Mode::Normal) || is_overlay;
     let border = if focused { BORDER_FOCUS } else { BORDER_DIM };
 
     let (title, placeholder) = match app.mode {
+        Mode::GroupEdit(GroupField::Name) => (" Rename Group ".to_owned(), "New group name"),
+        Mode::GroupEdit(GroupField::Description) => {
+            (" Edit Description ".to_owned(), "New description")
+        }
         Mode::NewDm => (" New DM ".to_owned(), "Address / ENS / Inbox ID"),
         Mode::NewGroupName => (" New Group — Name ".to_owned(), "Group name (optional)"),
         Mode::NewGroupMembers => {
@@ -417,6 +422,7 @@ fn draw_help(frame: &mut Frame<'_>, area: Rect) {
         help_line("a / x", "Accept / Reject request"),
         help_line("Tab", "View members (in chat)"),
         help_line("x / p", "Kick / Toggle admin (members)"),
+        help_line("r / e", "Rename / Edit desc (members)"),
         help_line("r", "Sync conversations"),
         help_line("↑ / ↓", "Scroll chat (in input mode)"),
         help_line("Ctrl+C / q", "Quit"),
