@@ -549,7 +549,7 @@ fn draw_members(app: &App, frame: &mut Frame<'_>, area: Rect) {
         ]));
     }
     lines.push(Line::from(Span::styled(
-        " ↑↓:nav  a:add  x:kick  p:admin  r:name  e:desc  P:perms  Esc:close",
+        " a:add x:kick p:admin r:name e:desc P:perms Esc:close",
         Style::default().fg(DIM),
     )));
     frame.render_widget(Paragraph::new(lines), rows[1]);

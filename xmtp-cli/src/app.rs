@@ -666,7 +666,7 @@ impl App {
                 return;
             }
             Mode::Prompt(_) => " Enter:confirm  Esc:cancel",
-            Mode::Members => " ↑↓:nav  a:add  x:kick  p:admin  r:name  e:desc  P:perms  Esc:close",
+            Mode::Members => " a:add x:kick p:admin r:name e:desc P:perms Esc:close",
             Mode::Permissions => " ↑↓:nav  Enter:cycle  Esc:back",
         }
         .into();
