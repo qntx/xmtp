@@ -47,6 +47,12 @@ pub struct PermissionRow {
     pub metadata_field: Option<MetadataField>,
 }
 
+/// Group info sent alongside members.
+#[derive(Debug, Clone, Default)]
+pub struct GroupInfo {
+    pub description: String,
+}
+
 /// Group member entry for display.
 #[derive(Debug, Clone)]
 pub struct MemberEntry {
@@ -64,10 +70,11 @@ pub enum Event {
     Resize,
     /// Periodic tick (~50 ms).
     Tick,
-    /// Worker: sidebar lists refreshed.
+    /// Worker: sidebar lists refreshed (inbox + requests + hidden).
     Conversations {
         inbox: Vec<ConvEntry>,
         requests: Vec<ConvEntry>,
+        hidden: Vec<ConvEntry>,
     },
     /// Worker: messages loaded (includes `conv_id` to prevent stale updates).
     Messages { conv_id: String, msgs: Vec<Message> },
@@ -78,8 +85,11 @@ pub enum Event {
         time_ns: i64,
         unread: bool,
     },
-    /// Worker: group members loaded.
-    Members(Vec<MemberEntry>),
+    /// Worker: group members + group info loaded.
+    Members {
+        members: Vec<MemberEntry>,
+        info: GroupInfo,
+    },
     /// Worker: permission policies loaded.
     Permissions(Vec<PermissionRow>),
     /// Worker: DM/Group created — UI should switch to it.

@@ -106,12 +106,15 @@ fn draw_sidebar(app: &App, frame: &mut Frame<'_>, area: Rect) {
     let focused = app.focus == Focus::Sidebar && app.mode == Mode::Normal;
     let border = Style::default().fg(if focused { BORDER_FOCUS } else { BORDER_DIM });
 
-    // Tab header: [Inbox] [Requests]  (← → to switch)
+    // Tab header: [Inbox] [Requests] [Hidden]  (← → to switch)
     let req_label = format!(" Requests({}) ", app.requests.len());
+    let hid_label = format!(" Hidden({}) ", app.hidden.len());
     let tab_line = Line::from(vec![
         tab_span(" Inbox ", app.tab == Tab::Inbox),
         Span::raw(" "),
         tab_span(&req_label, app.tab == Tab::Requests),
+        Span::raw(" "),
+        tab_span(&hid_label, app.tab == Tab::Hidden),
     ]);
 
     let block = Block::default()
@@ -125,6 +128,7 @@ fn draw_sidebar(app: &App, frame: &mut Frame<'_>, area: Rect) {
         let hint = match app.tab {
             Tab::Inbox => "\n  No conversations\n\n  Press  n  for DM\n  Press  g  for group",
             Tab::Requests => "\n  No pending requests",
+            Tab::Hidden => "\n  No hidden conversations",
         };
         let p = Paragraph::new(hint)
             .style(Style::default().fg(DIM))
@@ -425,6 +429,8 @@ fn draw_help(frame: &mut Frame<'_>, area: Rect) {
         help_line("Tab", "View members (in chat)"),
         help_line("x / p", "Kick / Toggle admin (members)"),
         help_line("r / e", "Rename / Edit desc (members)"),
+        help_line("s", "Permissions (members)"),
+        help_line("a / u", "Allow / Request (hidden tab)"),
         help_line("r", "Sync conversations"),
         help_line("↑ / ↓", "Scroll chat (in input mode)"),
         help_line("Ctrl+C / q", "Quit"),
@@ -454,9 +460,10 @@ fn draw_help(frame: &mut Frame<'_>, area: Rect) {
 }
 
 fn draw_members(app: &App, frame: &mut Frame<'_>, area: Rect) {
-    let w = 54.min(area.width.saturating_sub(4));
+    let w = 64.min(area.width.saturating_sub(4));
+    let extra = u16::from(!app.group_desc.is_empty());
     #[allow(clippy::cast_possible_truncation)]
-    let h = (app.members.len() as u16 + 4).min(area.height.saturating_sub(4));
+    let h = (app.members.len() as u16 + 4 + extra).min(area.height.saturating_sub(4));
     let popup = centered(area, w, h);
 
     let block = Block::default()
@@ -471,7 +478,7 @@ fn draw_members(app: &App, frame: &mut Frame<'_>, area: Rect) {
 
     let rows = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Min(1), Constraint::Length(1)])
+        .constraints([Constraint::Min(1), Constraint::Length(1 + extra)])
         .split(inner);
 
     let items: Vec<ListItem<'_>> = app
@@ -501,13 +508,25 @@ fn draw_members(app: &App, frame: &mut Frame<'_>, area: Rect) {
     let mut state = ListState::default().with_selected(Some(app.member_idx));
     frame.render_stateful_widget(list, rows[0], &mut state);
 
-    frame.render_widget(
-        Paragraph::new(Span::styled(
-            " ↑↓:nav  x:kick  p:admin  Esc:close",
-            Style::default().fg(DIM),
-        )),
-        rows[1],
-    );
+    // Show description if available.
+    let desc_line = if app.group_desc.is_empty() {
+        Line::default()
+    } else {
+        Line::from(vec![
+            Span::styled("  desc: ", Style::default().fg(DIM)),
+            Span::styled(&app.group_desc, Style::default().fg(ACCENT)),
+        ])
+    };
+    let hint_line = Line::from(Span::styled(
+        " ↑↓:nav  x:kick  p:admin  r:name  e:desc  s:perms  Esc:close",
+        Style::default().fg(DIM),
+    ));
+    let footer = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Length(1), Constraint::Length(1)])
+        .split(rows[1]);
+    frame.render_widget(Paragraph::new(desc_line), footer[0]);
+    frame.render_widget(Paragraph::new(hint_line), footer[1]);
 }
 
 fn draw_permissions(app: &App, frame: &mut Frame<'_>, area: Rect) {

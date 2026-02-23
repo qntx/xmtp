@@ -12,7 +12,9 @@ use xmtp::{
 };
 
 use crate::app::{decode_preview, truncate_id};
-use crate::event::{Cmd, CmdTx, ConvEntry, Event, GroupField, MemberEntry, PermissionRow, Tx};
+use crate::event::{
+    Cmd, CmdTx, ConvEntry, Event, GroupField, GroupInfo, MemberEntry, PermissionRow, Tx,
+};
 
 /// Run the worker loop. Owns the [`Client`], processes [`Cmd`], sends [`Event`].
 ///
@@ -418,24 +420,6 @@ fn send_permissions(conv: &xmtp::Conversation, tx: &Tx) {
                     update_type: PermissionUpdateType::UpdateMetadata,
                     metadata_field: Some(MetadataField::Description),
                 },
-                PermissionRow {
-                    label: "Image URL",
-                    policy: p.update_group_image_url,
-                    update_type: PermissionUpdateType::UpdateMetadata,
-                    metadata_field: Some(MetadataField::ImageUrl),
-                },
-                PermissionRow {
-                    label: "Disappearing",
-                    policy: p.update_message_disappearing,
-                    update_type: PermissionUpdateType::UpdateMetadata,
-                    metadata_field: Some(MetadataField::MessageDisappearing),
-                },
-                PermissionRow {
-                    label: "App Data",
-                    policy: p.update_app_data,
-                    update_type: PermissionUpdateType::UpdateMetadata,
-                    metadata_field: Some(MetadataField::AppData),
-                },
             ];
             let _ = tx.send(Event::Permissions(rows));
         }
@@ -445,7 +429,7 @@ fn send_permissions(conv: &xmtp::Conversation, tx: &Tx) {
     }
 }
 
-/// Load and send group members for the given conversation.
+/// Load and send group members + group info for the given conversation.
 fn send_members(conv: &xmtp::Conversation, tx: &Tx) {
     match conv.members() {
         Ok(members) => {
@@ -464,7 +448,13 @@ fn send_members(conv: &xmtp::Conversation, tx: &Tx) {
                     }
                 })
                 .collect();
-            let _ = tx.send(Event::Members(entries));
+            let info = GroupInfo {
+                description: conv.description().unwrap_or_default(),
+            };
+            let _ = tx.send(Event::Members {
+                members: entries,
+                info,
+            });
         }
         Err(e) => {
             let _ = tx.send(Event::Flash(format!("Members: {e}")));
@@ -472,11 +462,16 @@ fn send_members(conv: &xmtp::Conversation, tx: &Tx) {
     }
 }
 
-/// Build and send conversation lists for both Inbox and Requests.
+/// Build and send conversation lists for Inbox, Requests, and Hidden.
 fn send_conversations(client: &Client, tx: &Tx) {
     let inbox = build_conv_list(client, &[ConsentState::Allowed]);
     let requests = build_conv_list(client, &[ConsentState::Unknown]);
-    let _ = tx.send(Event::Conversations { inbox, requests });
+    let hidden = build_conv_list(client, &[ConsentState::Denied]);
+    let _ = tx.send(Event::Conversations {
+        inbox,
+        requests,
+        hidden,
+    });
 }
 
 /// Build a sidebar list from conversations matching the given consent states.

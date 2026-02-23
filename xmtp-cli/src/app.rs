@@ -17,6 +17,7 @@ use xmtp::PermissionPolicy;
 pub enum Tab {
     Inbox,
     Requests,
+    Hidden,
 }
 
 /// Active panel.
@@ -45,6 +46,7 @@ const HINT_INPUT: &str = " Enter:send  Esc:sidebar  ↑/↓:scroll  Tab:members"
 const HINT_NEW_DM: &str = " Address (0x…) / ENS (name.eth) / Inbox ID  Enter:create  Esc:cancel";
 const HINT_GROUP_NAME: &str = " Group name (optional)  Enter:next step  Esc:cancel";
 const HINT_REQUESTS: &str = " ↑↓:nav  a:accept  x:reject  Enter:preview  ←→:tab  q:quit";
+const HINT_HIDDEN: &str = " ↑↓:nav  ←→:tab  a:allow  u:request  r:sync  ?:help  q:quit";
 const HINT_MEMBERS: &str = " ↑↓:nav  x:kick  p:admin  r:name  e:desc  s:perms  Esc:close";
 const HINT_GROUP_EDIT: &str = " Enter:save  Esc:cancel";
 const HINT_PERMISSIONS: &str = " ↑↓:nav  Enter:cycle  Esc:back";
@@ -64,11 +66,13 @@ pub struct App {
 
     pub inbox: Vec<ConvEntry>,
     pub requests: Vec<ConvEntry>,
+    pub hidden: Vec<ConvEntry>,
 
     pub active_id: Option<String>,
     pub messages: Vec<Message>,
     pub members: Vec<MemberEntry>,
     pub member_idx: usize,
+    pub group_desc: String,
     pub permissions: Vec<PermissionRow>,
     pub perm_idx: usize,
 
@@ -99,10 +103,12 @@ impl App {
             scroll: 0,
             inbox: Vec::new(),
             requests: Vec::new(),
+            hidden: Vec::new(),
             active_id: None,
             messages: Vec::new(),
             members: Vec::new(),
             member_idx: 0,
+            group_desc: String::new(),
             permissions: Vec::new(),
             perm_idx: 0,
             input: String::new(),
@@ -120,6 +126,7 @@ impl App {
         match self.tab {
             Tab::Inbox => &self.inbox,
             Tab::Requests => &self.requests,
+            Tab::Hidden => &self.hidden,
         }
     }
 
@@ -127,6 +134,7 @@ impl App {
         match self.tab {
             Tab::Inbox => &mut self.inbox,
             Tab::Requests => &mut self.requests,
+            Tab::Hidden => &mut self.hidden,
         }
     }
 
@@ -137,9 +145,14 @@ impl App {
     /// Apply a worker result event. Called from the main loop.
     pub fn apply(&mut self, event: Event) {
         match event {
-            Event::Conversations { inbox, requests } => {
+            Event::Conversations {
+                inbox,
+                requests,
+                hidden,
+            } => {
                 self.inbox = inbox;
                 self.requests = requests;
+                self.hidden = hidden;
                 self.clamp_sidebar();
             }
             Event::Messages { conv_id, msgs } => {
@@ -153,7 +166,7 @@ impl App {
                 time_ns,
                 unread,
             } => {
-                for list in [&mut self.inbox, &mut self.requests] {
+                for list in [&mut self.inbox, &mut self.requests, &mut self.hidden] {
                     for e in list.iter_mut() {
                         if e.id == conv_id {
                             e.preview.clone_from(&text);
@@ -165,8 +178,9 @@ impl App {
                     }
                 }
             }
-            Event::Members(m) => {
-                self.members = m;
+            Event::Members { members, info } => {
+                self.members = members;
+                self.group_desc = info.description;
                 if self.member_idx >= self.members.len() && !self.members.is_empty() {
                     self.member_idx = self.members.len() - 1;
                 }
@@ -232,8 +246,11 @@ impl App {
         match key.code {
             KeyCode::Char('q') => self.quit = true,
             KeyCode::Char('?') => self.mode = Mode::Help,
-            KeyCode::Char('1') | KeyCode::Left => self.switch_tab(Tab::Inbox),
-            KeyCode::Char('2') | KeyCode::Right => self.switch_tab(Tab::Requests),
+            KeyCode::Char('1') => self.switch_tab(Tab::Inbox),
+            KeyCode::Char('2') => self.switch_tab(Tab::Requests),
+            KeyCode::Char('3') => self.switch_tab(Tab::Hidden),
+            KeyCode::Left => self.switch_tab(self.prev_tab()),
+            KeyCode::Right => self.switch_tab(self.next_tab()),
             KeyCode::Char('j') | KeyCode::Down => self.nav(1),
             KeyCode::Char('k') | KeyCode::Up => self.nav(-1),
             KeyCode::Char('h') | KeyCode::Home => {
@@ -286,6 +303,22 @@ impl App {
                         self.messages.clear();
                         self.scroll = 0;
                     }
+                }
+            }
+            KeyCode::Char('a') if self.tab == Tab::Hidden => {
+                if let Some(e) = self.sidebar().get(self.sidebar_idx) {
+                    self.cmd(Cmd::SetConsent {
+                        id: e.id.clone(),
+                        state: ConsentState::Allowed,
+                    });
+                }
+            }
+            KeyCode::Char('u') if self.tab == Tab::Hidden => {
+                if let Some(e) = self.sidebar().get(self.sidebar_idx) {
+                    self.cmd(Cmd::SetConsent {
+                        id: e.id.clone(),
+                        state: ConsentState::Unknown,
+                    });
                 }
             }
             KeyCode::Char('n') => {
@@ -472,8 +505,8 @@ impl App {
                 self.status = HINT_GROUP_EDIT.into();
             }
             KeyCode::Char('e') => {
-                self.input.clear();
-                self.cursor = 0;
+                self.input.clone_from(&self.group_desc);
+                self.cursor = self.input.chars().count();
                 self.mode = Mode::GroupEdit(GroupField::Description);
                 self.status = HINT_GROUP_EDIT.into();
             }
@@ -553,6 +586,7 @@ impl App {
             self.inbox
                 .iter()
                 .chain(self.requests.iter())
+                .chain(self.hidden.iter())
                 .find(|e| e.id == *id)
                 .map(|e| e.label.as_str())
         })
@@ -598,6 +632,22 @@ impl App {
         self.cmd(Cmd::Open(id));
     }
 
+    const fn next_tab(&self) -> Tab {
+        match self.tab {
+            Tab::Inbox => Tab::Requests,
+            Tab::Requests => Tab::Hidden,
+            Tab::Hidden => Tab::Inbox,
+        }
+    }
+
+    const fn prev_tab(&self) -> Tab {
+        match self.tab {
+            Tab::Inbox => Tab::Hidden,
+            Tab::Hidden => Tab::Requests,
+            Tab::Requests => Tab::Inbox,
+        }
+    }
+
     fn switch_tab(&mut self, tab: Tab) {
         if self.tab != tab {
             self.tab = tab;
@@ -638,6 +688,7 @@ impl App {
                     Focus::Input => HINT_INPUT,
                 },
                 Tab::Requests => HINT_REQUESTS,
+                Tab::Hidden => HINT_HIDDEN,
             },
             Mode::NewDm => HINT_NEW_DM,
             Mode::NewGroupName => HINT_GROUP_NAME,
