@@ -21,7 +21,7 @@ use std::sync::mpsc;
 use std::time::Duration;
 use std::{fs, process};
 
-use clap::Parser;
+use clap::{Parser, Subcommand};
 use xmtp::{AlloySigner, Client, EnsResolver, Env, LedgerSigner, Signer};
 
 use crate::app::{App, truncate_id};
@@ -29,59 +29,67 @@ use crate::event::{Cmd, Event};
 
 /// Interactive XMTP TUI chat client.
 ///
+/// Launch without a subcommand to enter the TUI. Use subcommands for
+/// one-shot operations like `info`, `installations`, or `import`.
+///
 /// Supports Ethereum addresses (0x…), ENS names (name.eth), and XMTP Inbox IDs
 /// as recipient identifiers for DMs and group conversations.
 #[derive(Parser)]
-#[command(name = "xmtp", version, about, long_about = None)]
+#[command(name = "xmtp", version, about)]
 struct Args {
-    /// Profile name — keys and database are stored under this name
-    /// in the platform data directory.
-    #[arg(default_value = "default")]
+    /// Profile name — keys and database are stored under
+    /// `<data_dir>/xmtp-cli/<profile>/`.
+    #[arg(short, long, default_value = "default", global = true)]
     profile: String,
 
     /// Path to private key file (overrides profile default).
-    #[arg(short = 'k', long = "key")]
+    #[arg(short = 'k', long = "key", global = true)]
     key_path: Option<PathBuf>,
 
     /// Path to database file (overrides profile default).
-    #[arg(short = 'd', long = "db")]
+    #[arg(short = 'd', long = "db", global = true)]
     db_path: Option<PathBuf>,
 
     /// XMTP network environment.
-    #[arg(short, long, default_value = "dev", value_parser = parse_env)]
+    #[arg(short, long, default_value = "dev", value_parser = parse_env, global = true)]
     env: Env,
 
     /// Ethereum RPC URL for ENS name resolution.
-    #[arg(long, default_value = "https://eth.llamarpc.com")]
+    #[arg(long, default_value = "https://eth.llamarpc.com", global = true)]
     rpc_url: String,
 
     /// Disable ENS name resolution.
-    #[arg(long)]
+    #[arg(long, global = true)]
     no_ens: bool,
 
-    /// Import a hex-encoded private key into the profile.
-    #[arg(long = "import")]
-    import_hex: Option<String>,
-
-    /// Show identity information and exit.
-    #[arg(long)]
-    info: bool,
-
-    /// List all installations for this identity and exit.
-    #[arg(long)]
-    installations: bool,
-
-    /// Revoke all installations except the current one and exit.
-    #[arg(long)]
-    revoke_others: bool,
-
-    /// Use a Ledger hardware wallet for signing instead of a local key file.
-    #[arg(long)]
+    /// Use a Ledger hardware wallet for signing.
+    #[arg(long, global = true)]
     ledger: bool,
 
-    /// Ledger account index (Ledger Live HD path, default: 0).
-    #[arg(long, default_value = "0")]
-    ledger_index: usize,
+    /// Ledger account index — implies --ledger.
+    #[arg(long, global = true)]
+    ledger_index: Option<usize>,
+
+    #[command(subcommand)]
+    command: Option<Command>,
+}
+
+/// One-shot operations (run and exit).
+#[derive(Subcommand)]
+enum Command {
+    /// Show identity information (address, inbox ID, file paths).
+    Info,
+    /// List all saved profiles in the data directory.
+    Profiles,
+    /// List all installations for this inbox identity.
+    Installations,
+    /// Revoke all installations except the current one.
+    Revoke,
+    /// Import a hex-encoded private key into the profile.
+    Import {
+        /// Private key as hex (64 chars, optionally 0x-prefixed).
+        hex: String,
+    },
 }
 
 fn parse_env(s: &str) -> Result<Env, String> {
@@ -107,26 +115,36 @@ fn main() {
 }
 
 fn run() -> xmtp::Result<()> {
-    let args = Args::parse();
-    let (key_path, db_path) = resolve_paths(&args);
+    let mut args = Args::parse();
 
-    // Validate conflicting options.
-    if args.ledger && args.import_hex.is_some() {
-        return Err(xmtp::Error::InvalidArgument(
-            "--ledger and --import are mutually exclusive".into(),
-        ));
+    // --ledger-index implies --ledger.
+    if args.ledger_index.is_some() {
+        args.ledger = true;
     }
+    let ledger_index = args.ledger_index.unwrap_or(0);
 
-    // Handle key import (file signer only).
-    if let Some(ref hex) = args.import_hex {
+    // Subcommands that don't need a signer or client.
+    if let Some(Command::Import { ref hex }) = args.command {
+        if args.ledger {
+            return Err(xmtp::Error::InvalidArgument(
+                "import and --ledger are mutually exclusive".into(),
+            ));
+        }
+        let (key_path, _) = resolve_paths(&args);
         import_key(hex, &key_path)?;
-        eprintln!("Imported key to {}", key_path.display());
+        println!("Imported key to {}", key_path.display());
+        return Ok(());
     }
+    if matches!(args.command, Some(Command::Profiles)) {
+        return list_profiles();
+    }
+
+    let (key_path, db_path) = resolve_paths(&args);
 
     // Create signer — either Ledger hardware wallet or local key file.
     let signer: Box<dyn Signer> = if args.ledger {
-        eprintln!("Connecting to Ledger (index {})...", args.ledger_index);
-        Box::new(LedgerSigner::new(args.ledger_index)?)
+        eprintln!("Connecting to Ledger (index {ledger_index})...");
+        Box::new(LedgerSigner::new(ledger_index)?)
     } else {
         Box::new(load_or_create_signer(&key_path)?)
     };
@@ -134,22 +152,21 @@ fn run() -> xmtp::Result<()> {
     let client = create_client(signer.as_ref(), &args, &db_path)?;
     let inbox_id = client.inbox_id()?;
 
-    // Non-TUI commands — print output and exit.
-    if args.info {
-        print_info(&address, &inbox_id, &args, &key_path, &db_path);
-        return Ok(());
+    // Dispatch subcommand or default to TUI.
+    match args.command {
+        Some(Command::Info) => {
+            print_info(&address, &inbox_id, &args, &key_path, &db_path);
+            Ok(())
+        }
+        Some(Command::Installations) => print_installations(&client, &inbox_id),
+        Some(Command::Revoke) => run_revoke(&client, signer.as_ref()),
+        Some(Command::Import { .. } | Command::Profiles) => unreachable!(),
+        None => {
+            eprintln!("address: {address}");
+            eprintln!("inbox:   {inbox_id}");
+            run_tui(client, address, inbox_id)
+        }
     }
-    if args.installations {
-        return print_installations(&client, &inbox_id);
-    }
-    if args.revoke_others {
-        return run_revoke_others(&client, signer.as_ref());
-    }
-
-    // TUI mode.
-    eprintln!("address: {address}");
-    eprintln!("inbox:   {inbox_id}");
-    run_tui(client, address, inbox_id)
 }
 
 /// Resolve key and database paths from explicit flags or profile defaults.
@@ -185,7 +202,10 @@ fn print_info(address: &str, inbox_id: &str, args: &Args, key_path: &Path, db_pa
     println!("Address:       {address}");
     println!("Inbox ID:      {inbox_id}");
     if args.ledger {
-        println!("Signer:        Ledger (index {})", args.ledger_index);
+        println!(
+            "Signer:        Ledger (index {})",
+            args.ledger_index.unwrap_or(0)
+        );
     } else {
         println!("Key file:      {}", key_path.display());
     }
@@ -212,7 +232,7 @@ fn print_installations(client: &Client, inbox_id: &str) -> xmtp::Result<()> {
     Ok(())
 }
 
-fn run_revoke_others(client: &Client, signer: &dyn Signer) -> xmtp::Result<()> {
+fn run_revoke(client: &Client, signer: &dyn Signer) -> xmtp::Result<()> {
     let current = client.installation_id()?;
     let states = client.inbox_state(true)?;
     let count = states
@@ -229,6 +249,45 @@ fn run_revoke_others(client: &Client, signer: &dyn Signer) -> xmtp::Result<()> {
     println!("Revoking {count} other installation(s)...");
     client.revoke_all_other_installations(signer)?;
     println!("Done. Only current installation remains.");
+    Ok(())
+}
+
+/// List all saved profiles by scanning the data directory.
+fn list_profiles() -> xmtp::Result<()> {
+    let base = dirs::data_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join("xmtp-cli");
+
+    if !base.exists() {
+        println!("No profiles found.");
+        println!("Data directory: {}", base.display());
+        return Ok(());
+    }
+
+    let mut entries: Vec<_> = fs::read_dir(&base)
+        .map_err(|e| xmtp::Error::Ffi(format!("read dir: {e}")))?
+        .filter_map(Result::ok)
+        .filter(|e| e.path().is_dir())
+        .collect();
+    entries.sort_by_key(fs::DirEntry::file_name);
+
+    if entries.is_empty() {
+        println!("No profiles found.");
+        println!("Data directory: {}", base.display());
+        return Ok(());
+    }
+
+    println!("Profiles in {}\n", base.display());
+    for entry in &entries {
+        let name = entry.file_name();
+        let dir = entry.path();
+        let has_key = dir.join("identity.key").exists();
+        let has_db = dir.join("messages.db3").exists();
+        let signer = if has_key { "key" } else { "---" };
+        let db = if has_db { "db" } else { "--" };
+        println!("  {:<20} [{signer}] [{db}]", name.to_string_lossy());
+    }
+    println!("\nTotal: {}", entries.len());
     Ok(())
 }
 

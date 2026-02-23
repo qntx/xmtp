@@ -6,6 +6,10 @@ license.workspace = true
 repository.workspace = true
 description.workspace = true
 
+[[bin]]
+name = "xmtp"
+path = "src/main.rs"
+
 [dependencies]
 xmtp = { workspace = true, features = ["alloy", "ens", "ledger"] }
 clap.workspace = true
