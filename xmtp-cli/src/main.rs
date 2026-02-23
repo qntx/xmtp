@@ -83,8 +83,8 @@ fn dispatch(command: &Command) -> xmtp::Result<()> {
         Command::Remove { name } => cmd::profile::remove(name),
         Command::Clear => cmd::profile::clear(),
         Command::Default { name } => cmd::profile::default(name.as_deref()),
-        Command::Info { profile } => cmd::inspect::info(&resolve_profile(profile.clone())),
-        Command::Revoke { profile } => cmd::inspect::revoke(&resolve_profile(profile.clone())),
+        Command::Info { name } => cmd::inspect::info(&resolve_profile(name.clone())),
+        Command::Revoke { name } => cmd::inspect::revoke(&resolve_profile(name.clone())),
     }
 }
 

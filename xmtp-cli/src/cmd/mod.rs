@@ -14,10 +14,9 @@ use xmtp::Env;
 /// Launch without a subcommand to enter the TUI chat interface.
 /// Use subcommands for one-shot operations.
 #[derive(Parser)]
-#[command(name = "xmtp", version, about)]
+#[command(name = "xmtp", version, about, args_conflicts_with_subcommands = true)]
 pub struct Cli {
-    /// Profile to use for the TUI session.
-    #[arg(short, long)]
+    /// Profile name for TUI session (uses default if omitted).
     pub profile: Option<String>,
 
     #[command(subcommand)]
@@ -42,15 +41,13 @@ pub enum Command {
     Clear,
     /// Show profile information and installations.
     Info {
-        /// Profile to inspect (uses default if omitted).
-        #[arg(short, long)]
-        profile: Option<String>,
+        /// Profile name (uses default if omitted).
+        name: Option<String>,
     },
     /// Revoke all installations except the current one.
     Revoke {
-        /// Profile to revoke for (uses default if omitted).
-        #[arg(short, long)]
-        profile: Option<String>,
+        /// Profile name (uses default if omitted).
+        name: Option<String>,
     },
     /// Show or set the default profile.
     Default {
