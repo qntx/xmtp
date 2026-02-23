@@ -61,7 +61,7 @@ pub fn render(app: &mut App, frame: &mut Frame<'_>) {
     // Overlays
     match app.mode {
         Mode::Help => draw_help(frame, area),
-        Mode::Members | Mode::GroupEdit(_) => draw_members(app, frame, area),
+        Mode::Members | Mode::AddMember | Mode::GroupEdit(_) => draw_members(app, frame, area),
         Mode::Permissions => draw_permissions(app, frame, area),
         _ => {}
     }
@@ -320,6 +320,21 @@ fn draw_chat(app: &mut App, frame: &mut Frame<'_>, area: Rect) {
 }
 
 fn draw_input(app: &App, frame: &mut Frame<'_>, area: Rect) {
+    // AddMember input lives inside the Members popup — skip the main input box.
+    if app.mode == Mode::AddMember {
+        let block = Block::default()
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(BORDER_DIM));
+        frame.render_widget(
+            Paragraph::new(Span::styled(
+                "Type a message…",
+                Style::default().fg(PLACEHOLDER),
+            ))
+            .block(block),
+            area,
+        );
+        return;
+    }
     let is_overlay = matches!(
         app.mode,
         Mode::NewDm | Mode::NewGroupName | Mode::NewGroupMembers | Mode::GroupEdit(_)
@@ -461,9 +476,12 @@ fn draw_help(frame: &mut Frame<'_>, area: Rect) {
 
 fn draw_members(app: &App, frame: &mut Frame<'_>, area: Rect) {
     let w = 64.min(area.width.saturating_sub(4));
-    let extra = u16::from(!app.group_desc.is_empty());
+    let has_desc = !app.group_desc.is_empty();
+    let adding = app.mode == Mode::AddMember;
+    // Footer: 1 hint + optional desc + optional input.
+    let footer_h = 1 + u16::from(has_desc) + u16::from(adding);
     #[allow(clippy::cast_possible_truncation)]
-    let h = (app.members.len() as u16 + 4 + extra).min(area.height.saturating_sub(4));
+    let h = (app.members.len() as u16 + 2 + footer_h).min(area.height.saturating_sub(4));
     let popup = centered(area, w, h);
 
     let block = Block::default()
@@ -478,7 +496,7 @@ fn draw_members(app: &App, frame: &mut Frame<'_>, area: Rect) {
 
     let rows = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Min(1), Constraint::Length(1 + extra)])
+        .constraints([Constraint::Min(1), Constraint::Length(footer_h)])
         .split(inner);
 
     let items: Vec<ListItem<'_>> = app
@@ -508,25 +526,25 @@ fn draw_members(app: &App, frame: &mut Frame<'_>, area: Rect) {
     let mut state = ListState::default().with_selected(Some(app.member_idx));
     frame.render_stateful_widget(list, rows[0], &mut state);
 
-    // Show description if available.
-    let desc_line = if app.group_desc.is_empty() {
-        Line::default()
-    } else {
-        Line::from(vec![
+    // Build footer lines.
+    let mut lines: Vec<Line<'_>> = Vec::new();
+    if has_desc {
+        lines.push(Line::from(vec![
             Span::styled("  desc: ", Style::default().fg(DIM)),
             Span::styled(&app.group_desc, Style::default().fg(ACCENT)),
-        ])
-    };
-    let hint_line = Line::from(Span::styled(
-        " ↑↓:nav  x:kick  p:admin  r:name  e:desc  s:perms  Esc:close",
+        ]));
+    }
+    if adding {
+        lines.push(Line::from(vec![
+            Span::styled(" add> ", Style::default().fg(ACCENT)),
+            Span::raw(&app.input),
+        ]));
+    }
+    lines.push(Line::from(Span::styled(
+        " ↑↓:nav  x:kick  p:admin  a:add  r:name  e:desc  s:perms  Esc:close",
         Style::default().fg(DIM),
-    ));
-    let footer = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([Constraint::Length(1), Constraint::Length(1)])
-        .split(rows[1]);
-    frame.render_widget(Paragraph::new(desc_line), footer[0]);
-    frame.render_widget(Paragraph::new(hint_line), footer[1]);
+    )));
+    frame.render_widget(Paragraph::new(lines), rows[1]);
 }
 
 fn draw_permissions(app: &App, frame: &mut Frame<'_>, area: Rect) {

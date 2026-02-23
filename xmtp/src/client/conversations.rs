@@ -41,7 +41,68 @@ impl Client {
     /// # }
     /// ```
     pub fn group(&self, members: &[Recipient], opts: &CreateGroupOptions) -> Result<Conversation> {
-        // Resolve all recipients: Ens → Address, then partition.
+        let (identifiers, inbox_ids) = self.resolve_recipients(members)?;
+        // Pick the most efficient FFI path.
+        if inbox_ids.is_empty() {
+            self.group_by_identifiers(&identifiers, opts)
+        } else if identifiers.is_empty() {
+            let ids: Vec<&str> = inbox_ids.iter().map(String::as_str).collect();
+            self.group_by_inbox_ids(&ids, opts)
+        } else {
+            // Mixed: resolve identifiers → inbox IDs, then create by inbox IDs.
+            let mut all_ids = inbox_ids;
+            for ident in &identifiers {
+                let id = self
+                    .inbox_id_for(&ident.address, ident.kind)?
+                    .ok_or_else(|| {
+                        crate::Error::Resolution(format!("no inbox for {}", ident.address))
+                    })?;
+                all_ids.push(id);
+            }
+            let ids: Vec<&str> = all_ids.iter().map(String::as_str).collect();
+            self.group_by_inbox_ids(&ids, opts)
+        }
+    }
+
+    /// Add members to a group conversation by any recipient type.
+    ///
+    /// Accepts Ethereum addresses, inbox IDs, and ENS names (if a
+    /// [`Resolver`](crate::Resolver) is configured).
+    pub fn add_group_members(&self, conv: &Conversation, members: &[Recipient]) -> Result<()> {
+        let (identifiers, inbox_ids) = self.resolve_recipients(members)?;
+        if !identifiers.is_empty() {
+            conv.add_members_by_identity(&identifiers)?;
+        }
+        if !inbox_ids.is_empty() {
+            let ids: Vec<&str> = inbox_ids.iter().map(String::as_str).collect();
+            conv.add_members(&ids)?;
+        }
+        Ok(())
+    }
+
+    /// Remove members from a group conversation by any recipient type.
+    ///
+    /// Accepts Ethereum addresses, inbox IDs, and ENS names (if a
+    /// [`Resolver`](crate::Resolver) is configured).
+    pub fn remove_group_members(&self, conv: &Conversation, members: &[Recipient]) -> Result<()> {
+        let (identifiers, inbox_ids) = self.resolve_recipients(members)?;
+        if !identifiers.is_empty() {
+            conv.remove_members_by_identity(&identifiers)?;
+        }
+        if !inbox_ids.is_empty() {
+            let ids: Vec<&str> = inbox_ids.iter().map(String::as_str).collect();
+            conv.remove_members(&ids)?;
+        }
+        Ok(())
+    }
+
+    /// Resolve recipients to identifiers and inbox IDs.
+    ///
+    /// ENS names require a [`Resolver`](crate::Resolver) to be configured.
+    pub(crate) fn resolve_recipients(
+        &self,
+        members: &[Recipient],
+    ) -> Result<(Vec<AccountIdentifier>, Vec<String>)> {
         let mut identifiers = Vec::new();
         let mut inbox_ids = Vec::new();
         for m in members {
@@ -61,25 +122,7 @@ impl Client {
                 }
             }
         }
-        // Pick the most efficient FFI path.
-        if inbox_ids.is_empty() {
-            self.group_by_identifiers(&identifiers, opts)
-        } else if identifiers.is_empty() {
-            let ids: Vec<&str> = inbox_ids.iter().map(String::as_str).collect();
-            self.group_by_inbox_ids(&ids, opts)
-        } else {
-            // Mixed: resolve identifiers → inbox IDs, then create by inbox IDs.
-            for ident in &identifiers {
-                let id = self
-                    .inbox_id_for(&ident.address, ident.kind)?
-                    .ok_or_else(|| {
-                        crate::Error::Resolution(format!("no inbox for {}", ident.address))
-                    })?;
-                inbox_ids.push(id);
-            }
-            let ids: Vec<&str> = inbox_ids.iter().map(String::as_str).collect();
-            self.group_by_inbox_ids(&ids, opts)
-        }
+        Ok((identifiers, inbox_ids))
     }
 
     /// Create a group without syncing (optimistic / offline).

@@ -92,6 +92,7 @@ impl Worker {
                 policy,
                 metadata_field,
             } => self.set_permission(update_type, policy, metadata_field),
+            Cmd::AddMember(input) => self.add_member(&input),
             Cmd::RemoveMember(id) => self.remove_member(&id),
             Cmd::ToggleAdmin(id) => self.toggle_admin(&id),
             Cmd::NewMessage { msg_id, conv_id } => self.new_message(&msg_id, conv_id),
@@ -268,6 +269,39 @@ impl Worker {
         match conv.set_permission_policy(update_type, policy, metadata_field) {
             Ok(()) => self.flash("Policy updated"),
             Err(e) => self.flash(&format!("Permission: {e}")),
+        }
+    }
+
+    fn add_member(&self, input: &str) {
+        let Some((_, ref conv)) = self.active else {
+            return;
+        };
+        let recipient = Recipient::parse(input);
+        // Pre-check reachability for addresses.
+        if let Recipient::Address(ref addr) = recipient {
+            let ident = AccountIdentifier {
+                address: addr.clone(),
+                kind: IdentifierKind::Ethereum,
+            };
+            match self.client.can_message(std::slice::from_ref(&ident)) {
+                Ok(r) if r.first() == Some(&true) => {}
+                Ok(_) => {
+                    self.flash("Not on XMTP");
+                    return;
+                }
+                Err(e) => {
+                    self.flash(&format!("canMessage: {e}"));
+                    return;
+                }
+            }
+        }
+        match self.client.add_group_members(conv, &[recipient]) {
+            Ok(()) => {
+                self.flash("Member added");
+                send_members(conv, &self.tx);
+                send_conversations(&self.client, &self.tx);
+            }
+            Err(e) => self.flash(&format!("Add: {e}")),
         }
     }
 

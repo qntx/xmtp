@@ -114,6 +114,8 @@ pub enum Cmd {
     },
     /// Update consent state for a conversation.
     SetConsent { id: String, state: ConsentState },
+    /// Add a member to the active group (address / ENS / inbox ID).
+    AddMember(String),
     /// Remove a member from the active group by inbox ID.
     RemoveMember(String),
     /// Toggle admin status for a member in the active group.

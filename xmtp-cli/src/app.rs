@@ -35,6 +35,7 @@ pub enum Mode {
     NewGroupName,
     NewGroupMembers,
     Members,
+    AddMember,
     GroupEdit(GroupField),
     Permissions,
     Help,
@@ -47,7 +48,8 @@ const HINT_NEW_DM: &str = " Address (0x…) / ENS (name.eth) / Inbox ID  Enter:c
 const HINT_GROUP_NAME: &str = " Group name (optional)  Enter:next step  Esc:cancel";
 const HINT_REQUESTS: &str = " ↑↓:nav  a:accept  x:reject  Enter:preview  ←→:tab  q:quit";
 const HINT_HIDDEN: &str = " ↑↓:nav  ←→:tab  a:allow  u:request  r:sync  ?:help  q:quit";
-const HINT_MEMBERS: &str = " ↑↓:nav  x:kick  p:admin  r:name  e:desc  s:perms  Esc:close";
+const HINT_MEMBERS: &str = " ↑↓:nav  x:kick  p:admin  a:add  r:name  e:desc  s:perms  Esc:close";
+const HINT_ADD_MEMBER: &str = " Address (0x…) / ENS / Inbox ID  Enter:add  Esc:cancel";
 const HINT_GROUP_EDIT: &str = " Enter:save  Esc:cancel";
 const HINT_PERMISSIONS: &str = " ↑↓:nav  Enter:cycle  Esc:back";
 const FLASH_TTL: u16 = 60;
@@ -230,6 +232,7 @@ impl App {
                 }
             }
             Mode::Members => self.key_members(key),
+            Mode::AddMember => self.key_add_member(key),
             Mode::GroupEdit(_) => self.key_group_edit(key),
             Mode::Permissions => self.key_permissions(key),
             Mode::NewDm => self.key_overlay(key),
@@ -498,6 +501,12 @@ impl App {
                     self.cmd(Cmd::ToggleAdmin(m.inbox_id.clone()));
                 }
             }
+            KeyCode::Char('a') => {
+                self.input.clear();
+                self.cursor = 0;
+                self.mode = Mode::AddMember;
+                self.status = HINT_ADD_MEMBER.into();
+            }
             KeyCode::Char('r') => {
                 self.input = self.active_label().unwrap_or_default().to_owned();
                 self.cursor = self.input.chars().count();
@@ -517,6 +526,28 @@ impl App {
                 self.cmd(Cmd::LoadPermissions);
             }
             _ => {}
+        }
+    }
+
+    fn key_add_member(&mut self, key: KeyEvent) {
+        match key.code {
+            KeyCode::Esc => {
+                self.input.clear();
+                self.cursor = 0;
+                self.mode = Mode::Members;
+                self.status = HINT_MEMBERS.into();
+            }
+            KeyCode::Enter => {
+                let addr = self.input.trim().to_owned();
+                if !addr.is_empty() {
+                    self.cmd(Cmd::AddMember(addr));
+                }
+                self.input.clear();
+                self.cursor = 0;
+                self.mode = Mode::Members;
+                self.status = HINT_MEMBERS.into();
+            }
+            _ => self.edit_input(key.code),
         }
     }
 
@@ -694,6 +725,7 @@ impl App {
             Mode::NewGroupName => HINT_GROUP_NAME,
             Mode::NewGroupMembers => return, // hint managed by update_group_members_hint
             Mode::Members => HINT_MEMBERS,
+            Mode::AddMember => HINT_ADD_MEMBER,
             Mode::GroupEdit(_) => HINT_GROUP_EDIT,
             Mode::Permissions => HINT_PERMISSIONS,
         }
