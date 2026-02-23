@@ -37,11 +37,11 @@ pub enum Mode {
 }
 
 const HINT_SIDEBAR: &str =
-    " Tab:input  j/k:nav  1/2:tab  Enter:open  n:DM  g:group  r:sync  ?:help  q:quit";
+    " Tab:input  ↑↓:nav  ←→:tab  Enter:open  n:DM  g:group  r:sync  ?:help  q:quit";
 const HINT_INPUT: &str = " Enter:send  Esc:sidebar  ↑/↓:scroll  Tab:members";
 const HINT_NEW_DM: &str = " Address (0x…) / ENS (name.eth) / Inbox ID  Enter:create  Esc:cancel";
 const HINT_GROUP_NAME: &str = " Group name (optional)  Enter:next step  Esc:cancel";
-const HINT_REQUESTS: &str = " j/k:nav  a:accept  x:reject  Enter:preview  1/2:tab  q:quit";
+const HINT_REQUESTS: &str = " ↑↓:nav  a:accept  x:reject  Enter:preview  ←→:tab  q:quit";
 const HINT_MEMBERS: &str = " Tab/Esc:close";
 const FLASH_TTL: u16 = 60;
 
@@ -216,8 +216,8 @@ impl App {
         match key.code {
             KeyCode::Char('q') => self.quit = true,
             KeyCode::Char('?') => self.mode = Mode::Help,
-            KeyCode::Char('1') => self.switch_tab(Tab::Inbox),
-            KeyCode::Char('2') => self.switch_tab(Tab::Requests),
+            KeyCode::Char('1') | KeyCode::Left => self.switch_tab(Tab::Inbox),
+            KeyCode::Char('2') | KeyCode::Right => self.switch_tab(Tab::Requests),
             KeyCode::Char('j') | KeyCode::Down => self.nav(1),
             KeyCode::Char('k') | KeyCode::Up => self.nav(-1),
             KeyCode::Char('h') | KeyCode::Home => {
@@ -233,7 +233,7 @@ impl App {
                     self.open_selected();
                 }
             }
-            KeyCode::Enter | KeyCode::Tab | KeyCode::Char('l') | KeyCode::Right => {
+            KeyCode::Enter | KeyCode::Tab | KeyCode::Char('l') => {
                 if self.active_id.is_some() {
                     self.focus = Focus::Input;
                     self.set_default_status();

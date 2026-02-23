@@ -105,10 +105,10 @@ fn draw_sidebar(app: &App, frame: &mut Frame<'_>, area: Rect) {
     let focused = app.focus == Focus::Sidebar && app.mode == Mode::Normal;
     let border = Style::default().fg(if focused { BORDER_FOCUS } else { BORDER_DIM });
 
-    // Tab header: [1:Inbox] [2:Requests]
-    let req_label = format!(" 2:Requests({}) ", app.requests.len());
+    // Tab header: [Inbox] [Requests]  (← → to switch)
+    let req_label = format!(" Requests({}) ", app.requests.len());
     let tab_line = Line::from(vec![
-        tab_span(" 1:Inbox ", app.tab == Tab::Inbox),
+        tab_span(" Inbox ", app.tab == Tab::Inbox),
         Span::raw(" "),
         tab_span(&req_label, app.tab == Tab::Requests),
     ]);
@@ -193,15 +193,22 @@ fn draw_chat(app: &mut App, frame: &mut Frame<'_>, area: Rect) {
     if app.active_id.is_none() {
         let welcome = Paragraph::new(Text::from(vec![
             Line::default(),
-            Line::from("  Welcome to XMTP Chat"),
+            Line::from(Span::styled(
+                "  Welcome to XMTP",
+                Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
+            )),
             Line::default(),
             Line::from(vec![
                 Span::styled("  Press ", Style::default().fg(DIM)),
                 Span::styled("n", Style::default().fg(ACCENT)),
                 Span::styled(" for DM · ", Style::default().fg(DIM)),
                 Span::styled("g", Style::default().fg(ACCENT)),
-                Span::styled(" for group", Style::default().fg(DIM)),
+                Span::styled(" for group · ", Style::default().fg(DIM)),
+                Span::styled("?", Style::default().fg(ACCENT)),
+                Span::styled(" for help", Style::default().fg(DIM)),
             ]),
+            Line::default(),
+            Line::from(Span::styled("  github.com/qntx", Style::default().fg(DIM))),
         ]))
         .block(block);
         frame.render_widget(welcome, area);
@@ -403,8 +410,8 @@ fn draw_status(app: &App, frame: &mut Frame<'_>, area: Rect) {
 }
 
 fn draw_help(frame: &mut Frame<'_>, area: Rect) {
-    let w = 48.min(area.width.saturating_sub(4));
-    let h = 24.min(area.height.saturating_sub(4));
+    let w = 52.min(area.width.saturating_sub(4));
+    let h = 20.min(area.height.saturating_sub(4));
     let popup = centered(area, w, h);
 
     let block = Block::default()
@@ -415,18 +422,19 @@ fn draw_help(frame: &mut Frame<'_>, area: Rect) {
 
     let help = vec![
         Line::default(),
-        help_line("1 / 2", "Switch Inbox / Requests tab"),
-        help_line("j / k", "Navigate conversations"),
+        help_line("↑ / ↓", "Navigate conversations"),
+        help_line("← / →", "Switch Inbox / Requests tab"),
         help_line("Tab / Enter", "Open / focus input"),
         help_line("Esc", "Back to sidebar"),
         help_line("n", "New DM"),
         help_line("g", "New group (name → members)"),
         help_line("Tab", "View group members (in chat)"),
-        help_line("a", "Accept request (Requests tab)"),
-        help_line("x", "Reject request (Requests tab)"),
+        help_line("a / x", "Accept / Reject request"),
         help_line("r", "Sync conversations"),
         help_line("↑ / ↓", "Scroll chat (in input mode)"),
-        help_line("q", "Quit"),
+        help_line("Ctrl+C / q", "Quit"),
+        Line::default(),
+        Line::from(Span::styled("  github.com/qntx", Style::default().fg(DIM))),
         Line::default(),
     ];
 
