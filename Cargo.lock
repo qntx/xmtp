@@ -4105,7 +4105,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "alloy-signer",
  "alloy-signer-local",
@@ -4117,7 +4117,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp-cli"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "getrandom 0.4.1",
  "ratatui",

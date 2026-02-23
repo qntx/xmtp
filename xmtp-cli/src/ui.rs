@@ -13,19 +13,30 @@ use xmtp::MessageKind;
 
 use crate::app::{App, Focus, Mode, Tab, decode_body, delivery_icon, truncate_id};
 
-// ── Palette ──────────────────────────────────────────────────────
-
-const ACCENT: Color = Color::Blue;
-const DIM: Color = Color::DarkGray;
-const SELF_BG: Color = Color::Green;
-const PEER_BG: Color = Color::Cyan;
-const UNREAD: Color = Color::Yellow;
-const GROUP_TAG: Color = Color::Magenta;
-const TAB_ACTIVE: Color = Color::White;
-const TAB_INACTIVE: Color = Color::DarkGray;
-const REQUEST_TAG: Color = Color::Yellow;
-
-// ── Root ─────────────────────────────────────────────────────────
+/// Muted lavender accent — gentle, never harsh.
+const ACCENT: Color = Color::Rgb(180, 160, 220);
+/// Warm gray for secondary text.
+const DIM: Color = Color::Rgb(110, 110, 120);
+/// Soft sage green for own messages.
+const SELF_CLR: Color = Color::Rgb(140, 190, 140);
+/// Gentle steel blue for peer messages.
+const PEER_CLR: Color = Color::Rgb(130, 170, 200);
+/// Warm amber for unread dot.
+const UNREAD: Color = Color::Rgb(220, 180, 100);
+/// Soft rose for group tag.
+const GROUP_TAG: Color = Color::Rgb(190, 140, 170);
+/// Near-white for active tab.
+const TAB_ACTIVE: Color = Color::Rgb(220, 220, 225);
+/// Muted gray for inactive tab.
+const TAB_INACTIVE: Color = Color::Rgb(100, 100, 110);
+/// Warm amber for request badge.
+const REQUEST_TAG: Color = Color::Rgb(220, 180, 100);
+/// Subtle highlight for selected sidebar row.
+const SELECT_BG: Color = Color::Rgb(50, 50, 60);
+/// Subtle border when focused.
+const BORDER_FOCUS: Color = Color::Rgb(140, 130, 170);
+/// Very dim border when unfocused.
+const BORDER_DIM: Color = Color::Rgb(60, 60, 70);
 
 /// Render the full application UI.
 pub fn render(app: &App, frame: &mut Frame<'_>) {
@@ -51,8 +62,6 @@ pub fn render(app: &App, frame: &mut Frame<'_>) {
     }
 }
 
-// ── Header ───────────────────────────────────────────────────────
-
 fn draw_header(app: &App, frame: &mut Frame<'_>, area: Rect) {
     let req_count = app.requests.len();
     let mut spans = vec![
@@ -69,8 +78,6 @@ fn draw_header(app: &App, frame: &mut Frame<'_>, area: Rect) {
     }
     frame.render_widget(Paragraph::new(Line::from(spans)), area);
 }
-
-// ── Body (sidebar + main) ───────────────────────────────────────
 
 fn draw_body(app: &App, frame: &mut Frame<'_>, area: Rect) {
     let sidebar_w = (area.width * 3 / 10).clamp(24, 38);
@@ -90,11 +97,9 @@ fn draw_body(app: &App, frame: &mut Frame<'_>, area: Rect) {
     draw_input(app, frame, main[1]);
 }
 
-// ── Sidebar with tabs ────────────────────────────────────────────
-
 fn draw_sidebar(app: &App, frame: &mut Frame<'_>, area: Rect) {
     let focused = app.focus == Focus::Sidebar && app.mode == Mode::Normal;
-    let border = Style::default().fg(if focused { ACCENT } else { DIM });
+    let border = Style::default().fg(if focused { BORDER_FOCUS } else { BORDER_DIM });
 
     // Tab header: [1:Inbox] [2:Requests]
     let req_label = format!(" 2:Requests({}) ", app.requests.len());
@@ -157,7 +162,7 @@ fn draw_sidebar(app: &App, frame: &mut Frame<'_>, area: Rect) {
 
     let list = List::new(items)
         .block(block)
-        .highlight_style(Style::default().bg(Color::DarkGray))
+        .highlight_style(Style::default().bg(SELECT_BG))
         .highlight_symbol("▸ ");
 
     let mut state = ListState::default().with_selected(Some(app.sidebar_idx));
@@ -175,12 +180,10 @@ fn tab_span(label: &str, active: bool) -> Span<'_> {
     }
 }
 
-// ── Chat area (bubble messages) ─────────────────────────────────
-
 fn draw_chat(app: &App, frame: &mut Frame<'_>, area: Rect) {
     let block = Block::default()
         .borders(Borders::LEFT | Borders::TOP | Borders::RIGHT)
-        .border_style(Style::default().fg(DIM));
+        .border_style(Style::default().fg(BORDER_DIM));
     let inner = block.inner(area);
 
     if app.active_id.is_none() {
@@ -236,7 +239,7 @@ fn draw_chat(app: &App, frame: &mut Frame<'_>, area: Rect) {
             let b_pad = chat_w.saturating_sub(total_w);
             let top = format!("╭{}╮", "─".repeat(box_w));
             let bot = format!("╰{}╯", "─".repeat(box_w));
-            let style = Style::default().fg(SELF_BG);
+            let style = Style::default().fg(SELF_CLR);
 
             lines.push(Line::from(vec![
                 Span::raw(" ".repeat(b_pad)),
@@ -257,13 +260,13 @@ fn draw_chat(app: &App, frame: &mut Frame<'_>, area: Rect) {
         } else {
             let sender = truncate_id(&msg.sender_inbox_id, 12);
             lines.push(Line::from(vec![
-                Span::styled(format!("  {sender}"), Style::default().fg(PEER_BG)),
+                Span::styled(format!("  {sender}"), Style::default().fg(PEER_CLR)),
                 Span::styled(format!("  {time}"), Style::default().fg(DIM)),
             ]));
 
             let top = format!("  ╭{}╮", "─".repeat(box_w));
             let bot = format!("  ╰{}╯", "─".repeat(box_w));
-            let style = Style::default().fg(PEER_BG);
+            let style = Style::default().fg(PEER_CLR);
 
             lines.push(Line::from(Span::styled(top, style)));
             for wl in &wrapped {
@@ -301,12 +304,10 @@ fn draw_chat(app: &App, frame: &mut Frame<'_>, area: Rect) {
     }
 }
 
-// ── Input bar ────────────────────────────────────────────────────
-
 fn draw_input(app: &App, frame: &mut Frame<'_>, area: Rect) {
     let is_overlay = matches!(app.mode, Mode::NewDm | Mode::NewGroup);
     let focused = (app.focus == Focus::Input && app.mode == Mode::Normal) || is_overlay;
-    let border = if focused { ACCENT } else { DIM };
+    let border = if focused { BORDER_FOCUS } else { BORDER_DIM };
 
     let (title, prompt) = match app.mode {
         Mode::NewDm => (" New DM (wallet address) ", "0x> "),
@@ -332,16 +333,12 @@ fn draw_input(app: &App, frame: &mut Frame<'_>, area: Rect) {
     }
 }
 
-// ── Status bar ───────────────────────────────────────────────────
-
 fn draw_status(app: &App, frame: &mut Frame<'_>, area: Rect) {
     frame.render_widget(
         Paragraph::new(Span::styled(&app.status, Style::default().fg(DIM))),
         area,
     );
 }
-
-// ── Help overlay ─────────────────────────────────────────────────
 
 fn draw_help(frame: &mut Frame<'_>, area: Rect) {
     let w = 48.min(area.width.saturating_sub(4));
@@ -380,8 +377,6 @@ fn draw_help(frame: &mut Frame<'_>, area: Rect) {
     frame.render_widget(Paragraph::new(help).block(block), popup);
 }
 
-// ── Members overlay ──────────────────────────────────────────────
-
 fn draw_members(app: &App, frame: &mut Frame<'_>, area: Rect) {
     let w = 50.min(area.width.saturating_sub(4));
     #[allow(clippy::cast_possible_truncation)]
@@ -398,7 +393,7 @@ fn draw_members(app: &App, frame: &mut Frame<'_>, area: Rect) {
     for m in &app.members {
         let addr = truncate_id(&m.address, 32);
         lines.push(Line::from(vec![
-            Span::styled(format!("  {addr}"), Style::default().fg(PEER_BG)),
+            Span::styled(format!("  {addr}"), Style::default().fg(PEER_CLR)),
             Span::styled(format!("  ({})", m.role), Style::default().fg(DIM)),
         ]));
     }
@@ -424,8 +419,6 @@ const fn centered(area: Rect, w: u16, h: u16) -> Rect {
     let y = (area.height.saturating_sub(h)) / 2;
     Rect::new(x, y, w, h)
 }
-
-// ── Helpers ──────────────────────────────────────────────────────
 
 /// Simple word-wrap respecting unicode display width.
 fn wrap_text(text: &str, max_width: usize) -> Vec<String> {
