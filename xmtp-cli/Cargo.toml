@@ -7,7 +7,9 @@ repository.workspace = true
 description.workspace = true
 
 [dependencies]
-xmtp = { workspace = true, features = ["alloy"] }
+xmtp = { workspace = true, features = ["alloy", "ens", "ledger"] }
+clap.workspace = true
+dirs.workspace = true
 tokio.workspace = true
 unicode-width.workspace = true
 ratatui.workspace = true

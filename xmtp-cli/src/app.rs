@@ -38,9 +38,9 @@ pub enum Mode {
 
 const HINT_SIDEBAR: &str =
     " Tab:input  j/k:nav  1/2:tab  Enter:open  n:DM  g:group  r:sync  ?:help  q:quit";
-const HINT_INPUT: &str = " Enter:send  Esc:sidebar  PgUp/Dn:scroll  Tab:members";
-const HINT_NEW_DM: &str = " Enter wallet address (0x…)  Enter:create  Esc:cancel";
-const HINT_GROUP_NAME: &str = " Group name (optional)  Enter:next  Esc:cancel";
+const HINT_INPUT: &str = " Enter:send  Esc:sidebar  ↑/↓:scroll  Tab:members";
+const HINT_NEW_DM: &str = " Address (0x…) / ENS (name.eth) / Inbox ID  Enter:create  Esc:cancel";
+const HINT_GROUP_NAME: &str = " Group name (optional)  Enter:next step  Esc:cancel";
 const HINT_REQUESTS: &str = " j/k:nav  a:accept  x:reject  Enter:preview  1/2:tab  q:quit";
 const HINT_MEMBERS: &str = " Tab/Esc:close";
 const FLASH_TTL: u16 = 60;
@@ -56,7 +56,6 @@ pub struct App {
     pub mode: Mode,
     pub sidebar_idx: usize,
     pub scroll: usize,
-    pub scroll_pinned: bool,
 
     pub inbox: Vec<ConvEntry>,
     pub requests: Vec<ConvEntry>,
@@ -90,7 +89,6 @@ impl App {
             mode: Mode::Normal,
             sidebar_idx: 0,
             scroll: 0,
-            scroll_pinned: true,
             inbox: Vec::new(),
             requests: Vec::new(),
             active_id: None,
@@ -136,9 +134,6 @@ impl App {
             Event::Messages { conv_id, msgs } => {
                 if self.active_id.as_deref() == Some(&conv_id) {
                     self.messages = msgs;
-                    if self.scroll_pinned {
-                        self.scroll = 0;
-                    }
                 }
             }
             Event::Preview {
@@ -168,7 +163,6 @@ impl App {
                 self.tab = Tab::Inbox;
                 self.focus = Focus::Input;
                 self.scroll = 0;
-                self.scroll_pinned = true;
                 self.set_default_status();
             }
             Event::Flash(msg) => self.flash(&msg),
@@ -301,8 +295,8 @@ impl App {
                     self.cmd(Cmd::Send(text));
                 }
             }
-            KeyCode::PageUp => self.scroll_up(10),
-            KeyCode::PageDown => self.scroll_down(10),
+            KeyCode::Up => self.scroll_up(3),
+            KeyCode::Down => self.scroll_down(3),
             _ => self.edit_input(key.code),
         }
     }
@@ -368,7 +362,7 @@ impl App {
     fn update_group_members_hint(&mut self) {
         let n = self.group_members.len();
         self.status = format!(
-            " Enter address to add  Esc:create group  ({n} member{})",
+            " Address / ENS / Inbox ID  Esc:create group  ({n} member{})",
             if n == 1 { "" } else { "s" }
         );
     }
@@ -439,7 +433,6 @@ impl App {
         }
         self.messages.clear();
         self.scroll = 0;
-        self.scroll_pinned = true;
         self.cmd(Cmd::Open(id));
     }
 
@@ -455,14 +448,10 @@ impl App {
 
     pub const fn scroll_up(&mut self, n: usize) {
         self.scroll = self.scroll.saturating_add(n);
-        self.scroll_pinned = false;
     }
 
     pub const fn scroll_down(&mut self, n: usize) {
         self.scroll = self.scroll.saturating_sub(n);
-        if self.scroll == 0 {
-            self.scroll_pinned = true;
-        }
     }
 
     fn clamp_sidebar(&mut self) {

@@ -14,20 +14,86 @@ mod app;
 mod event;
 mod tui;
 mod ui;
+mod worker;
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 use std::time::Duration;
 use std::{fs, process};
 
-use xmtp::{
-    AccountIdentifier, AlloySigner, Client, ConsentState, ConversationOrderBy, ConversationType,
-    CreateGroupOptions, DeliveryStatus, Env, IdentifierKind, ListConversationsOptions,
-    ListMessagesOptions, Message, SortDirection, stream,
-};
+use clap::Parser;
+use xmtp::{AlloySigner, Client, EnsResolver, Env, LedgerSigner, Signer};
 
-use crate::app::{App, decode_preview, truncate_id};
-use crate::event::{Cmd, CmdTx, ConvEntry, Event, MemberEntry, Tx};
+use crate::app::{App, truncate_id};
+use crate::event::{Cmd, Event};
+
+/// Interactive XMTP TUI chat client.
+///
+/// Supports Ethereum addresses (0x…), ENS names (name.eth), and XMTP Inbox IDs
+/// as recipient identifiers for DMs and group conversations.
+#[derive(Parser)]
+#[command(name = "xmtp", version, about, long_about = None)]
+struct Args {
+    /// Profile name — keys and database are stored under this name
+    /// in the platform data directory.
+    #[arg(default_value = "default")]
+    profile: String,
+
+    /// Path to private key file (overrides profile default).
+    #[arg(short = 'k', long = "key")]
+    key_path: Option<PathBuf>,
+
+    /// Path to database file (overrides profile default).
+    #[arg(short = 'd', long = "db")]
+    db_path: Option<PathBuf>,
+
+    /// XMTP network environment.
+    #[arg(short, long, default_value = "dev", value_parser = parse_env)]
+    env: Env,
+
+    /// Ethereum RPC URL for ENS name resolution.
+    #[arg(long, default_value = "https://eth.llamarpc.com")]
+    rpc_url: String,
+
+    /// Disable ENS name resolution.
+    #[arg(long)]
+    no_ens: bool,
+
+    /// Import a hex-encoded private key into the profile.
+    #[arg(long = "import")]
+    import_hex: Option<String>,
+
+    /// Show identity information and exit.
+    #[arg(long)]
+    info: bool,
+
+    /// List all installations for this identity and exit.
+    #[arg(long)]
+    installations: bool,
+
+    /// Revoke all installations except the current one and exit.
+    #[arg(long)]
+    revoke_others: bool,
+
+    /// Use a Ledger hardware wallet for signing instead of a local key file.
+    #[arg(long)]
+    ledger: bool,
+
+    /// Ledger account index (Ledger Live HD path, default: 0).
+    #[arg(long, default_value = "0")]
+    ledger_index: usize,
+}
+
+fn parse_env(s: &str) -> Result<Env, String> {
+    match s.to_ascii_lowercase().as_str() {
+        "dev" | "development" => Ok(Env::Dev),
+        "prod" | "production" => Ok(Env::Production),
+        "local" | "localhost" => Ok(Env::Local),
+        _ => Err(format!(
+            "unknown environment: {s} (expected: dev, production, local)"
+        )),
+    }
+}
 
 fn main() {
     let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
@@ -41,38 +107,143 @@ fn main() {
 }
 
 fn run() -> xmtp::Result<()> {
-    let name = std::env::args().nth(1).unwrap_or_else(|| {
-        eprintln!("usage: xmtp-cli <name>");
-        process::exit(1);
-    });
+    let args = Args::parse();
+    let (key_path, db_path) = resolve_paths(&args);
 
-    let signer = load_or_create_signer(&format!("{name}.key"))?;
-    let address = signer.address();
-    eprintln!("address: {address}");
+    // Validate conflicting options.
+    if args.ledger && args.import_hex.is_some() {
+        return Err(xmtp::Error::InvalidArgument(
+            "--ledger and --import are mutually exclusive".into(),
+        ));
+    }
 
-    let client = create_client(&signer, &format!("{name}.db3"))?;
+    // Handle key import (file signer only).
+    if let Some(ref hex) = args.import_hex {
+        import_key(hex, &key_path)?;
+        eprintln!("Imported key to {}", key_path.display());
+    }
+
+    // Create signer — either Ledger hardware wallet or local key file.
+    let signer: Box<dyn Signer> = if args.ledger {
+        eprintln!("Connecting to Ledger (index {})...", args.ledger_index);
+        Box::new(LedgerSigner::new(args.ledger_index)?)
+    } else {
+        Box::new(load_or_create_signer(&key_path)?)
+    };
+    let address = signer.identifier().address;
+    let client = create_client(signer.as_ref(), &args, &db_path)?;
     let inbox_id = client.inbox_id()?;
-    eprintln!("inbox: {inbox_id}");
 
-    // Channels: events (worker/poller → main), commands (app/streams → worker).
+    // Non-TUI commands — print output and exit.
+    if args.info {
+        print_info(&address, &inbox_id, &args, &key_path, &db_path);
+        return Ok(());
+    }
+    if args.installations {
+        return print_installations(&client, &inbox_id);
+    }
+    if args.revoke_others {
+        return run_revoke_others(&client, signer.as_ref());
+    }
+
+    // TUI mode.
+    eprintln!("address: {address}");
+    eprintln!("inbox:   {inbox_id}");
+    run_tui(client, address, inbox_id)
+}
+
+/// Resolve key and database paths from explicit flags or profile defaults.
+fn resolve_paths(args: &Args) -> (PathBuf, PathBuf) {
+    let dir = profile_dir(&args.profile);
+    let key = args
+        .key_path
+        .clone()
+        .unwrap_or_else(|| dir.join("identity.key"));
+    let db = args
+        .db_path
+        .clone()
+        .unwrap_or_else(|| dir.join("messages.db3"));
+    (key, db)
+}
+
+/// Platform-specific data directory for a named profile.
+fn profile_dir(profile: &str) -> PathBuf {
+    dirs::data_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join("xmtp-cli")
+        .join(profile)
+}
+
+fn print_info(address: &str, inbox_id: &str, args: &Args, key_path: &Path, db_path: &Path) {
+    let env_name = match args.env {
+        Env::Dev => "dev",
+        Env::Production => "production",
+        Env::Local => "local",
+    };
+    println!("Profile:       {}", args.profile);
+    println!("Environment:   {env_name}");
+    println!("Address:       {address}");
+    println!("Inbox ID:      {inbox_id}");
+    if args.ledger {
+        println!("Signer:        Ledger (index {})", args.ledger_index);
+    } else {
+        println!("Key file:      {}", key_path.display());
+    }
+    println!("Database:      {}", db_path.display());
+}
+
+fn print_installations(client: &Client, inbox_id: &str) -> xmtp::Result<()> {
+    let current = client.installation_id()?;
+    let states = client.inbox_state(true)?;
+    let ids: Vec<&str> = states
+        .iter()
+        .flat_map(|s| s.installation_ids.iter().map(String::as_str))
+        .collect();
+
+    println!("Installations for inbox {inbox_id}\n");
+    println!("  #  Installation ID                             Status");
+    println!("  ─  ─────────────────────────────────────────── ──────");
+    for (i, id) in ids.iter().enumerate() {
+        let tag = if *id == current { " ← current" } else { "" };
+        let display = truncate_id(id, 44);
+        println!("  {}  {display:<44}  active{tag}", i + 1);
+    }
+    println!("\nTotal: {} / 10", ids.len());
+    Ok(())
+}
+
+fn run_revoke_others(client: &Client, signer: &dyn Signer) -> xmtp::Result<()> {
+    let current = client.installation_id()?;
+    let states = client.inbox_state(true)?;
+    let count = states
+        .iter()
+        .flat_map(|s| &s.installation_ids)
+        .filter(|id| id.as_str() != current)
+        .count();
+
+    if count == 0 {
+        println!("No other installations to revoke.");
+        return Ok(());
+    }
+
+    println!("Revoking {count} other installation(s)...");
+    client.revoke_all_other_installations(signer)?;
+    println!("Done. Only current installation remains.");
+    Ok(())
+}
+
+fn run_tui(client: Client, address: String, inbox_id: String) -> xmtp::Result<()> {
     let (event_tx, event_rx) = mpsc::channel::<Event>();
     let (cmd_tx, cmd_rx) = mpsc::channel::<Cmd>();
 
-    // Terminal input poller.
     event::spawn_poller(event_tx.clone(), Duration::from_millis(50));
+    let _streams = worker::start_streams(&client, &cmd_tx)?;
 
-    // XMTP streams → worker commands (not main thread events).
-    let _streams = start_streams(&client, &cmd_tx)?;
-
-    // Worker thread — owns the Client, handles ALL FFI.
     let worker_tx = event_tx;
-    let worker_inbox = inbox_id.clone();
-    std::thread::spawn(move || worker(client, worker_inbox, cmd_rx, worker_tx));
+    std::thread::spawn(move || worker::run(client, cmd_rx, worker_tx));
 
-    // Trigger initial async load (non-blocking).
     let _ = cmd_tx.send(Cmd::Sync);
 
-    // App — pure state machine, zero FFI.
     let mut app = App::new(address, inbox_id, cmd_tx);
 
     tui::install_panic_hook();
@@ -95,351 +266,75 @@ fn run() -> xmtp::Result<()> {
     tui::restore().map_err(|e| xmtp::Error::Ffi(format!("restore: {e}")))
 }
 
-/// Worker thread: owns the [`Client`], processes [`Cmd`], sends [`Event`] results.
-/// All blocking FFI calls happen here — the main thread never waits.
-#[allow(clippy::needless_pass_by_value)]
-fn worker(client: Client, inbox_id: String, rx: mpsc::Receiver<Cmd>, tx: Tx) {
-    let mut active: Option<(String, xmtp::Conversation)> = None;
-
-    let list_opts = ListMessagesOptions {
-        direction: Some(SortDirection::Ascending),
-        ..Default::default()
-    };
-
-    // Helper: load messages with stable sort so Unpublished always appear last.
-    // Fixes clock-skew ordering where optimistic messages sort before received ones.
-    let load_messages = |conv: &xmtp::Conversation| -> Vec<Message> {
-        let mut msgs = conv.list_messages(&list_opts).unwrap_or_default();
-        msgs.sort_by_key(|m| m.delivery_status == DeliveryStatus::Unpublished);
-        msgs
-    };
-
-    while let Ok(cmd) = rx.recv() {
-        match cmd {
-            Cmd::Open(id) => {
-                if active.as_ref().is_some_and(|(aid, _)| *aid == id) {
-                    continue;
-                }
-                if let Ok(Some(conv)) = client.conversation(&id) {
-                    let msgs = load_messages(&conv);
-                    let _ = tx.send(Event::Messages {
-                        conv_id: id.clone(),
-                        msgs,
-                    });
-                    active = Some((id, conv));
-                }
-            }
-
-            Cmd::Send(text) => {
-                let Some((ref id, ref conv)) = active else {
-                    continue;
-                };
-                let encoded = xmtp::content::encode_text(&text);
-                match conv.send_optimistic(&encoded) {
-                    Ok(_) => {
-                        // Show message with ○ instantly.
-                        let msgs = load_messages(conv);
-                        let _ = tx.send(Event::Messages {
-                            conv_id: id.clone(),
-                            msgs,
-                        });
-                        // Publish to network (blocking but UI already updated).
-                        if let Err(e) = conv.publish_messages() {
-                            let _ = tx.send(Event::Flash(format!("Publish: {e}")));
-                        }
-                        // Update status to ✓.
-                        let msgs = load_messages(conv);
-                        let _ = tx.send(Event::Messages {
-                            conv_id: id.clone(),
-                            msgs,
-                        });
-                    }
-                    Err(e) => {
-                        let _ = tx.send(Event::Flash(format!("Send: {e}")));
-                    }
-                }
-            }
-
-            Cmd::CreateDm(addr) => {
-                let ident = AccountIdentifier {
-                    address: addr.clone(),
-                    kind: IdentifierKind::Ethereum,
-                };
-                match client.can_message(&[ident]) {
-                    Ok(r) if r.first() == Some(&true) => {}
-                    Ok(_) => {
-                        let _ = tx.send(Event::Flash("Not on XMTP".into()));
-                        continue;
-                    }
-                    Err(e) => {
-                        let _ = tx.send(Event::Flash(format!("canMessage: {e}")));
-                        continue;
-                    }
-                }
-                match client.create_dm(&addr, IdentifierKind::Ethereum) {
-                    Ok(conv) => {
-                        let cid = conv.id().unwrap_or_default();
-                        let _ = conv.set_consent(ConsentState::Allowed);
-                        let _ = tx.send(Event::Created {
-                            conv_id: cid.clone(),
-                        });
-                        let msgs = load_messages(&conv);
-                        let _ = tx.send(Event::Messages {
-                            conv_id: cid.clone(),
-                            msgs,
-                        });
-                        active = Some((cid, conv));
-                        send_conversations(&client, &inbox_id, &tx);
-                        let _ = tx.send(Event::Flash("DM created".into()));
-                    }
-                    Err(e) => {
-                        let _ = tx.send(Event::Flash(format!("DM: {e}")));
-                    }
-                }
-            }
-
-            Cmd::CreateGroup { name, addrs: raw } => {
-                let addrs: Vec<AccountIdentifier> = raw
-                    .into_iter()
-                    .filter(|s| !s.is_empty())
-                    .map(|s| AccountIdentifier {
-                        address: s,
-                        kind: IdentifierKind::Ethereum,
-                    })
-                    .collect();
-                if addrs.is_empty() {
-                    let _ = tx.send(Event::Flash("No addresses".into()));
-                    continue;
-                }
-                match client.can_message(&addrs) {
-                    Ok(results) => {
-                        let bad: Vec<_> = addrs
-                            .iter()
-                            .zip(&results)
-                            .filter(|&(_, ok)| !*ok)
-                            .map(|(a, _)| truncate_id(&a.address, 12))
-                            .collect();
-                        if !bad.is_empty() {
-                            let _ =
-                                tx.send(Event::Flash(format!("Not on XMTP: {}", bad.join(", "))));
-                            continue;
-                        }
-                    }
-                    Err(e) => {
-                        let _ = tx.send(Event::Flash(format!("canMessage: {e}")));
-                        continue;
-                    }
-                }
-                // Auto-generate name from member addresses if not provided.
-                let group_name = name.or_else(|| {
-                    let names: Vec<_> = addrs.iter().map(|a| truncate_id(&a.address, 10)).collect();
-                    Some(names.join(", "))
-                });
-                let opts = CreateGroupOptions {
-                    name: group_name,
-                    ..Default::default()
-                };
-                match client.create_group_by_identifiers(&addrs, &opts) {
-                    Ok(conv) => {
-                        let cid = conv.id().unwrap_or_default();
-                        let _ = conv.set_consent(ConsentState::Allowed);
-                        let _ = tx.send(Event::Created {
-                            conv_id: cid.clone(),
-                        });
-                        let msgs = load_messages(&conv);
-                        let _ = tx.send(Event::Messages {
-                            conv_id: cid.clone(),
-                            msgs,
-                        });
-                        active = Some((cid, conv));
-                        send_conversations(&client, &inbox_id, &tx);
-                        let _ = tx.send(Event::Flash("Group created".into()));
-                    }
-                    Err(e) => {
-                        let _ = tx.send(Event::Flash(format!("Group: {e}")));
-                    }
-                }
-            }
-
-            Cmd::Accept(id) => {
-                if let Ok(Some(conv)) = client.conversation(&id) {
-                    let _ = conv.set_consent(ConsentState::Allowed);
-                    send_conversations(&client, &inbox_id, &tx);
-                    let _ = tx.send(Event::Flash("Accepted".into()));
-                }
-            }
-
-            Cmd::Reject(id) => {
-                if let Ok(Some(conv)) = client.conversation(&id) {
-                    let _ = conv.set_consent(ConsentState::Denied);
-                    send_conversations(&client, &inbox_id, &tx);
-                    let _ = tx.send(Event::Flash("Rejected".into()));
-                }
-            }
-
-            Cmd::Sync => {
-                let _ = client.sync_welcomes();
-                send_conversations(&client, &inbox_id, &tx);
-                if let Some((ref id, ref conv)) = active {
-                    let _ = conv.sync();
-                    let msgs = load_messages(conv);
-                    let _ = tx.send(Event::Messages {
-                        conv_id: id.clone(),
-                        msgs,
-                    });
-                }
-                let _ = tx.send(Event::Flash("Synced".into()));
-            }
-
-            Cmd::LoadMembers => {
-                if let Some((_, ref conv)) = active {
-                    match conv.members() {
-                        Ok(members) => {
-                            let entries: Vec<MemberEntry> = members
-                                .into_iter()
-                                .map(|m| {
-                                    let address = m
-                                        .account_identifiers
-                                        .first()
-                                        .cloned()
-                                        .unwrap_or_else(|| m.inbox_id.clone());
-                                    let role = match m.permission_level {
-                                        xmtp::PermissionLevel::SuperAdmin => "super_admin",
-                                        xmtp::PermissionLevel::Admin => "admin",
-                                        xmtp::PermissionLevel::Member => "member",
-                                    };
-                                    MemberEntry { address, role }
-                                })
-                                .collect();
-                            let _ = tx.send(Event::Members(entries));
-                        }
-                        Err(e) => {
-                            let _ = tx.send(Event::Flash(format!("Members: {e}")));
-                        }
-                    }
-                }
-            }
-
-            Cmd::NewMessage { msg_id, conv_id } => {
-                let is_active = active.as_ref().is_some_and(|(aid, _)| *aid == conv_id);
-                if is_active && let Some((ref id, ref conv)) = active {
-                    let msgs = load_messages(conv);
-                    let _ = tx.send(Event::Messages {
-                        conv_id: id.clone(),
-                        msgs,
-                    });
-                }
-                if let Ok(Some(msg)) = client.message_by_id(&msg_id) {
-                    let preview = decode_preview(&msg);
-                    let _ = tx.send(Event::Preview {
-                        conv_id,
-                        text: preview,
-                        time_ns: msg.sent_at_ns,
-                        unread: !is_active,
-                    });
-                }
-            }
-
-            Cmd::NewConversation => {
-                let _ = client.sync_welcomes();
-                send_conversations(&client, &inbox_id, &tx);
-            }
-        }
+/// Import a hex-encoded private key into the given path.
+fn import_key(hex_str: &str, path: &Path) -> xmtp::Result<()> {
+    let hex_str = hex_str.strip_prefix("0x").unwrap_or(hex_str);
+    if hex_str.len() != 64 {
+        return Err(xmtp::Error::InvalidArgument(format!(
+            "key must be 64 hex chars (32 bytes), got {}",
+            hex_str.len()
+        )));
     }
+    let bytes: Vec<u8> = (0..hex_str.len())
+        .step_by(2)
+        .map(|i| u8::from_str_radix(&hex_str[i..i + 2], 16))
+        .collect::<Result<_, _>>()
+        .map_err(|e| xmtp::Error::InvalidArgument(format!("invalid hex: {e}")))?;
+    ensure_parent(path)?;
+    fs::write(path, &bytes).map_err(|e| xmtp::Error::Ffi(format!("write key: {e}")))
 }
 
-/// Build and send conversation lists for both Inbox and Requests.
-fn send_conversations(client: &Client, inbox_id: &str, tx: &Tx) {
-    let inbox = build_conv_list(client, &[ConsentState::Allowed], inbox_id);
-    let requests = build_conv_list(client, &[ConsentState::Unknown], inbox_id);
-    let _ = tx.send(Event::Conversations { inbox, requests });
-}
-
-/// Build a sidebar list from conversations matching the given consent states.
-fn build_conv_list(client: &Client, consent: &[ConsentState], _inbox_id: &str) -> Vec<ConvEntry> {
-    let opts = ListConversationsOptions {
-        consent_states: consent.to_vec(),
-        order_by: ConversationOrderBy::LastActivity,
-        ..Default::default()
-    };
-    client
-        .list_conversations(&opts)
-        .unwrap_or_default()
-        .iter()
-        .map(|conv| {
-            let id = conv.id().unwrap_or_default();
-            let is_group = conv.conversation_type() == Some(ConversationType::Group);
-            let label = if is_group {
-                conv.name()
-                    .unwrap_or_else(|| format!("Group {}", truncate_id(&id, 8)))
-            } else {
-                conv.dm_peer_inbox_id()
-                    .map_or_else(|| "DM".into(), |s| truncate_id(&s, 16))
-            };
-            let last = conv.last_message().ok().flatten();
-            let preview = last.as_ref().map_or(String::new(), decode_preview);
-            let last_ns = last.as_ref().map_or(0, |m| m.sent_at_ns);
-            ConvEntry {
-                id,
-                label,
-                preview,
-                last_ns,
-                is_group,
-                unread: false,
-            }
-        })
-        .collect()
-}
-
-/// XMTP streams wired to the **worker** command channel (not the main event channel).
-fn start_streams(
-    client: &Client,
-    cmd_tx: &CmdTx,
-) -> xmtp::Result<(xmtp::StreamHandle, xmtp::StreamHandle)> {
-    let msg_tx = cmd_tx.clone();
-    let msg_stream = stream::stream_all_messages(client, None, &[], move |msg_id, conv_id| {
-        let _ = msg_tx.send(Cmd::NewMessage { msg_id, conv_id });
-    })?;
-
-    let conv_tx = cmd_tx.clone();
-    let conv_stream = stream::stream_conversations(client, None, move |_| {
-        let _ = conv_tx.send(Cmd::NewConversation);
-    })?;
-
-    Ok((msg_stream, conv_stream))
-}
-
-fn load_or_create_signer(key_path: &str) -> xmtp::Result<AlloySigner> {
-    let key: [u8; 32] = if Path::new(key_path).exists() {
-        let bytes = fs::read(key_path).map_err(|e| xmtp::Error::Ffi(format!("read key: {e}")))?;
+/// Load an existing private key or generate a new one.
+fn load_or_create_signer(path: &Path) -> xmtp::Result<AlloySigner> {
+    let key: [u8; 32] = if path.exists() {
+        let bytes = fs::read(path).map_err(|e| xmtp::Error::Ffi(format!("read key: {e}")))?;
         bytes
             .try_into()
             .map_err(|_| xmtp::Error::InvalidArgument("key file must be 32 bytes".into()))?
     } else {
         let mut key = [0u8; 32];
         getrandom::fill(&mut key).map_err(|e| xmtp::Error::Ffi(format!("rng: {e}")))?;
-        fs::write(key_path, key).map_err(|e| xmtp::Error::Ffi(format!("write key: {e}")))?;
+        ensure_parent(path)?;
+        fs::write(path, key).map_err(|e| xmtp::Error::Ffi(format!("write key: {e}")))?;
         key
     };
     AlloySigner::from_bytes(&key)
 }
 
-fn create_client(signer: &AlloySigner, db_path: &str) -> xmtp::Result<Client> {
-    match Client::builder()
-        .env(Env::Dev)
-        .db_path(db_path)
-        .build(signer)
-    {
+/// Build and register an XMTP client with ENS resolver configured.
+fn create_client(signer: &dyn Signer, args: &Args, db_path: &Path) -> xmtp::Result<Client> {
+    ensure_parent(db_path)?;
+    let db = db_path.to_string_lossy();
+
+    let build = |db: &str| {
+        let mut builder = Client::builder().env(args.env).db_path(db);
+        if !args.no_ens
+            && let Ok(resolver) = EnsResolver::new(&args.rpc_url)
+        {
+            builder = builder.resolver(resolver);
+        }
+        builder.build(signer)
+    };
+
+    match build(&db) {
         Ok(c) => Ok(c),
-        Err(e) if format!("{e}").contains("does not match the stored InboxId") => {
+        // Stale DB with different InboxId — recreate.
+        Err(e) if e.to_string().contains("does not match the stored InboxId") => {
             for ext in ["", "-shm", "-wal"] {
-                let _ = fs::remove_file(format!("{db_path}{ext}"));
+                let _ = fs::remove_file(format!("{db}{ext}"));
             }
-            Client::builder()
-                .env(Env::Dev)
-                .db_path(db_path)
-                .build(signer)
+            build(&db)
         }
         Err(e) => Err(e),
     }
+}
+
+/// Ensure the parent directory of a path exists.
+fn ensure_parent(path: &Path) -> xmtp::Result<()> {
+    if let Some(parent) = path.parent()
+        && !parent.as_os_str().is_empty()
+    {
+        fs::create_dir_all(parent).map_err(|e| xmtp::Error::Ffi(format!("create dir: {e}")))?;
+    }
+    Ok(())
 }

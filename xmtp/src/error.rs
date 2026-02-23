@@ -28,6 +28,14 @@ pub enum Error {
     /// A signing operation failed.
     #[error("signing: {0}")]
     Signing(String),
+
+    /// No identity resolver configured (needed for ENS names, etc.).
+    #[error("no resolver configured — use ClientBuilder::resolver()")]
+    NoResolver,
+
+    /// Identity resolution failed (ENS, Lens, etc.).
+    #[error("resolution: {0}")]
+    Resolution(String),
 }
 
 /// Read the last FFI error message from thread-local storage.

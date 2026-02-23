@@ -75,9 +75,9 @@ pub enum Cmd {
     Open(String),
     /// Send text in the active conversation.
     Send(String),
-    /// Create DM with a wallet address.
+    /// Create DM with a recipient (address, ENS name, or inbox ID).
     CreateDm(String),
-    /// Create group with optional name and member wallet addresses.
+    /// Create group with optional name and member recipients.
     CreateGroup {
         name: Option<String>,
         addrs: Vec<String>,

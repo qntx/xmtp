@@ -64,9 +64,18 @@ pub fn libxmtp_version() -> Result<String> {
 }
 
 /// A connected XMTP client.
-#[derive(Debug)]
 pub struct Client {
     pub(crate) handle: OwnedHandle<xmtp_sys::XmtpFfiClient>,
+    pub(crate) resolver: Option<Box<dyn crate::resolve::Resolver>>,
+}
+
+impl std::fmt::Debug for Client {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Client")
+            .field("handle", &self.handle)
+            .field("resolver", &self.resolver.is_some())
+            .finish()
+    }
 }
 
 impl Client {
@@ -377,7 +386,7 @@ impl Client {
 }
 
 /// Builder for constructing a [`Client`].
-#[derive(Debug, Clone, Default)]
+#[derive(Default)]
 pub struct ClientBuilder {
     env: Env,
     db_path: Option<String>,
@@ -389,6 +398,17 @@ pub struct ClientBuilder {
     disable_device_sync: bool,
     allow_offline: bool,
     notification_mode: bool,
+    resolver: Option<Box<dyn crate::resolve::Resolver>>,
+}
+
+impl std::fmt::Debug for ClientBuilder {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ClientBuilder")
+            .field("env", &self.env)
+            .field("db_path", &self.db_path)
+            .field("resolver", &self.resolver.is_some())
+            .finish_non_exhaustive()
+    }
 }
 
 impl ClientBuilder {
@@ -464,6 +484,16 @@ impl ClientBuilder {
         self
     }
 
+    /// Set the identity resolver for ENS names and other external identities.
+    ///
+    /// Without a resolver, [`Recipient::Ens`](crate::Recipient::Ens) variants
+    /// will return [`Error::NoResolver`](crate::Error::NoResolver).
+    #[must_use]
+    pub fn resolver(mut self, r: impl crate::resolve::Resolver + 'static) -> Self {
+        self.resolver = Some(Box::new(r));
+        self
+    }
+
     /// Build the client, registering identity with `signer` if needed.
     pub fn build(self, signer: &dyn Signer) -> Result<Client> {
         let ident = signer.identifier();
@@ -520,7 +550,10 @@ impl ClientBuilder {
         let mut raw: *mut xmtp_sys::XmtpFfiClient = ptr::null_mut();
         error::check(unsafe { xmtp_sys::xmtp_client_create(&raw const opts, &raw mut raw) })?;
         let handle = OwnedHandle::new(raw, xmtp_sys::xmtp_client_free)?;
-        Ok(Client { handle })
+        Ok(Client {
+            handle,
+            resolver: self.resolver,
+        })
     }
 }
 

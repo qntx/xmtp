@@ -11,6 +11,7 @@ use crate::error::{self, Result};
 use crate::ffi::{
     c_str_ptr, identifiers_to_ffi, optional_c_string, to_c_string, to_c_string_array,
 };
+use crate::resolve::Recipient;
 use crate::types::{
     AccountIdentifier, ConsentState, ConversationType, CreateDmOptions, CreateGroupOptions,
     HmacKeyEntry, IdentifierKind, ListConversationsOptions, SyncResult,
@@ -19,14 +20,91 @@ use crate::types::{
 use super::Client;
 
 impl Client {
-    /// Create a group conversation.
-    pub fn create_group(
+    /// Create a group with any recipient types.
+    ///
+    /// Accepts Ethereum addresses, inbox IDs, and ENS names (if a
+    /// [`Resolver`](crate::Resolver) is configured). Mixed types are supported.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # fn example(client: &xmtp::Client) -> xmtp::Result<()> {
+    /// use xmtp::{CreateGroupOptions, Recipient};
+    ///
+    /// let members = [
+    ///     Recipient::parse("0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045"),
+    ///     Recipient::parse("vitalik.eth"),
+    /// ];
+    /// let opts = CreateGroupOptions { name: Some("My Group".into()), ..Default::default() };
+    /// client.group(&members, &opts)?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn group(&self, members: &[Recipient], opts: &CreateGroupOptions) -> Result<Conversation> {
+        // Resolve all recipients: Ens → Address, then partition.
+        let mut identifiers = Vec::new();
+        let mut inbox_ids = Vec::new();
+        for m in members {
+            match m {
+                Recipient::Address(addr) => identifiers.push(AccountIdentifier {
+                    address: addr.clone(),
+                    kind: IdentifierKind::Ethereum,
+                }),
+                Recipient::InboxId(id) => inbox_ids.push(id.clone()),
+                Recipient::Ens(name) => {
+                    let resolver = self.resolver.as_ref().ok_or(crate::Error::NoResolver)?;
+                    let addr = resolver.resolve(name)?;
+                    identifiers.push(AccountIdentifier {
+                        address: addr,
+                        kind: IdentifierKind::Ethereum,
+                    });
+                }
+            }
+        }
+        // Pick the most efficient FFI path.
+        if inbox_ids.is_empty() {
+            self.group_by_identifiers(&identifiers, opts)
+        } else if identifiers.is_empty() {
+            let ids: Vec<&str> = inbox_ids.iter().map(String::as_str).collect();
+            self.group_by_inbox_ids(&ids, opts)
+        } else {
+            // Mixed: resolve identifiers → inbox IDs, then create by inbox IDs.
+            for ident in &identifiers {
+                let id = self
+                    .inbox_id_for(&ident.address, ident.kind)?
+                    .ok_or_else(|| {
+                        crate::Error::Resolution(format!("no inbox for {}", ident.address))
+                    })?;
+                inbox_ids.push(id);
+            }
+            let ids: Vec<&str> = inbox_ids.iter().map(String::as_str).collect();
+            self.group_by_inbox_ids(&ids, opts)
+        }
+    }
+
+    /// Create a group without syncing (optimistic / offline).
+    pub fn group_optimistic(&self, opts: &CreateGroupOptions) -> Result<Conversation> {
+        with_group_ffi_opts(opts, |ffi_opts| {
+            let mut out: *mut xmtp_sys::XmtpFfiConversation = ptr::null_mut();
+            let rc = unsafe {
+                xmtp_sys::xmtp_client_create_group_optimistic(
+                    self.handle.as_ptr(),
+                    ffi_opts,
+                    &raw mut out,
+                )
+            };
+            error::check(rc)?;
+            Conversation::from_raw(out)
+        })
+    }
+
+    fn group_by_inbox_ids(
         &self,
-        member_inbox_ids: &[&str],
-        options: &CreateGroupOptions,
+        inbox_ids: &[&str],
+        opts: &CreateGroupOptions,
     ) -> Result<Conversation> {
-        let (_owned, ptrs) = to_c_string_array(member_inbox_ids)?;
-        with_group_ffi_opts(options, |ffi_opts| {
+        let (_owned, ptrs) = to_c_string_array(inbox_ids)?;
+        with_group_ffi_opts(opts, |ffi_opts| {
             let ids_ptr = if ptrs.is_empty() {
                 ptr::null()
             } else {
@@ -47,14 +125,13 @@ impl Client {
         })
     }
 
-    /// Create a group by external identifiers (address + kind).
-    pub fn create_group_by_identifiers(
+    fn group_by_identifiers(
         &self,
         identifiers: &[AccountIdentifier],
-        options: &CreateGroupOptions,
+        opts: &CreateGroupOptions,
     ) -> Result<Conversation> {
         let (_owned, ptrs, kinds) = identifiers_to_ffi(identifiers)?;
-        with_group_ffi_opts(options, |ffi_opts| {
+        with_group_ffi_opts(opts, |ffi_opts| {
             let mut out: *mut xmtp_sys::XmtpFfiConversation = ptr::null_mut();
             let rc = unsafe {
                 xmtp_sys::xmtp_client_create_group_by_identity(
@@ -71,80 +148,43 @@ impl Client {
         })
     }
 
-    /// Create a group without syncing (optimistic / offline).
-    pub fn create_group_optimistic(&self, options: &CreateGroupOptions) -> Result<Conversation> {
-        with_group_ffi_opts(options, |ffi_opts| {
-            let mut out: *mut xmtp_sys::XmtpFfiConversation = ptr::null_mut();
-            let rc = unsafe {
-                xmtp_sys::xmtp_client_create_group_optimistic(
-                    self.handle.as_ptr(),
-                    ffi_opts,
-                    &raw mut out,
-                )
-            };
-            error::check(rc)?;
-            Conversation::from_raw(out)
-        })
-    }
-
-    /// Find or create a DM by address and identifier kind.
-    pub fn create_dm(&self, address: &str, kind: IdentifierKind) -> Result<Conversation> {
-        self.create_dm_with(address, kind, &CreateDmOptions::default())
+    /// Find or create a DM with any recipient type.
+    ///
+    /// Accepts Ethereum addresses, inbox IDs, and ENS names (if a
+    /// [`Resolver`](crate::Resolver) is configured).
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # fn example(client: &xmtp::Client) -> xmtp::Result<()> {
+    /// // By address
+    /// client.dm(&"0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045".into())?;
+    /// // By inbox ID
+    /// client.dm(&xmtp::Recipient::InboxId("abc123".into()))?;
+    /// // By ENS (requires resolver)
+    /// client.dm(&"vitalik.eth".into())?;
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn dm(&self, to: &Recipient) -> Result<Conversation> {
+        self.dm_with(to, &CreateDmOptions::default())
     }
 
     /// Find or create a DM with options (e.g. disappearing messages).
-    pub fn create_dm_with(
-        &self,
-        address: &str,
-        kind: IdentifierKind,
-        opts: &CreateDmOptions,
-    ) -> Result<Conversation> {
-        let c = to_c_string(address)?;
-        let ds = opts.disappearing.unwrap_or_default();
-        let mut out: *mut xmtp_sys::XmtpFfiConversation = ptr::null_mut();
-        let rc = unsafe {
-            xmtp_sys::xmtp_client_create_dm(
-                self.handle.as_ptr(),
-                c.as_ptr(),
-                kind as i32,
-                ds.from_ns,
-                ds.in_ns,
-                &raw mut out,
-            )
-        };
-        error::check(rc)?;
-        Conversation::from_raw(out)
-    }
-
-    /// Find or create a DM by inbox ID.
-    pub fn create_dm_by_inbox_id(&self, inbox_id: &str) -> Result<Conversation> {
-        self.create_dm_by_inbox_id_with(inbox_id, &CreateDmOptions::default())
-    }
-
-    /// Find or create a DM by inbox ID with options.
-    pub fn create_dm_by_inbox_id_with(
-        &self,
-        inbox_id: &str,
-        opts: &CreateDmOptions,
-    ) -> Result<Conversation> {
-        let c = to_c_string(inbox_id)?;
-        let ds = opts.disappearing.unwrap_or_default();
-        let mut out: *mut xmtp_sys::XmtpFfiConversation = ptr::null_mut();
-        let rc = unsafe {
-            xmtp_sys::xmtp_client_create_dm_by_inbox_id(
-                self.handle.as_ptr(),
-                c.as_ptr(),
-                ds.from_ns,
-                ds.in_ns,
-                &raw mut out,
-            )
-        };
-        error::check(rc)?;
-        Conversation::from_raw(out)
+    pub fn dm_with(&self, to: &Recipient, opts: &CreateDmOptions) -> Result<Conversation> {
+        match to {
+            Recipient::Address(addr) => self.dm_by_address(addr, opts),
+            Recipient::InboxId(id) => self.dm_by_inbox_id(id, opts),
+            Recipient::Ens(name) => {
+                let resolver = self.resolver.as_ref().ok_or(crate::Error::NoResolver)?;
+                let addr = resolver.resolve(name)?;
+                self.dm_by_address(&addr, opts)
+            }
+        }
     }
 
     /// Find an existing DM by inbox ID.
-    pub fn find_dm_by_inbox_id(&self, inbox_id: &str) -> Result<Option<Conversation>> {
+    pub fn find_dm(&self, inbox_id: &str) -> Result<Option<Conversation>> {
         let c = to_c_string(inbox_id)?;
         let mut out: *mut xmtp_sys::XmtpFfiConversation = ptr::null_mut();
         let rc = unsafe {
@@ -160,6 +200,41 @@ impl Client {
         } else {
             Conversation::from_raw(out).map(Some)
         }
+    }
+
+    fn dm_by_address(&self, address: &str, opts: &CreateDmOptions) -> Result<Conversation> {
+        let c = to_c_string(address)?;
+        let ds = opts.disappearing.unwrap_or_default();
+        let mut out: *mut xmtp_sys::XmtpFfiConversation = ptr::null_mut();
+        let rc = unsafe {
+            xmtp_sys::xmtp_client_create_dm(
+                self.handle.as_ptr(),
+                c.as_ptr(),
+                IdentifierKind::Ethereum as i32,
+                ds.from_ns,
+                ds.in_ns,
+                &raw mut out,
+            )
+        };
+        error::check(rc)?;
+        Conversation::from_raw(out)
+    }
+
+    fn dm_by_inbox_id(&self, inbox_id: &str, opts: &CreateDmOptions) -> Result<Conversation> {
+        let c = to_c_string(inbox_id)?;
+        let ds = opts.disappearing.unwrap_or_default();
+        let mut out: *mut xmtp_sys::XmtpFfiConversation = ptr::null_mut();
+        let rc = unsafe {
+            xmtp_sys::xmtp_client_create_dm_by_inbox_id(
+                self.handle.as_ptr(),
+                c.as_ptr(),
+                ds.from_ns,
+                ds.in_ns,
+                &raw mut out,
+            )
+        };
+        error::check(rc)?;
+        Conversation::from_raw(out)
     }
 
     /// Get a conversation by its hex-encoded group ID.
@@ -200,20 +275,6 @@ impl Client {
             conversation_type: Some(ConversationType::Dm),
             ..Default::default()
         })
-    }
-
-    /// Find or create a DM by resolving an external identifier to an inbox ID.
-    ///
-    /// Combines [`inbox_id_for`](Client::inbox_id_for) +
-    /// [`create_dm_by_inbox_id`](Client::create_dm_by_inbox_id) into a single call.
-    /// Returns `None` if the identifier is not registered on the network.
-    pub fn fetch_dm_by_identifier(
-        &self,
-        address: &str,
-        kind: IdentifierKind,
-    ) -> Result<Option<Conversation>> {
-        self.inbox_id_for(address, kind)?
-            .map_or_else(|| Ok(None), |id| self.create_dm_by_inbox_id(&id).map(Some))
     }
 
     /// List conversations with filtering options.

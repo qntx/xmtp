@@ -319,7 +319,7 @@ fn draw_input(app: &App, frame: &mut Frame<'_>, area: Rect) {
     let border = if focused { BORDER_FOCUS } else { BORDER_DIM };
 
     let (title, placeholder) = match app.mode {
-        Mode::NewDm => (" New DM ".to_owned(), "Wallet address (0x…)"),
+        Mode::NewDm => (" New DM ".to_owned(), "Address / ENS / Inbox ID"),
         Mode::NewGroupName => (" New Group — Name ".to_owned(), "Group name (optional)"),
         Mode::NewGroupMembers => {
             let n = app.group_members.len();
@@ -333,7 +333,10 @@ fn draw_input(app: &App, frame: &mut Frame<'_>, area: Rect) {
             } else {
                 format!(" [{}]", names.join(", "))
             };
-            (format!(" Add Members ({n}){tag} "), "Wallet address (0x…)")
+            (
+                format!(" Add Members ({n}){tag} "),
+                "Address / ENS / Inbox ID",
+            )
         }
         _ => (String::new(), "Type a message…"),
     };
@@ -401,7 +404,7 @@ fn draw_status(app: &App, frame: &mut Frame<'_>, area: Rect) {
 
 fn draw_help(frame: &mut Frame<'_>, area: Rect) {
     let w = 48.min(area.width.saturating_sub(4));
-    let h = 18.min(area.height.saturating_sub(4));
+    let h = 24.min(area.height.saturating_sub(4));
     let popup = centered(area, w, h);
 
     let block = Block::default()
@@ -416,15 +419,31 @@ fn draw_help(frame: &mut Frame<'_>, area: Rect) {
         help_line("j / k", "Navigate conversations"),
         help_line("Tab / Enter", "Open / focus input"),
         help_line("Esc", "Back to sidebar"),
-        help_line("n", "New DM (wallet address)"),
+        help_line("n", "New DM"),
         help_line("g", "New group (name → members)"),
         help_line("Tab", "View group members (in chat)"),
         help_line("a", "Accept request (Requests tab)"),
         help_line("x", "Reject request (Requests tab)"),
         help_line("r", "Sync conversations"),
-        help_line("PgUp/Dn", "Scroll chat"),
+        help_line("↑ / ↓", "Scroll chat (in input mode)"),
         help_line("q", "Quit"),
-        help_line("Ctrl-C", "Force quit"),
+        Line::default(),
+        Line::from(Span::styled(
+            "  Recipient formats:",
+            Style::default().fg(ACCENT),
+        )),
+        Line::from(Span::styled(
+            "    0xABC…   Ethereum address",
+            Style::default().fg(DIM),
+        )),
+        Line::from(Span::styled(
+            "    name.eth ENS name",
+            Style::default().fg(DIM),
+        )),
+        Line::from(Span::styled(
+            "    abc123…  Inbox ID",
+            Style::default().fg(DIM),
+        )),
         Line::default(),
         Line::from(Span::styled(
             "  Press any key to close",

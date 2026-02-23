@@ -21,18 +21,26 @@ mod ffi;
 #[cfg(feature = "content")]
 pub mod content;
 
+pub mod resolve;
+
 #[cfg(feature = "alloy")]
 mod signer;
 
 #[cfg(feature = "ledger")]
 mod ledger;
 
+#[cfg(feature = "ens")]
+mod ens;
+
 // Re-export core public API at crate root.
 pub use client::{Client, ClientBuilder};
 pub use conversation::{Conversation, GroupMember, Message};
+#[cfg(feature = "ens")]
+pub use ens::EnsResolver;
 pub use error::{Error, Result};
 #[cfg(feature = "ledger")]
 pub use ledger::LedgerSigner;
+pub use resolve::{Recipient, Resolver};
 #[cfg(feature = "alloy")]
 pub use signer::AlloySigner;
 pub use stream::{ConsentUpdate, PreferenceUpdate, StreamHandle};
