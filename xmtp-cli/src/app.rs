@@ -38,11 +38,11 @@ pub enum Mode {
 
 const HINT_SIDEBAR: &str =
     " Tab:input  j/k:nav  1/2:tab  Enter:open  n:DM  g:group  r:sync  ?:help  q:quit";
-const HINT_INPUT: &str = " Enter:send  Esc:sidebar  PgUp/Dn:scroll  m:members";
+const HINT_INPUT: &str = " Enter:send  Esc:sidebar  PgUp/Dn:scroll  Tab:members";
 const HINT_NEW_DM: &str = " Enter wallet address (0x…)  Enter:create  Esc:cancel";
 const HINT_GROUP_NAME: &str = " Group name (optional)  Enter:next  Esc:cancel";
 const HINT_REQUESTS: &str = " j/k:nav  a:accept  x:reject  Enter:preview  1/2:tab  q:quit";
-const HINT_MEMBERS: &str = " Esc:close";
+const HINT_MEMBERS: &str = " Tab/Esc:close";
 const FLASH_TTL: u16 = 60;
 
 /// Central application state. Holds **no FFI handles**.
@@ -202,7 +202,7 @@ impl App {
                 }
             }
             Mode::Members => {
-                if key.code == KeyCode::Esc {
+                if matches!(key.code, KeyCode::Esc | KeyCode::Tab) {
                     self.mode = Mode::Normal;
                     self.members.clear();
                     self.set_default_status();
@@ -282,11 +282,11 @@ impl App {
 
     fn key_input(&mut self, key: KeyEvent) {
         match key.code {
-            KeyCode::Tab | KeyCode::Esc => {
+            KeyCode::Esc => {
                 self.focus = Focus::Sidebar;
                 self.set_default_status();
             }
-            KeyCode::Char('m') if self.input.is_empty() => {
+            KeyCode::Tab => {
                 if self.active_id.is_some() {
                     self.mode = Mode::Members;
                     self.status = HINT_MEMBERS.into();

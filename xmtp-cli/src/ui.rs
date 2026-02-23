@@ -37,6 +37,10 @@ const SELECT_BG: Color = Color::Rgb(50, 50, 60);
 const BORDER_FOCUS: Color = Color::Rgb(140, 130, 170);
 /// Very dim border when unfocused.
 const BORDER_DIM: Color = Color::Rgb(60, 60, 70);
+/// Static block cursor background (no blink).
+const CURSOR_BG: Color = Color::Rgb(140, 140, 150);
+/// Dim placeholder text in empty input fields.
+const PLACEHOLDER: Color = Color::Rgb(75, 75, 85);
 
 /// Render the full application UI.
 pub fn render(app: &mut App, frame: &mut Frame<'_>) {
@@ -314,9 +318,9 @@ fn draw_input(app: &App, frame: &mut Frame<'_>, area: Rect) {
     let focused = (app.focus == Focus::Input && app.mode == Mode::Normal) || is_overlay;
     let border = if focused { BORDER_FOCUS } else { BORDER_DIM };
 
-    let (title, prompt) = match app.mode {
-        Mode::NewDm => (" New DM (wallet address) ".to_owned(), "0x> "),
-        Mode::NewGroupName => (" New Group — Step 1: Name ".to_owned(), "> "),
+    let (title, placeholder) = match app.mode {
+        Mode::NewDm => (" New DM ".to_owned(), "Wallet address (0x…)"),
+        Mode::NewGroupName => (" New Group — Name ".to_owned(), "Group name (optional)"),
         Mode::NewGroupMembers => {
             let n = app.group_members.len();
             let names: Vec<_> = app
@@ -329,9 +333,9 @@ fn draw_input(app: &App, frame: &mut Frame<'_>, area: Rect) {
             } else {
                 format!(" [{}]", names.join(", "))
             };
-            (format!(" Step 2: Add Members ({n}){tag} "), "0x> ")
+            (format!(" Add Members ({n}){tag} "), "Wallet address (0x…)")
         }
-        _ => (String::new(), "> "),
+        _ => (String::new(), "Type a message…"),
     };
 
     let block = Block::default()
@@ -339,17 +343,53 @@ fn draw_input(app: &App, frame: &mut Frame<'_>, area: Rect) {
         .borders(Borders::ALL)
         .border_style(Style::default().fg(border));
 
-    let display = format!("{prompt}{}", app.input);
-    frame.render_widget(Paragraph::new(display).block(block), area);
+    // Prompt styled like Claude Code: ❯ with accent color when focused.
+    let prompt = "❯ ";
+    let prompt_clr = if focused { ACCENT } else { DIM };
+    let prompt_span = Span::styled(prompt, Style::default().fg(prompt_clr));
 
-    if focused {
-        let before: String = app.input.chars().take(app.cursor).collect();
-        let vis_offset = UnicodeWidthStr::width(before.as_str());
-        #[allow(clippy::cast_possible_truncation)]
-        let x = area.x + 1 + prompt.len() as u16 + vis_offset as u16;
-        let y = area.y + 1;
-        frame.set_cursor_position((x, y));
-    }
+    // Build styled line with static block cursor (no blinking hardware cursor).
+    let content = if app.input.is_empty() {
+        if focused {
+            // Gray block cursor overlaid on first placeholder char.
+            let mut ph = placeholder.chars();
+            let first = ph.next().unwrap_or(' ');
+            let rest: String = ph.collect();
+            Line::from(vec![
+                prompt_span,
+                Span::styled(
+                    first.to_string(),
+                    Style::default().fg(PLACEHOLDER).bg(CURSOR_BG),
+                ),
+                Span::styled(rest, Style::default().fg(PLACEHOLDER)),
+            ])
+        } else {
+            Line::from(vec![
+                prompt_span,
+                Span::styled(placeholder, Style::default().fg(PLACEHOLDER)),
+            ])
+        }
+    } else if focused {
+        // Text with block cursor at current position.
+        let chars: Vec<char> = app.input.chars().collect();
+        let before: String = chars[..app.cursor].iter().collect();
+        let cur = chars.get(app.cursor).copied().unwrap_or(' ');
+        let after: String = if app.cursor + 1 < chars.len() {
+            chars[app.cursor + 1..].iter().collect()
+        } else {
+            String::new()
+        };
+        Line::from(vec![
+            prompt_span,
+            Span::raw(before),
+            Span::styled(cur.to_string(), Style::default().bg(CURSOR_BG)),
+            Span::raw(after),
+        ])
+    } else {
+        Line::from(vec![prompt_span, Span::raw(app.input.clone())])
+    };
+
+    frame.render_widget(Paragraph::new(content).block(block), area);
 }
 
 fn draw_status(app: &App, frame: &mut Frame<'_>, area: Rect) {
