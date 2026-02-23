@@ -18,11 +18,11 @@ rust-version = "1.85"
 regenerate = ["dep:bindgen"]
 
 [build-dependencies]
-bindgen = { version = "0.72", optional = true }
-ureq = "3"
-flate2 = "1"
-tar = "0.4"
-zip = { version = "8", default-features = false, features = ["deflate"] }
+bindgen = { workspace = true, optional = true }
+ureq.workspace = true
+flate2.workspace = true
+tar.workspace = true
+zip.workspace = true
 
 [lints]
 workspace = true

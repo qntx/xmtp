@@ -8,10 +8,10 @@ description.workspace = true
 
 [dependencies]
 xmtp.workspace = true
-k256 = { version = "0.13", features = ["ecdsa"] }
-sha3 = "0.10"
-hex = "0.4"
-getrandom = "0.2"
+k256.workspace = true
+sha3.workspace = true
+hex.workspace = true
+getrandom.workspace = true
 
 [lints]
 workspace = true
