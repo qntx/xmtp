@@ -6,6 +6,15 @@
 //! - Opaque handles are heap-allocated `Box<T>` behind `*mut T` with explicit `_free` functions.
 //! - Async operations block internally on a shared tokio runtime.
 //! - Streams use C callback function pointers.
+//!
+//! # Safety (blanket)
+//!
+//! All `unsafe extern "C"` functions in this crate share the same safety contract:
+//! - Pointer arguments must be valid and non-null unless the doc says otherwise.
+//! - `*const` pointers must point to live, aligned data for the duration of the call.
+//! - `*mut` output pointers must be writable.
+//! - Opaque handles must originate from this crate and must not be used after being freed.
+#![allow(clippy::missing_safety_doc)]
 
 mod ffi;
 

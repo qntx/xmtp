@@ -1474,7 +1474,7 @@ pub unsafe extern "C" fn xmtp_conversation_group_permissions(
         let meta = &ps.update_metadata_policy;
         let get_meta = |field: &str| -> FfiPermissionPolicy {
             meta.get(field)
-                .map(|p| metadata_policy_to_ffi(p))
+                .map(metadata_policy_to_ffi)
                 .unwrap_or(FfiPermissionPolicy::DoesNotExist)
         };
 

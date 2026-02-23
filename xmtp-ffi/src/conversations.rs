@@ -610,18 +610,23 @@ unsafe fn parse_group_opts(
         1 => Some(xmtp_mls::groups::PreconfiguredPolicies::AdminsOnly.to_policy_set()),
         _ => None,
     };
-    let mut meta = xmtp_mls::mls_common::group::GroupMetadataOptions::default();
-    meta.name = unsafe { c_str_to_option(o.name)? };
-    meta.description = unsafe { c_str_to_option(o.description)? };
-    meta.image_url_square = unsafe { c_str_to_option(o.image_url)? };
-    meta.app_data = unsafe { c_str_to_option(o.app_data)? };
-    if o.message_disappear_from_ns > 0 && o.message_disappear_in_ns > 0 {
-        meta.message_disappearing_settings = Some(
+    let disappearing = if o.message_disappear_from_ns > 0 && o.message_disappear_in_ns > 0 {
+        Some(
             xmtp_mls_common::group_mutable_metadata::MessageDisappearingSettings::new(
                 o.message_disappear_from_ns,
                 o.message_disappear_in_ns,
             ),
-        );
-    }
+        )
+    } else {
+        None
+    };
+    let meta = xmtp_mls::mls_common::group::GroupMetadataOptions {
+        name: unsafe { c_str_to_option(o.name)? },
+        description: unsafe { c_str_to_option(o.description)? },
+        image_url_square: unsafe { c_str_to_option(o.image_url)? },
+        app_data: unsafe { c_str_to_option(o.app_data)? },
+        message_disappearing_settings: disappearing,
+        ..Default::default()
+    };
     Ok((policy, Some(meta)))
 }

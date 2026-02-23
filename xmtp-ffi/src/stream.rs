@@ -344,7 +344,7 @@ pub unsafe extern "C" fn xmtp_stream_preferences(
                         }
                         if !u.hmac_key.is_null() && u.hmac_key_len > 0 {
                             drop(unsafe {
-                                Box::from_raw(std::slice::from_raw_parts_mut(
+                                Box::from_raw(std::ptr::slice_from_raw_parts_mut(
                                     u.hmac_key,
                                     u.hmac_key_len as usize,
                                 ))
