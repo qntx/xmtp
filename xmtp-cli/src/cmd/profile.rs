@@ -27,10 +27,12 @@ pub fn create(args: &NewArgs) -> xmtp::Result<(ProfileConfig, Client)> {
     let db_path = dir.join("messages.db3");
 
     // Determine signer kind and create signer.
-    let (signer_kind, signer): (SignerKind, Box<dyn Signer>) = if let Some(index) = args.ledger { (
-        SignerKind::Ledger(index),
-        Box::new(LedgerSigner::new(index)?),
-    ) } else {
+    let (signer_kind, signer): (SignerKind, Box<dyn Signer>) = if let Some(index) = args.ledger {
+        (
+            SignerKind::Ledger(index),
+            Box::new(LedgerSigner::new(index)?),
+        )
+    } else {
         if let Some(ref hex) = args.import {
             import_hex_key(hex, &key_path)?;
         } else if let Some(ref src) = args.key {

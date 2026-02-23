@@ -120,8 +120,20 @@ impl ProfileConfig {
 }
 
 /// Open a profile without a signer (for TUI and info — no signing needed).
+///
+/// If the profile was created before the `address` field existed, falls back
+/// to signer-based opening once to discover and persist the address.
 pub fn open_client(profile: &str) -> xmtp::Result<(ProfileConfig, Client)> {
     let cfg = ProfileConfig::load(profile)?;
+
+    if cfg.address.is_empty() {
+        // Legacy profile: need signer to discover wallet address.
+        let (mut cfg, signer, client) = open_with_signer(profile)?;
+        cfg.address = signer.identifier().address;
+        cfg.save(profile)?;
+        return Ok((cfg, client));
+    }
+
     let db = profile_dir(profile).join("messages.db3");
     let client = build_client(&cfg, &db.to_string_lossy(), None)?;
     Ok((cfg, client))
