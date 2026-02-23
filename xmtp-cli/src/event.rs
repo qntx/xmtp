@@ -26,7 +26,6 @@ pub struct ConvEntry {
     pub label: String,
     pub preview: String,
     pub last_ns: i64,
-    pub is_group: bool,
     pub unread: bool,
 }
 

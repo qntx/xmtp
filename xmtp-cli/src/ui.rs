@@ -23,8 +23,6 @@ const SELF_CLR: Color = Color::Rgb(140, 190, 140);
 const PEER_CLR: Color = Color::Rgb(130, 170, 200);
 /// Warm amber for unread dot.
 const UNREAD: Color = Color::Rgb(220, 180, 100);
-/// Soft rose for group tag.
-const GROUP_TAG: Color = Color::Rgb(190, 140, 170);
 /// Near-white for active tab.
 const TAB_ACTIVE: Color = Color::Rgb(220, 220, 225);
 /// Muted gray for inactive tab.
@@ -140,11 +138,6 @@ fn draw_sidebar(app: &App, frame: &mut Frame<'_>, area: Rect) {
             } else {
                 Span::raw("  ")
             };
-            let tag = if c.is_group {
-                Span::styled("⊞ ", Style::default().fg(GROUP_TAG))
-            } else {
-                Span::raw("")
-            };
             let time = if c.last_ns > 0 {
                 format_relative(c.last_ns)
             } else {
@@ -152,7 +145,6 @@ fn draw_sidebar(app: &App, frame: &mut Frame<'_>, area: Rect) {
             };
             let row1 = Line::from(vec![
                 dot,
-                tag,
                 Span::styled(&c.label, Style::default().add_modifier(Modifier::BOLD)),
                 Span::styled(format!(" {time}"), Style::default().fg(DIM)),
             ]);
@@ -208,7 +200,10 @@ fn draw_chat(app: &mut App, frame: &mut Frame<'_>, area: Rect) {
                 Span::styled(" for help", Style::default().fg(DIM)),
             ]),
             Line::default(),
-            Line::from(Span::styled("  github.com/qntx", Style::default().fg(DIM))),
+            Line::from(Span::styled(
+                "  github.com/qntx/xmtp",
+                Style::default().fg(DIM),
+            )),
         ]))
         .block(block);
         frame.render_widget(welcome, area);
@@ -410,16 +405,6 @@ fn draw_status(app: &App, frame: &mut Frame<'_>, area: Rect) {
 }
 
 fn draw_help(frame: &mut Frame<'_>, area: Rect) {
-    let w = 52.min(area.width.saturating_sub(4));
-    let h = 20.min(area.height.saturating_sub(4));
-    let popup = centered(area, w, h);
-
-    let block = Block::default()
-        .title(" Keyboard Shortcuts ")
-        .title_alignment(Alignment::Center)
-        .borders(Borders::ALL)
-        .border_style(Style::default().fg(ACCENT));
-
     let help = vec![
         Line::default(),
         help_line("↑ / ↓", "Navigate conversations"),
@@ -434,9 +419,25 @@ fn draw_help(frame: &mut Frame<'_>, area: Rect) {
         help_line("↑ / ↓", "Scroll chat (in input mode)"),
         help_line("Ctrl+C / q", "Quit"),
         Line::default(),
-        Line::from(Span::styled("  github.com/qntx", Style::default().fg(DIM))),
+        Line::from(Span::styled(
+            "github.com/qntx/xmtp",
+            Style::default().fg(DIM),
+        ))
+        .alignment(Alignment::Center),
         Line::default(),
     ];
+
+    // +2 for top/bottom borders.
+    let w = 52.min(area.width.saturating_sub(4));
+    #[allow(clippy::cast_possible_truncation)]
+    let h = (help.len() as u16 + 2).min(area.height.saturating_sub(4));
+    let popup = centered(area, w, h);
+
+    let block = Block::default()
+        .title(" Keyboard Shortcuts ")
+        .title_alignment(Alignment::Center)
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(ACCENT));
 
     frame.render_widget(Clear, popup);
     frame.render_widget(Paragraph::new(help).block(block), popup);

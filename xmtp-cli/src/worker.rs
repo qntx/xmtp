@@ -340,7 +340,6 @@ fn build_conv_list(client: &Client, consent: &[ConsentState]) -> Vec<ConvEntry> 
                 label,
                 preview,
                 last_ns,
-                is_group,
                 unread: false,
             }
         })
