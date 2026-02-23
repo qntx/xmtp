@@ -27,19 +27,16 @@ pub fn create(args: &NewArgs) -> xmtp::Result<(ProfileConfig, Client)> {
     let db_path = dir.join("messages.db3");
 
     // Determine signer kind and create signer.
-    let (signer_kind, signer): (SignerKind, Box<dyn Signer>) = match args.ledger {
-        Some(index) => (
-            SignerKind::Ledger(index),
-            Box::new(LedgerSigner::new(index)?),
-        ),
-        None => {
-            if let Some(ref hex) = args.import {
-                import_hex_key(hex, &key_path)?;
-            } else if let Some(ref src) = args.key {
-                fs::copy(src, &key_path).map_err(|e| xmtp::Error::Ffi(format!("copy key: {e}")))?;
-            }
-            (SignerKind::File, Box::new(load_or_create_key(&key_path)?))
+    let (signer_kind, signer): (SignerKind, Box<dyn Signer>) = if let Some(index) = args.ledger { (
+        SignerKind::Ledger(index),
+        Box::new(LedgerSigner::new(index)?),
+    ) } else {
+        if let Some(ref hex) = args.import {
+            import_hex_key(hex, &key_path)?;
+        } else if let Some(ref src) = args.key {
+            fs::copy(src, &key_path).map_err(|e| xmtp::Error::Ffi(format!("copy key: {e}")))?;
         }
+        (SignerKind::File, Box::new(load_or_create_key(&key_path)?))
     };
 
     // Copy database if provided.
