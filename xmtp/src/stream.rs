@@ -43,21 +43,26 @@ const fn no_on_close() -> xmtp_sys::XmtpOption_FnOnCloseCallback {
 
 /// Generic helper to start a stream. Handles context boxing, error recovery,
 /// and wrapping the result in a `StreamHandle`.
+///
+/// **Callers must pass a pre-erased trait object** (e.g. `Box<dyn Fn(…)>`) so
+/// that the heap allocation contains a full fat pointer (data + vtable). The
+/// corresponding trampoline then casts the context back to the same
+/// `Box<dyn Fn(…)>` type, reading exactly 16 bytes — matching what was stored.
 fn start_stream<F: Send + 'static>(
     callback: F,
     start: impl FnOnce(*mut c_void, *mut *mut xmtp_sys::XmtpFfiStreamHandle) -> i32,
 ) -> Result<StreamHandle> {
-    let boxed: Box<Box<F>> = Box::new(Box::new(callback));
+    let boxed = Box::new(callback);
     let ctx_ptr = Box::into_raw(boxed).cast::<c_void>();
     let mut out: *mut xmtp_sys::XmtpFfiStreamHandle = ptr::null_mut();
     let rc = start(ctx_ptr, &raw mut out);
     if rc != 0 {
         // Reclaim the context to avoid a leak on error.
-        let _ = unsafe { Box::from_raw(ctx_ptr.cast::<Box<F>>()) };
+        let _ = unsafe { Box::from_raw(ctx_ptr.cast::<F>()) };
         return Err(error::last_ffi_error());
     }
     let handle = OwnedHandle::new(out, xmtp_sys::xmtp_stream_free)?;
-    let ctx_box = unsafe { Box::from_raw(ctx_ptr.cast::<Box<F>>()) };
+    let ctx_box = unsafe { Box::from_raw(ctx_ptr.cast::<F>()) };
     Ok(StreamHandle {
         handle,
         _ctx: Some(ctx_box),
@@ -78,7 +83,8 @@ pub fn stream_conversations(
 ) -> Result<StreamHandle> {
     let client_ptr = client.handle.as_ptr();
     let conv_type = conversation_type.map_or(-1, |t| t as i32);
-    start_stream(callback, |ctx, out| unsafe {
+    let dyn_cb: Box<dyn Fn(Conversation) + Send> = Box::new(callback);
+    start_stream(dyn_cb, |ctx, out| unsafe {
         xmtp_sys::xmtp_stream_conversations(
             client_ptr,
             conv_type,
@@ -128,7 +134,8 @@ pub fn stream_all_messages(
         cs.as_ptr()
     };
     let cs_len = cs.len() as i32;
-    start_stream(callback, |ctx, out| unsafe {
+    let dyn_cb: Box<dyn Fn(String, String) + Send> = Box::new(callback);
+    start_stream(dyn_cb, |ctx, out| unsafe {
         xmtp_sys::xmtp_stream_all_messages(
             client_ptr,
             conv_type,
@@ -154,7 +161,8 @@ pub fn stream_messages(
     callback: impl Fn(String, String) + Send + 'static,
 ) -> Result<StreamHandle> {
     let conv_ptr = conversation.handle_ptr();
-    start_stream(callback, |ctx, out| unsafe {
+    let dyn_cb: Box<dyn Fn(String, String) + Send> = Box::new(callback);
+    start_stream(dyn_cb, |ctx, out| unsafe {
         xmtp_sys::xmtp_conversation_stream_messages(
             conv_ptr,
             Some(msg_trampoline),
@@ -224,7 +232,8 @@ pub fn stream_consent(
     callback: impl Fn(Vec<ConsentUpdate>) + Send + 'static,
 ) -> Result<StreamHandle> {
     let client_ptr = client.handle.as_ptr();
-    start_stream(callback, |ctx, out| unsafe {
+    let dyn_cb: Box<dyn Fn(Vec<ConsentUpdate>) + Send> = Box::new(callback);
+    start_stream(dyn_cb, |ctx, out| unsafe {
         xmtp_sys::xmtp_stream_consent(
             client_ptr,
             Some(consent_trampoline),
@@ -284,7 +293,8 @@ pub fn stream_preferences(
     callback: impl Fn(Vec<PreferenceUpdate>) + Send + 'static,
 ) -> Result<StreamHandle> {
     let client_ptr = client.handle.as_ptr();
-    start_stream(callback, |ctx, out| unsafe {
+    let dyn_cb: Box<dyn Fn(Vec<PreferenceUpdate>) + Send> = Box::new(callback);
+    start_stream(dyn_cb, |ctx, out| unsafe {
         xmtp_sys::xmtp_stream_preferences(
             client_ptr,
             Some(pref_trampoline),
@@ -350,7 +360,8 @@ pub fn stream_message_deletions(
     callback: impl Fn(String) + Send + 'static,
 ) -> Result<StreamHandle> {
     let client_ptr = client.handle.as_ptr();
-    start_stream(callback, |ctx, out| unsafe {
+    let dyn_cb: Box<dyn Fn(String) + Send> = Box::new(callback);
+    start_stream(dyn_cb, |ctx, out| unsafe {
         xmtp_sys::xmtp_stream_message_deletions(
             client_ptr,
             Some(deletion_trampoline),

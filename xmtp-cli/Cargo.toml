@@ -7,13 +7,11 @@ repository.workspace = true
 description.workspace = true
 
 [dependencies]
-xmtp.workspace = true
-k256.workspace = true
-sha3.workspace = true
-hex.workspace = true
+xmtp = { workspace = true, features = ["alloy"] }
 tokio.workspace = true
 unicode-width.workspace = true
 ratatui.workspace = true
+getrandom.workspace = true
 
 [lints]
 workspace = true

@@ -1,16 +1,7 @@
 //! xmtp-cli — Interactive XMTP TUI chat client.
 //!
-//! ```text
-//! cargo run -p xmtp-cli -- <name>
-//! ```
-//!
-//! # Runtime architecture
-//!
-//! The FFI layer (libxmtp) owns a global `tokio::runtime::Runtime` and calls
-//! `Runtime::block_on` during stream setup.  Nesting another `block_on` (e.g.
-//! via `#[tokio::main]`) would panic, so we create a **separate** runtime and
-//! only call `rt.enter()` to register a reactor handle for background tasks
-//! that need `Handle::current()`.  The main event loop is fully synchronous.
+//! Uses a separate tokio runtime (`rt.enter()`) to provide a reactor handle
+//! without nesting `block_on` calls (the FFI layer owns its own runtime).
 
 #![allow(
     missing_docs,
@@ -21,23 +12,19 @@
 
 mod app;
 mod event;
-mod signer;
 mod tui;
 mod ui;
 
+use std::path::Path;
 use std::time::Duration;
 use std::{fs, process};
 
-use xmtp::{Client, Env, stream};
+use xmtp::{AlloySigner, Client, Env, stream};
 
 use crate::app::App;
 use crate::event::{Event, XmtpEvent};
 
 fn main() {
-    // Create a Tokio runtime and enter it so that `Handle::current()` is
-    // available on this thread.  We intentionally do NOT call `block_on` —
-    // the FFI layer's own runtime calls `block_on` during stream setup and
-    // nesting would panic.
     let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
     let _guard = rt.enter();
 
@@ -49,44 +36,31 @@ fn main() {
 }
 
 fn run() -> xmtp::Result<()> {
-    let args: Vec<String> = std::env::args().collect();
-    let name = args.get(1).cloned().unwrap_or_else(|| {
+    let name = std::env::args().nth(1).unwrap_or_else(|| {
         eprintln!("usage: xmtp-cli <name>");
         process::exit(1);
     });
 
-    let db_path = format!("{name}.db3");
-    let key_path = format!("{name}.key");
+    let signer = load_or_create_signer(&format!("{name}.key"))?;
+    let address = signer.address();
+    eprintln!("address: {address}");
 
-    // Load or generate local identity.
-    let signer = signer::load_or_create(&key_path);
-    eprintln!("address: {}", signer.address);
+    let client = create_client(&signer, &format!("{name}.db3"))?;
+    let inbox_id = client.inbox_id()?;
+    eprintln!("inbox: {inbox_id}");
 
-    // Create XMTP client, recreating DB on inbox ID mismatch.
-    let client = create_client(&signer, &db_path)?;
-
-    let my_inbox = client.inbox_id()?;
-    eprintln!("inbox: {my_inbox}");
-
-    // Sync existing conversations before entering the TUI.
     let _ = client.sync_welcomes();
 
-    // Initialise app state.
-    let mut app = App::new(my_inbox, name);
+    let mut app = App::new(address, inbox_id);
     app.refresh_conversations(&client);
 
-    // Start the unified event channel (terminal poller + tick).
-    let (rx, tx) = event::create(Duration::from_millis(50));
-
-    // Subscribe to XMTP real-time streams.
+    let (rx, tx) = event::channel(Duration::from_millis(50));
     let _streams = start_streams(&client, &tx)?;
 
-    // Enter alternate screen.
     tui::install_panic_hook();
     let mut terminal = tui::init().map_err(|e| xmtp::Error::Ffi(format!("terminal: {e}")))?;
 
-    // Main event loop (synchronous — blocking recv on std::sync::mpsc).
-    while !app.should_quit {
+    while !app.quit {
         terminal
             .draw(|f| ui::render(&app, f))
             .map_err(|e| xmtp::Error::Ffi(format!("render: {e}")))?;
@@ -94,19 +68,33 @@ fn run() -> xmtp::Result<()> {
         match rx.recv() {
             Ok(Event::Key(key)) => app.handle_key(key, &client),
             Ok(Event::Tick) => app.tick(),
-            Ok(Event::Xmtp(xmtp_ev)) => app.handle_xmtp_event(xmtp_ev, &client),
-            Ok(Event::Resize) => {} // ratatui handles resize automatically
-            Err(_) => break,        // channel closed
+            Ok(Event::Xmtp(ev)) => app.handle_xmtp(ev, &client),
+            Ok(Event::Resize) => {}
+            Err(_) => break,
         }
     }
 
-    // Cleanup.
-    tui::restore().map_err(|e| xmtp::Error::Ffi(format!("restore: {e}")))?;
-    Ok(())
+    tui::restore().map_err(|e| xmtp::Error::Ffi(format!("restore: {e}")))
+}
+
+/// Load a persisted private key or generate a new one (32-byte raw).
+fn load_or_create_signer(key_path: &str) -> xmtp::Result<AlloySigner> {
+    let key: [u8; 32] = if Path::new(key_path).exists() {
+        let bytes = fs::read(key_path).map_err(|e| xmtp::Error::Ffi(format!("read key: {e}")))?;
+        bytes
+            .try_into()
+            .map_err(|_| xmtp::Error::InvalidArgument("key file must be 32 bytes".into()))?
+    } else {
+        let mut key = [0u8; 32];
+        getrandom::fill(&mut key).map_err(|e| xmtp::Error::Ffi(format!("rng: {e}")))?;
+        fs::write(key_path, key).map_err(|e| xmtp::Error::Ffi(format!("write key: {e}")))?;
+        key
+    };
+    AlloySigner::from_bytes(&key)
 }
 
 /// Build the XMTP client, clearing stale DB files on inbox ID mismatch.
-fn create_client(signer: &signer::LocalSigner, db_path: &str) -> xmtp::Result<Client> {
+fn create_client(signer: &AlloySigner, db_path: &str) -> xmtp::Result<Client> {
     match Client::builder()
         .env(Env::Dev)
         .db_path(db_path)
@@ -126,21 +114,19 @@ fn create_client(signer: &signer::LocalSigner, db_path: &str) -> xmtp::Result<Cl
     }
 }
 
-/// Start XMTP background streams and wire them to the event channel.
-///
-/// Returns the stream handles — dropping them stops the streams.
+/// Start XMTP background streams wired to the event channel.
 fn start_streams(
     client: &Client,
-    tx: &event::EventTx,
+    tx: &event::Tx,
 ) -> xmtp::Result<(xmtp::StreamHandle, xmtp::StreamHandle)> {
     let msg_tx = tx.clone();
     let msg_stream = stream::stream_all_messages(client, None, &[], move |msg_id, conv_id| {
-        let _ = msg_tx.send(Event::Xmtp(XmtpEvent::NewMessage { msg_id, conv_id }));
+        let _ = msg_tx.send(Event::Xmtp(XmtpEvent::Message { msg_id, conv_id }));
     })?;
 
     let conv_tx = tx.clone();
     let conv_stream = stream::stream_conversations(client, None, move |_| {
-        let _ = conv_tx.send(Event::Xmtp(XmtpEvent::NewConversation));
+        let _ = conv_tx.send(Event::Xmtp(XmtpEvent::Conversation));
     })?;
 
     Ok((msg_stream, conv_stream))

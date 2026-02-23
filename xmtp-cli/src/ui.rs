@@ -1,4 +1,4 @@
-//! TUI rendering — header, sidebar, chat (with scroll), input, status, help.
+//! TUI rendering: header, tabbed sidebar, chat bubbles, input, overlays.
 
 use std::time::SystemTime;
 
@@ -11,24 +11,25 @@ use unicode_width::UnicodeWidthStr;
 
 use xmtp::MessageKind;
 
-use crate::app::{App, Focus, Mode, message_body, truncate_id};
+use crate::app::{App, Focus, Mode, Tab, decode_body, delivery_icon, truncate_id};
 
-// ── Palette ──────────────────────────────────────────────────────────────────
+// ── Palette ──────────────────────────────────────────────────────
 
-const ACCENT: Color = Color::Cyan;
+const ACCENT: Color = Color::Blue;
 const DIM: Color = Color::DarkGray;
-const SENDER_ME: Color = Color::Green;
-const SENDER_PEER: Color = Color::Cyan;
-const UNREAD_DOT: Color = Color::Yellow;
+const SELF_BG: Color = Color::Green;
+const PEER_BG: Color = Color::Cyan;
+const UNREAD: Color = Color::Yellow;
 const GROUP_TAG: Color = Color::Magenta;
+const TAB_ACTIVE: Color = Color::White;
+const TAB_INACTIVE: Color = Color::DarkGray;
+const REQUEST_TAG: Color = Color::Yellow;
 
-// ── Root ─────────────────────────────────────────────────────────────────────
+// ── Root ─────────────────────────────────────────────────────────
 
 /// Render the full application UI.
 pub fn render(app: &App, frame: &mut Frame<'_>) {
     let area = frame.area();
-
-    // Vertical split: header(1) | body(fill) | status(1)
     let rows = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -42,37 +43,44 @@ pub fn render(app: &App, frame: &mut Frame<'_>) {
     draw_body(app, frame, rows[1]);
     draw_status(app, frame, rows[2]);
 
-    // Overlay layer (drawn last so it sits on top).
-    if app.mode == Mode::Help {
-        draw_help_overlay(frame, area);
+    // Overlays
+    match app.mode {
+        Mode::Help => draw_help(frame, area),
+        Mode::Members => draw_members(app, frame, area),
+        _ => {}
     }
 }
 
-// ── Header ───────────────────────────────────────────────────────────────────
+// ── Header ───────────────────────────────────────────────────────
 
 fn draw_header(app: &App, frame: &mut Frame<'_>, area: Rect) {
-    let inbox_short = truncate_id(&app.my_inbox_id, 16);
-    let line = Line::from(vec![
+    let req_count = app.requests.len();
+    let mut spans = vec![
         Span::styled(" XMTP ", Style::default().fg(Color::Black).bg(ACCENT)),
         Span::raw("  "),
-        Span::styled(&app.name, Style::default().add_modifier(Modifier::BOLD)),
-        Span::styled("  ·  dev  ·  ", Style::default().fg(DIM)),
-        Span::styled(inbox_short, Style::default().fg(DIM)),
-    ]);
-    frame.render_widget(Paragraph::new(line), area);
+        Span::styled(&app.address, Style::default().add_modifier(Modifier::BOLD)),
+        Span::styled("  ·  dev  ", Style::default().fg(DIM)),
+    ];
+    if req_count > 0 {
+        spans.push(Span::styled(
+            format!("·  {req_count} request(s)  "),
+            Style::default().fg(REQUEST_TAG),
+        ));
+    }
+    frame.render_widget(Paragraph::new(Line::from(spans)), area);
 }
 
-// ── Body (sidebar + main) ───────────────────────────────────────────────────
+// ── Body (sidebar + main) ───────────────────────────────────────
 
 fn draw_body(app: &App, frame: &mut Frame<'_>, area: Rect) {
+    let sidebar_w = (area.width * 3 / 10).clamp(24, 38);
     let cols = Layout::default()
         .direction(Direction::Horizontal)
-        .constraints([Constraint::Length(26), Constraint::Min(30)])
+        .constraints([Constraint::Length(sidebar_w), Constraint::Min(30)])
         .split(area);
 
     draw_sidebar(app, frame, cols[0]);
 
-    // Main column: chat(fill) | input(3)
     let main = Layout::default()
         .direction(Direction::Vertical)
         .constraints([Constraint::Min(3), Constraint::Length(3)])
@@ -82,31 +90,44 @@ fn draw_body(app: &App, frame: &mut Frame<'_>, area: Rect) {
     draw_input(app, frame, main[1]);
 }
 
-// ── Sidebar ──────────────────────────────────────────────────────────────────
+// ── Sidebar with tabs ────────────────────────────────────────────
 
 fn draw_sidebar(app: &App, frame: &mut Frame<'_>, area: Rect) {
     let focused = app.focus == Focus::Sidebar && app.mode == Mode::Normal;
-    let border_style = Style::default().fg(if focused { ACCENT } else { DIM });
-    let block = Block::default()
-        .title(" Chats ")
-        .borders(Borders::ALL)
-        .border_style(border_style);
+    let border = Style::default().fg(if focused { ACCENT } else { DIM });
 
-    if app.conversations.is_empty() {
-        let hint = Paragraph::new("\n  No conversations\n\n  Press  n  to start")
+    // Tab header: [1:Inbox] [2:Requests]
+    let req_label = format!(" 2:Requests({}) ", app.requests.len());
+    let tab_line = Line::from(vec![
+        tab_span(" 1:Inbox ", app.tab == Tab::Inbox),
+        Span::raw(" "),
+        tab_span(&req_label, app.tab == Tab::Requests),
+    ]);
+
+    let block = Block::default()
+        .title(tab_line)
+        .borders(Borders::ALL)
+        .border_style(border);
+
+    let list_data = app.sidebar();
+
+    if list_data.is_empty() {
+        let hint = match app.tab {
+            Tab::Inbox => "\n  No conversations\n\n  Press  n  for DM\n  Press  g  for group",
+            Tab::Requests => "\n  No pending requests",
+        };
+        let p = Paragraph::new(hint)
             .style(Style::default().fg(DIM))
             .block(block);
-        frame.render_widget(hint, area);
+        frame.render_widget(p, area);
         return;
     }
 
-    let items: Vec<ListItem<'_>> = app
-        .conversations
+    let items: Vec<ListItem<'_>> = list_data
         .iter()
         .map(|c| {
-            // Row 1: [●] label [time]
             let dot = if c.unread {
-                Span::styled("● ", Style::default().fg(UNREAD_DOT))
+                Span::styled("● ", Style::default().fg(UNREAD))
             } else {
                 Span::raw("  ")
             };
@@ -115,7 +136,7 @@ fn draw_sidebar(app: &App, frame: &mut Frame<'_>, area: Rect) {
             } else {
                 Span::raw("")
             };
-            let time_str = if c.last_ns > 0 {
+            let time = if c.last_ns > 0 {
                 format_relative(c.last_ns)
             } else {
                 String::new()
@@ -123,16 +144,12 @@ fn draw_sidebar(app: &App, frame: &mut Frame<'_>, area: Rect) {
             let row1 = Line::from(vec![
                 dot,
                 tag,
-                Span::styled(
-                    c.label.clone(),
-                    Style::default().add_modifier(Modifier::BOLD),
-                ),
-                Span::styled(format!(" {time_str}"), Style::default().fg(DIM)),
+                Span::styled(&c.label, Style::default().add_modifier(Modifier::BOLD)),
+                Span::styled(format!(" {time}"), Style::default().fg(DIM)),
             ]);
-            // Row 2: preview
             let row2 = Line::from(vec![
                 Span::raw("  "),
-                Span::styled(c.preview.clone(), Style::default().fg(DIM)),
+                Span::styled(&c.preview, Style::default().fg(DIM)),
             ]);
             ListItem::new(vec![row1, row2])
         })
@@ -147,7 +164,18 @@ fn draw_sidebar(app: &App, frame: &mut Frame<'_>, area: Rect) {
     frame.render_stateful_widget(list, area, &mut state);
 }
 
-// ── Chat area ────────────────────────────────────────────────────────────────
+fn tab_span(label: &str, active: bool) -> Span<'_> {
+    if active {
+        Span::styled(
+            label.to_owned(),
+            Style::default().fg(TAB_ACTIVE).add_modifier(Modifier::BOLD),
+        )
+    } else {
+        Span::styled(label.to_owned(), Style::default().fg(TAB_INACTIVE))
+    }
+}
+
+// ── Chat area (bubble messages) ─────────────────────────────────
 
 fn draw_chat(app: &App, frame: &mut Frame<'_>, area: Rect) {
     let block = Block::default()
@@ -155,18 +183,17 @@ fn draw_chat(app: &App, frame: &mut Frame<'_>, area: Rect) {
         .border_style(Style::default().fg(DIM));
     let inner = block.inner(area);
 
-    if app.active_conv_id.is_none() {
+    if app.active_id.is_none() {
         let welcome = Paragraph::new(Text::from(vec![
             Line::default(),
             Line::from("  Welcome to XMTP Chat"),
             Line::default(),
             Line::from(vec![
-                Span::styled(
-                    "  Select a conversation or press ",
-                    Style::default().fg(DIM),
-                ),
+                Span::styled("  Press ", Style::default().fg(DIM)),
                 Span::styled("n", Style::default().fg(ACCENT)),
-                Span::styled(" to start a new DM", Style::default().fg(DIM)),
+                Span::styled(" for DM · ", Style::default().fg(DIM)),
+                Span::styled("g", Style::default().fg(ACCENT)),
+                Span::styled(" for group", Style::default().fg(DIM)),
             ]),
         ]))
         .block(block);
@@ -174,41 +201,86 @@ fn draw_chat(app: &App, frame: &mut Frame<'_>, area: Rect) {
         return;
     }
 
-    // Build all rendered lines from messages.
+    let chat_w = inner.width.saturating_sub(2) as usize;
+    let max_bubble = (chat_w * 3 / 5).max(12);
+
     let mut lines: Vec<Line<'_>> = Vec::new();
+
     for msg in &app.messages {
         if msg.kind != MessageKind::Application {
             continue;
         }
-        let is_me = msg.sender_inbox_id == app.my_inbox_id;
-        let sender = if is_me {
-            "you".to_owned()
-        } else {
-            truncate_id(&msg.sender_inbox_id, 12)
-        };
+        let is_me = msg.sender_inbox_id == app.inbox_id;
+        let body = decode_body(msg);
         let time = format_relative(msg.sent_at_ns);
-        let body = message_body(msg);
 
-        let name_style = if is_me {
-            Style::default().fg(SENDER_ME)
+        let wrapped = wrap_text(&body, max_bubble.saturating_sub(4));
+        let content_w = wrapped
+            .iter()
+            .map(|l| UnicodeWidthStr::width(l.as_str()))
+            .max()
+            .unwrap_or(0);
+        let box_w = content_w + 2;
+        let total_w = box_w + 2;
+
+        if is_me {
+            let status = delivery_icon(msg.delivery_status);
+            let header = format!("{time}  {status}");
+            let h_width = UnicodeWidthStr::width(header.as_str());
+            let h_pad = chat_w.saturating_sub(h_width);
+            lines.push(Line::from(vec![
+                Span::raw(" ".repeat(h_pad)),
+                Span::styled(header, Style::default().fg(DIM)),
+            ]));
+
+            let b_pad = chat_w.saturating_sub(total_w);
+            let top = format!("╭{}╮", "─".repeat(box_w));
+            let bot = format!("╰{}╯", "─".repeat(box_w));
+            let style = Style::default().fg(SELF_BG);
+
+            lines.push(Line::from(vec![
+                Span::raw(" ".repeat(b_pad)),
+                Span::styled(top, style),
+            ]));
+            for wl in &wrapped {
+                let pad = content_w.saturating_sub(UnicodeWidthStr::width(wl.as_str()));
+                let row = format!("│ {}{} │", wl, " ".repeat(pad));
+                lines.push(Line::from(vec![
+                    Span::raw(" ".repeat(b_pad)),
+                    Span::styled(row, style),
+                ]));
+            }
+            lines.push(Line::from(vec![
+                Span::raw(" ".repeat(b_pad)),
+                Span::styled(bot, style),
+            ]));
         } else {
-            Style::default().fg(SENDER_PEER)
-        };
-        lines.push(Line::from(vec![
-            Span::styled(format!("  {sender}"), name_style),
-            Span::styled(format!("  {time}"), Style::default().fg(DIM)),
-        ]));
-        for text_line in body.lines() {
-            lines.push(Line::from(format!("    {text_line}")));
+            let sender = truncate_id(&msg.sender_inbox_id, 12);
+            lines.push(Line::from(vec![
+                Span::styled(format!("  {sender}"), Style::default().fg(PEER_BG)),
+                Span::styled(format!("  {time}"), Style::default().fg(DIM)),
+            ]));
+
+            let top = format!("  ╭{}╮", "─".repeat(box_w));
+            let bot = format!("  ╰{}╯", "─".repeat(box_w));
+            let style = Style::default().fg(PEER_BG);
+
+            lines.push(Line::from(Span::styled(top, style)));
+            for wl in &wrapped {
+                let pad = content_w.saturating_sub(UnicodeWidthStr::width(wl.as_str()));
+                let row = format!("  │ {}{} │", wl, " ".repeat(pad));
+                lines.push(Line::from(Span::styled(row, style)));
+            }
+            lines.push(Line::from(Span::styled(bot, style)));
         }
         lines.push(Line::default());
     }
 
-    // Apply scroll: offset 0 = bottom (latest), offset N = N lines up.
+    // Scroll: offset 0 = pinned to bottom.
     let view_h = inner.height as usize;
     let total = lines.len();
     let max_offset = total.saturating_sub(view_h);
-    let offset = app.scroll_offset.min(max_offset);
+    let offset = app.scroll.min(max_offset);
     let start = total.saturating_sub(view_h + offset);
     let end = total.saturating_sub(offset);
     let visible: Vec<Line<'_>> = lines.into_iter().skip(start).take(end - start).collect();
@@ -218,68 +290,63 @@ fn draw_chat(app: &App, frame: &mut Frame<'_>, area: Rect) {
         .wrap(Wrap { trim: false });
     frame.render_widget(paragraph, area);
 
-    // Scroll indicator when not at bottom.
     if offset > 0 {
         let indicator = format!(" ↑{offset} ");
         #[allow(clippy::cast_possible_truncation)]
         let x = area.x + area.width.saturating_sub(indicator.len() as u16 + 2);
-        let y = area.y;
         frame.render_widget(
             Paragraph::new(Span::styled(indicator, Style::default().fg(ACCENT))),
-            Rect::new(x, y, 10, 1),
+            Rect::new(x, area.y, 10, 1),
         );
     }
 }
 
-// ── Input bar ────────────────────────────────────────────────────────────────
+// ── Input bar ────────────────────────────────────────────────────
 
 fn draw_input(app: &App, frame: &mut Frame<'_>, area: Rect) {
-    let focused = app.focus == Focus::Input && app.mode == Mode::Normal;
-    let border_color = if focused { ACCENT } else { DIM };
+    let is_overlay = matches!(app.mode, Mode::NewDm | Mode::NewGroup);
+    let focused = (app.focus == Focus::Input && app.mode == Mode::Normal) || is_overlay;
+    let border = if focused { ACCENT } else { DIM };
 
-    let title = match app.mode {
-        Mode::NewDm => " New DM ",
-        _ => "",
+    let (title, prompt) = match app.mode {
+        Mode::NewDm => (" New DM (wallet address) ", "0x> "),
+        Mode::NewGroup => (" New Group (addresses, comma-sep) ", "0x> "),
+        _ => ("", "> "),
     };
+
     let block = Block::default()
         .title(title)
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(border_color));
+        .border_style(Style::default().fg(border));
 
-    let prompt = match app.mode {
-        Mode::NewDm => "inbox> ",
-        Mode::Normal | Mode::Help => "> ",
-    };
     let display = format!("{prompt}{}", app.input);
-    let paragraph = Paragraph::new(display).block(block);
-    frame.render_widget(paragraph, area);
+    frame.render_widget(Paragraph::new(display).block(block), area);
 
-    // Cursor positioning (Unicode-width-aware).
-    if focused || app.mode == Mode::NewDm {
-        let prefix_before_cursor: String = app.input.chars().take(app.input_cursor).collect();
-        let visual_offset = UnicodeWidthStr::width(prefix_before_cursor.as_str());
+    if focused {
+        let before: String = app.input.chars().take(app.cursor).collect();
+        let vis_offset = UnicodeWidthStr::width(before.as_str());
         #[allow(clippy::cast_possible_truncation)]
-        let x = area.x + 1 + prompt.len() as u16 + visual_offset as u16;
+        let x = area.x + 1 + prompt.len() as u16 + vis_offset as u16;
         let y = area.y + 1;
         frame.set_cursor_position((x, y));
     }
 }
 
-// ── Status bar ───────────────────────────────────────────────────────────────
+// ── Status bar ───────────────────────────────────────────────────
 
 fn draw_status(app: &App, frame: &mut Frame<'_>, area: Rect) {
-    let line = Line::from(vec![Span::styled(&app.status, Style::default().fg(DIM))]);
-    frame.render_widget(Paragraph::new(line), area);
+    frame.render_widget(
+        Paragraph::new(Span::styled(&app.status, Style::default().fg(DIM))),
+        area,
+    );
 }
 
-// ── Help overlay ─────────────────────────────────────────────────────────────
+// ── Help overlay ─────────────────────────────────────────────────
 
-fn draw_help_overlay(frame: &mut Frame<'_>, area: Rect) {
-    let w = 44.min(area.width.saturating_sub(4));
+fn draw_help(frame: &mut Frame<'_>, area: Rect) {
+    let w = 48.min(area.width.saturating_sub(4));
     let h = 18.min(area.height.saturating_sub(4));
-    let x = (area.width.saturating_sub(w)) / 2;
-    let y = (area.height.saturating_sub(h)) / 2;
-    let popup = Rect::new(x, y, w, h);
+    let popup = centered(area, w, h);
 
     let block = Block::default()
         .title(" Keyboard Shortcuts ")
@@ -287,17 +354,19 @@ fn draw_help_overlay(frame: &mut Frame<'_>, area: Rect) {
         .borders(Borders::ALL)
         .border_style(Style::default().fg(ACCENT));
 
-    let help_text = Text::from(vec![
+    let help = vec![
         Line::default(),
-        help_line("Tab", "Switch sidebar / input"),
+        help_line("1 / 2", "Switch Inbox / Requests tab"),
         help_line("j / k", "Navigate conversations"),
-        help_line("g / G", "Jump to first / last"),
-        help_line("Enter", "Open conversation / send"),
-        help_line("l / →", "Focus input"),
-        help_line("n", "New DM"),
+        help_line("Tab / Enter", "Open / focus input"),
+        help_line("Esc", "Back to sidebar"),
+        help_line("n", "New DM (wallet address)"),
+        help_line("g", "New group chat"),
+        help_line("m", "View group members"),
+        help_line("a", "Accept request (Requests tab)"),
+        help_line("x", "Reject request (Requests tab)"),
         help_line("r", "Sync conversations"),
-        help_line("PgUp/PgDn", "Scroll chat"),
-        help_line("Esc", "Cancel / back"),
+        help_line("PgUp/Dn", "Scroll chat"),
         help_line("q", "Quit"),
         help_line("Ctrl-C", "Force quit"),
         Line::default(),
@@ -305,10 +374,42 @@ fn draw_help_overlay(frame: &mut Frame<'_>, area: Rect) {
             "  Press any key to close",
             Style::default().fg(DIM),
         )),
-    ]);
+    ];
 
     frame.render_widget(Clear, popup);
-    frame.render_widget(Paragraph::new(help_text).block(block), popup);
+    frame.render_widget(Paragraph::new(help).block(block), popup);
+}
+
+// ── Members overlay ──────────────────────────────────────────────
+
+fn draw_members(app: &App, frame: &mut Frame<'_>, area: Rect) {
+    let w = 50.min(area.width.saturating_sub(4));
+    #[allow(clippy::cast_possible_truncation)]
+    let h = (app.members.len() as u16 + 4).min(area.height.saturating_sub(4));
+    let popup = centered(area, w, h);
+
+    let block = Block::default()
+        .title(" Group Members ")
+        .title_alignment(Alignment::Center)
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(ACCENT));
+
+    let mut lines = vec![Line::default()];
+    for m in &app.members {
+        let addr = truncate_id(&m.address, 32);
+        lines.push(Line::from(vec![
+            Span::styled(format!("  {addr}"), Style::default().fg(PEER_BG)),
+            Span::styled(format!("  ({})", m.role), Style::default().fg(DIM)),
+        ]));
+    }
+    lines.push(Line::default());
+    lines.push(Line::from(Span::styled(
+        "  Esc to close",
+        Style::default().fg(DIM),
+    )));
+
+    frame.render_widget(Clear, popup);
+    frame.render_widget(Paragraph::new(lines).block(block), popup);
 }
 
 fn help_line<'a>(key: &'a str, desc: &'a str) -> Line<'a> {
@@ -318,9 +419,51 @@ fn help_line<'a>(key: &'a str, desc: &'a str) -> Line<'a> {
     ])
 }
 
-// ── Time formatting ──────────────────────────────────────────────────────────
+const fn centered(area: Rect, w: u16, h: u16) -> Rect {
+    let x = (area.width.saturating_sub(w)) / 2;
+    let y = (area.height.saturating_sub(h)) / 2;
+    Rect::new(x, y, w, h)
+}
 
-/// Format a nanosecond timestamp as relative time (e.g. `now`, `3m`, `2h`, `5d`).
+// ── Helpers ──────────────────────────────────────────────────────
+
+/// Simple word-wrap respecting unicode display width.
+fn wrap_text(text: &str, max_width: usize) -> Vec<String> {
+    let max_w = max_width.max(8);
+    let mut result = Vec::new();
+    for raw in text.lines() {
+        if raw.is_empty() {
+            result.push(String::new());
+            continue;
+        }
+        let mut line = String::new();
+        let mut width = 0usize;
+        for word in raw.split_whitespace() {
+            let ww = UnicodeWidthStr::width(word);
+            if width > 0 && width + 1 + ww > max_w {
+                result.push(std::mem::take(&mut line));
+                word.clone_into(&mut line);
+                width = ww;
+            } else {
+                if width > 0 {
+                    line.push(' ');
+                    width += 1;
+                }
+                line.push_str(word);
+                width += ww;
+            }
+        }
+        if !line.is_empty() {
+            result.push(line);
+        }
+    }
+    if result.is_empty() {
+        result.push(String::new());
+    }
+    result
+}
+
+/// Format a nanosecond timestamp as relative time.
 #[allow(clippy::cast_possible_truncation)]
 fn format_relative(ns: i64) -> String {
     let now_ns = SystemTime::now()
@@ -329,13 +472,12 @@ fn format_relative(ns: i64) -> String {
         .unwrap_or(0);
     let secs = (now_ns - ns) / 1_000_000_000;
     if secs < 60 {
-        return "now".into();
+        "now".into()
+    } else if secs < 3600 {
+        format!("{}m", secs / 60)
+    } else if secs < 86400 {
+        format!("{}h", secs / 3600)
+    } else {
+        format!("{}d", secs / 86400)
     }
-    if secs < 3600 {
-        return format!("{}m", secs / 60);
-    }
-    if secs < 86400 {
-        return format!("{}h", secs / 3600);
-    }
-    format!("{}d", secs / 86400)
 }

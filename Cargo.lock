@@ -1819,7 +1819,6 @@ dependencies = [
  "once_cell",
  "serdect",
  "sha2",
- "signature",
 ]
 
 [[package]]
@@ -4106,7 +4105,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp"
-version = "0.1.4"
+version = "0.1.8"
 dependencies = [
  "alloy-signer",
  "alloy-signer-local",
@@ -4118,12 +4117,10 @@ dependencies = [
 
 [[package]]
 name = "xmtp-cli"
-version = "0.1.4"
+version = "0.1.8"
 dependencies = [
- "hex",
- "k256",
+ "getrandom 0.4.1",
  "ratatui",
- "sha3",
  "tokio",
  "unicode-width",
  "xmtp",
@@ -4131,7 +4128,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp-sys"
-version = "0.1.4"
+version = "0.1.8"
 dependencies = [
  "bindgen",
  "flate2",
