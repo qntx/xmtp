@@ -34,8 +34,8 @@ pub use types::{
     CreateGroupOptions, Cursor, DeliveryStatus, DisappearingSettings, Env, GroupPermissionsPreset,
     HmacKey, HmacKeyEntry, IdentifierKind, IdentityStats, InboxState, KeyPackageStatus,
     LastReadTime, ListConversationsOptions, ListMessagesOptions, MembershipState, MessageKind,
-    PermissionLevel, PermissionPolicy, PermissionPolicySet, PermissionUpdateType, Permissions,
-    SendOptions, Signer, SortDirection, SyncResult,
+    MetadataField, PermissionLevel, PermissionPolicy, PermissionPolicySet, PermissionUpdateType,
+    Permissions, SendOptions, Signer, SortDirection, SyncResult,
 };
 
 // Re-export standalone functions.

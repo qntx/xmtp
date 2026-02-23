@@ -197,6 +197,38 @@ ffi_enum! {
     }
 }
 
+/// Metadata field names for [`PermissionUpdateType::UpdateMetadata`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum MetadataField {
+    /// Group name.
+    GroupName,
+    /// Group description.
+    Description,
+    /// Group image URL.
+    ImageUrl,
+    /// Group pinned frame URL.
+    PinnedFrameUrl,
+    /// Custom app data.
+    AppData,
+    /// Message disappearing settings.
+    MessageDisappearing,
+}
+
+impl MetadataField {
+    /// Returns the FFI string key for this metadata field.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::GroupName => "group_name",
+            Self::Description => "description",
+            Self::ImageUrl => "group_image_url_square",
+            Self::PinnedFrameUrl => "group_pinned_frame_url",
+            Self::AppData => "app_data",
+            Self::MessageDisappearing => "message_disappearing",
+        }
+    }
+}
+
 /// An account identifier (address + kind).
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct AccountIdentifier {
@@ -281,10 +313,16 @@ pub struct ListConversationsOptions {
 }
 
 /// Options for sending a message.
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy)]
 pub struct SendOptions {
-    /// Whether to include in push notifications (default: true).
+    /// Whether to include in push notifications (default: `true`).
     pub should_push: bool,
+}
+
+impl Default for SendOptions {
+    fn default() -> Self {
+        Self { should_push: true }
+    }
 }
 
 /// Disappearing message settings.

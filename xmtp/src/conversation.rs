@@ -13,8 +13,9 @@ use crate::ffi::{
 use crate::types::{
     AccountIdentifier, ConsentState, ConversationDebugInfo, ConversationMetadata, ConversationType,
     Cursor, DeliveryStatus, DisappearingSettings, GroupPermissionsPreset, HmacKey, HmacKeyEntry,
-    LastReadTime, ListMessagesOptions, MembershipState, MessageKind, PermissionLevel,
-    PermissionPolicy, PermissionPolicySet, PermissionUpdateType, Permissions, SendOptions,
+    LastReadTime, ListMessagesOptions, MembershipState, MessageKind, MetadataField,
+    PermissionLevel, PermissionPolicy, PermissionPolicySet, PermissionUpdateType, Permissions,
+    SendOptions, SortDirection,
 };
 
 /// Generate a nullable-string getter method on `Conversation`.
@@ -442,13 +443,18 @@ impl Conversation {
     }
 
     /// Set a permission policy on this conversation.
+    ///
+    /// The `metadata_field` is only used when `update_type` is
+    /// [`PermissionUpdateType::UpdateMetadata`].
     pub fn set_permission_policy(
         &self,
         update_type: PermissionUpdateType,
         policy: PermissionPolicy,
-        metadata_field: Option<&str>,
+        metadata_field: Option<MetadataField>,
     ) -> Result<()> {
-        let c_field = metadata_field.map(to_c_string).transpose()?;
+        let c_field = metadata_field
+            .map(|f| to_c_string(f.as_str()))
+            .transpose()?;
         error::check(unsafe {
             xmtp_sys::xmtp_conversation_update_permission_policy(
                 self.handle.as_ptr(),
@@ -457,6 +463,16 @@ impl Conversation {
                 c_field.as_ref().map_or(ptr::null(), |c| c.as_ptr()),
             )
         })
+    }
+
+    /// Get the last message in this conversation, if any.
+    pub fn last_message(&self) -> Result<Option<Message>> {
+        let opts = ListMessagesOptions {
+            limit: 1,
+            direction: Some(SortDirection::Descending),
+            ..Default::default()
+        };
+        Ok(self.list_messages(&opts)?.into_iter().next())
     }
 
     /// Add an admin.

@@ -12,8 +12,8 @@ use crate::ffi::{
     c_str_ptr, identifiers_to_ffi, optional_c_string, to_c_string, to_c_string_array,
 };
 use crate::types::{
-    AccountIdentifier, ConsentState, CreateDmOptions, CreateGroupOptions, HmacKeyEntry,
-    IdentifierKind, ListConversationsOptions, SyncResult,
+    AccountIdentifier, ConsentState, ConversationType, CreateDmOptions, CreateGroupOptions,
+    HmacKeyEntry, IdentifierKind, ListConversationsOptions, SyncResult,
 };
 
 use super::Client;
@@ -184,6 +184,36 @@ impl Client {
     /// List all conversations with default options.
     pub fn conversations(&self) -> Result<Vec<Conversation>> {
         self.list_conversations(&ListConversationsOptions::default())
+    }
+
+    /// List only group conversations.
+    pub fn list_groups(&self) -> Result<Vec<Conversation>> {
+        self.list_conversations(&ListConversationsOptions {
+            conversation_type: Some(ConversationType::Group),
+            ..Default::default()
+        })
+    }
+
+    /// List only DM conversations.
+    pub fn list_dms(&self) -> Result<Vec<Conversation>> {
+        self.list_conversations(&ListConversationsOptions {
+            conversation_type: Some(ConversationType::Dm),
+            ..Default::default()
+        })
+    }
+
+    /// Find or create a DM by resolving an external identifier to an inbox ID.
+    ///
+    /// Combines [`inbox_id_for`](Client::inbox_id_for) +
+    /// [`create_dm_by_inbox_id`](Client::create_dm_by_inbox_id) into a single call.
+    /// Returns `None` if the identifier is not registered on the network.
+    pub fn fetch_dm_by_identifier(
+        &self,
+        address: &str,
+        kind: IdentifierKind,
+    ) -> Result<Option<Conversation>> {
+        self.inbox_id_for(address, kind)?
+            .map_or_else(|| Ok(None), |id| self.create_dm_by_inbox_id(&id).map(Some))
     }
 
     /// List conversations with filtering options.

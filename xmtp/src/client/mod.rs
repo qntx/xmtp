@@ -387,6 +387,8 @@ pub struct ClientBuilder {
     gateway_host: Option<String>,
     nonce: u64,
     disable_device_sync: bool,
+    allow_offline: bool,
+    notification_mode: bool,
 }
 
 impl ClientBuilder {
@@ -446,16 +448,50 @@ impl ClientBuilder {
         self
     }
 
-    /// Build the client, registering identity if needed.
+    /// Allow creating the client while offline. The client will sync when
+    /// connectivity is restored.
+    #[must_use]
+    pub const fn allow_offline(mut self) -> Self {
+        self.allow_offline = true;
+        self
+    }
+
+    /// Use notification (read-only) mode. The client will not send messages
+    /// or modify state, only receive push notifications.
+    #[must_use]
+    pub const fn notification_mode(mut self) -> Self {
+        self.notification_mode = true;
+        self
+    }
+
+    /// Build the client, registering identity with `signer` if needed.
     pub fn build(self, signer: &dyn Signer) -> Result<Client> {
         let ident = signer.identifier();
+        let client = self.build_inner(&ident.address, ident.kind)?;
+        if !client.is_registered() {
+            register_identity(&client, signer)?;
+        }
+        Ok(client)
+    }
+
+    /// Build a client for an already-registered identity **without** a signer.
+    ///
+    /// This is equivalent to Node SDK's `Client.build(identifier)`. The
+    /// identity must have been previously registered; no registration attempt
+    /// will be made.
+    pub fn build_existing(self, address: &str, kind: IdentifierKind) -> Result<Client> {
+        self.build_inner(address, kind)
+    }
+
+    /// Shared client creation logic.
+    fn build_inner(self, address: &str, kind: IdentifierKind) -> Result<Client> {
         let host = self.api_url.as_deref().unwrap_or_else(|| self.env.url());
         let c_host = to_c_string(host)?;
         let c_gateway = self.gateway_host.as_deref().map(to_c_string).transpose()?;
         let c_db = self.db_path.as_deref().map(to_c_string).transpose()?;
-        let c_account = to_c_string(&ident.address)?;
+        let c_account = to_c_string(address)?;
         let nonce = if self.nonce == 0 { 1 } else { self.nonce };
-        let inbox_id = generate_inbox_id(&ident.address, ident.kind, nonce)?;
+        let inbox_id = generate_inbox_id(address, kind, nonce)?;
         let c_inbox = to_c_string(&inbox_id)?;
         let c_app = self.app_version.as_deref().map(to_c_string).transpose()?;
 
@@ -470,13 +506,13 @@ impl ClientBuilder {
                 .map_or(ptr::null(), <[u8]>::as_ptr),
             inbox_id: c_inbox.as_ptr(),
             account_identifier: c_account.as_ptr(),
-            identifier_kind: ident.kind as i32,
+            identifier_kind: kind as i32,
             nonce,
             auth_handle: ptr::null(),
             app_version: c_app.as_ref().map_or(ptr::null(), |c| c.as_ptr()),
             device_sync_worker_mode: i32::from(self.disable_device_sync),
-            allow_offline: 0,
-            client_mode: 0,
+            allow_offline: i32::from(self.allow_offline),
+            client_mode: i32::from(self.notification_mode),
             max_db_pool_size: 0,
             min_db_pool_size: 0,
         };
@@ -484,12 +520,7 @@ impl ClientBuilder {
         let mut raw: *mut xmtp_sys::XmtpFfiClient = ptr::null_mut();
         error::check(unsafe { xmtp_sys::xmtp_client_create(&raw const opts, &raw mut raw) })?;
         let handle = OwnedHandle::new(raw, xmtp_sys::xmtp_client_free)?;
-        let client = Client { handle };
-
-        if !client.is_registered() {
-            register_identity(&client, signer)?;
-        }
-        Ok(client)
+        Ok(Client { handle })
     }
 }
 
