@@ -24,6 +24,10 @@ pub enum Error {
     /// An argument passed to the SDK was invalid.
     #[error("{0}")]
     InvalidArgument(String),
+
+    /// A signing operation failed.
+    #[error("signing: {0}")]
+    Signing(String),
 }
 
 /// Read the last FFI error message from thread-local storage.
@@ -32,15 +36,19 @@ pub(crate) fn last_ffi_error() -> Error {
     if len <= 0 {
         return Error::Ffi("unknown FFI error".into());
     }
-    let mut buf = vec![0u8; len as usize];
+    let mut buf = vec![0u8; len.unsigned_abs() as usize];
     let written = unsafe { xmtp_sys::xmtp_last_error_message(buf.as_mut_ptr().cast(), len) };
     if written <= 0 {
         return Error::Ffi("failed to read FFI error".into());
     }
-    match CStr::from_bytes_until_nul(&buf) {
-        Ok(cstr) => Error::Ffi(cstr.to_string_lossy().into_owned()),
-        Err(_) => Error::Ffi(String::from_utf8_lossy(&buf[..written as usize]).into_owned()),
-    }
+    CStr::from_bytes_until_nul(&buf).map_or_else(
+        |_| {
+            Error::Ffi(
+                String::from_utf8_lossy(&buf[..written.unsigned_abs() as usize]).into_owned(),
+            )
+        },
+        |cstr| Error::Ffi(cstr.to_string_lossy().into_owned()),
+    )
 }
 
 /// Check an FFI return code. `0` = success.

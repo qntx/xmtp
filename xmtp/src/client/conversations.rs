@@ -11,7 +11,10 @@ use crate::error::{self, Result};
 use crate::ffi::{
     c_str_ptr, identifiers_to_ffi, optional_c_string, to_c_string, to_c_string_array,
 };
-use crate::types::*;
+use crate::types::{
+    AccountIdentifier, ConsentState, CreateDmOptions, CreateGroupOptions, HmacKeyEntry,
+    IdentifierKind, ListConversationsOptions, SyncResult,
+};
 
 use super::Client;
 
@@ -36,7 +39,7 @@ impl Client {
                     ffi_opts,
                     ids_ptr,
                     ptrs.len() as i32,
-                    &mut out,
+                    &raw mut out,
                 )
             };
             error::check(rc)?;
@@ -60,7 +63,7 @@ impl Client {
                     ptrs.as_ptr(),
                     kinds.as_ptr(),
                     ptrs.len() as i32,
-                    &mut out,
+                    &raw mut out,
                 )
             };
             error::check(rc)?;
@@ -76,7 +79,7 @@ impl Client {
                 xmtp_sys::xmtp_client_create_group_optimistic(
                     self.handle.as_ptr(),
                     ffi_opts,
-                    &mut out,
+                    &raw mut out,
                 )
             };
             error::check(rc)?;
@@ -106,7 +109,7 @@ impl Client {
                 kind as i32,
                 ds.from_ns,
                 ds.in_ns,
-                &mut out,
+                &raw mut out,
             )
         };
         error::check(rc)?;
@@ -133,7 +136,7 @@ impl Client {
                 c.as_ptr(),
                 ds.from_ns,
                 ds.in_ns,
-                &mut out,
+                &raw mut out,
             )
         };
         error::check(rc)?;
@@ -145,7 +148,11 @@ impl Client {
         let c = to_c_string(inbox_id)?;
         let mut out: *mut xmtp_sys::XmtpFfiConversation = ptr::null_mut();
         let rc = unsafe {
-            xmtp_sys::xmtp_client_find_dm_by_inbox_id(self.handle.as_ptr(), c.as_ptr(), &mut out)
+            xmtp_sys::xmtp_client_find_dm_by_inbox_id(
+                self.handle.as_ptr(),
+                c.as_ptr(),
+                &raw mut out,
+            )
         };
         error::check(rc)?;
         if out.is_null() {
@@ -160,7 +167,11 @@ impl Client {
         let c = to_c_string(hex_id)?;
         let mut out: *mut xmtp_sys::XmtpFfiConversation = ptr::null_mut();
         let rc = unsafe {
-            xmtp_sys::xmtp_client_get_conversation_by_id(self.handle.as_ptr(), c.as_ptr(), &mut out)
+            xmtp_sys::xmtp_client_get_conversation_by_id(
+                self.handle.as_ptr(),
+                c.as_ptr(),
+                &raw mut out,
+            )
         };
         error::check(rc)?;
         if out.is_null() {
@@ -186,17 +197,24 @@ impl Client {
             limit: options.limit,
             created_after_ns: options.created_after_ns,
             created_before_ns: options.created_before_ns,
+            last_activity_after_ns: options.last_activity_after_ns,
+            last_activity_before_ns: options.last_activity_before_ns,
             consent_states: if consent_i32.is_empty() {
                 ptr::null()
             } else {
                 consent_i32.as_ptr()
             },
             consent_states_count: consent_i32.len() as i32,
-            ..Default::default()
+            order_by: options.order_by as i32,
+            include_duplicate_dms: i32::from(options.include_duplicate_dms),
         };
         let mut list: *mut xmtp_sys::XmtpFfiConversationList = ptr::null_mut();
         let rc = unsafe {
-            xmtp_sys::xmtp_client_list_conversations(self.handle.as_ptr(), &ffi_opts, &mut list)
+            xmtp_sys::xmtp_client_list_conversations(
+                self.handle.as_ptr(),
+                &raw const ffi_opts,
+                &raw mut list,
+            )
         };
         error::check(rc)?;
         read_conversation_list_inner(list)
@@ -220,8 +238,8 @@ impl Client {
                     cs.as_ptr()
                 },
                 cs.len() as i32,
-                &mut synced,
-                &mut eligible,
+                &raw mut synced,
+                &raw mut eligible,
             )
         };
         error::check(rc)?;
@@ -251,14 +269,14 @@ impl Client {
             xmtp_sys::xmtp_client_get_enriched_message_by_id(
                 self.handle.as_ptr(),
                 c.as_ptr(),
-                &mut out,
+                &raw mut out,
             )
         };
         error::check(rc)?;
         if out.is_null() {
             return Ok(None);
         }
-        let msgs = read_enriched_message_list(out)?;
+        let msgs = read_enriched_message_list(out);
         unsafe { xmtp_sys::xmtp_enriched_message_list_free(out) };
         Ok(msgs.into_iter().next())
     }
@@ -267,7 +285,11 @@ impl Client {
     pub fn sync_preferences(&self) -> Result<SyncResult> {
         let (mut synced, mut eligible) = (0i32, 0i32);
         let rc = unsafe {
-            xmtp_sys::xmtp_client_sync_preferences(self.handle.as_ptr(), &mut synced, &mut eligible)
+            xmtp_sys::xmtp_client_sync_preferences(
+                self.handle.as_ptr(),
+                &raw mut synced,
+                &raw mut eligible,
+            )
         };
         error::check(rc)?;
         Ok(SyncResult {
@@ -279,7 +301,7 @@ impl Client {
     /// Get HMAC keys for all conversations. For push notification verification.
     pub fn hmac_keys(&self) -> Result<Vec<HmacKeyEntry>> {
         let mut map: *mut xmtp_sys::XmtpFfiHmacKeyMap = ptr::null_mut();
-        let rc = unsafe { xmtp_sys::xmtp_client_hmac_keys(self.handle.as_ptr(), &mut map) };
+        let rc = unsafe { xmtp_sys::xmtp_client_hmac_keys(self.handle.as_ptr(), &raw mut map) };
         error::check(rc)?;
         if map.is_null() {
             return Ok(vec![]);
@@ -290,7 +312,7 @@ impl Client {
     }
 }
 
-/// Build FFI group options and pass them to a closure. CStrings live on the
+/// Build FFI group options and pass them to a closure. `CStrings` live on the
 /// stack and are valid for the duration of `f`.
 fn with_group_ffi_opts<R>(
     options: &CreateGroupOptions,
@@ -303,10 +325,10 @@ fn with_group_ffi_opts<R>(
     let ds = options.disappearing.unwrap_or_default();
     let ffi = xmtp_sys::XmtpFfiCreateGroupOptions {
         permissions: options.permissions.map_or(0, |p| p as i32),
-        name: c_str_ptr(&c_name),
-        description: c_str_ptr(&c_desc),
-        image_url: c_str_ptr(&c_img),
-        app_data: c_str_ptr(&c_app),
+        name: c_str_ptr(c_name.as_ref()),
+        description: c_str_ptr(c_desc.as_ref()),
+        image_url: c_str_ptr(c_img.as_ref()),
+        app_data: c_str_ptr(c_app.as_ref()),
         message_disappear_from_ns: ds.from_ns,
         message_disappear_in_ns: ds.in_ns,
     };

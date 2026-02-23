@@ -480,6 +480,10 @@ pub struct FfiEnrichedMessage {
     pub num_reactions: i32,
     /// Number of replies.
     pub num_replies: i32,
+    /// Raw decrypted content bytes (protobuf-encoded EncodedContent, owned).
+    pub content_bytes: *mut u8,
+    /// Length of `content_bytes`. 0 if unavailable.
+    pub content_bytes_len: i32,
 }
 
 /// A list of enriched messages.

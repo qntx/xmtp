@@ -9,7 +9,10 @@ use std::ptr;
 
 use crate::error::{self, Result};
 use crate::ffi::{OwnedHandle, read_borrowed_strings, take_c_string, to_c_string};
-use crate::types::*;
+use crate::types::{
+    AccountIdentifier, ApiStats, ConsentEntityType, ConsentState, Env, IdentifierKind,
+    IdentityStats, InboxState, KeyPackageStatus, Signer,
+};
 
 /// Generate a deterministic inbox ID (no network access required).
 pub fn generate_inbox_id(address: &str, kind: IdentifierKind, nonce: u64) -> Result<String> {
@@ -36,7 +39,7 @@ pub fn get_inbox_id_for_identifier(
             i32::from(is_secure),
             c_addr.as_ptr(),
             kind as i32,
-            &mut out,
+            &raw mut out,
         )
     };
     error::check(rc)?;
@@ -142,7 +145,7 @@ impl Client {
                 self.handle.as_ptr(),
                 c.as_ptr(),
                 kind as i32,
-                &mut out,
+                &raw mut out,
             )
         };
         error::check(rc)?;
@@ -156,8 +159,9 @@ impl Client {
     /// Installation ID as raw bytes.
     pub fn installation_id_bytes(&self) -> Result<Vec<u8>> {
         let mut len = 0i32;
-        let ptr =
-            unsafe { xmtp_sys::xmtp_client_installation_id_bytes(self.handle.as_ptr(), &mut len) };
+        let ptr = unsafe {
+            xmtp_sys::xmtp_client_installation_id_bytes(self.handle.as_ptr(), &raw mut len)
+        };
         if ptr.is_null() || len <= 0 {
             return Err(crate::Error::NullPointer);
         }
@@ -170,7 +174,11 @@ impl Client {
     pub fn inbox_state(&self, refresh: bool) -> Result<Vec<InboxState>> {
         let mut out: *mut xmtp_sys::XmtpFfiInboxStateList = ptr::null_mut();
         let rc = unsafe {
-            xmtp_sys::xmtp_client_inbox_state(self.handle.as_ptr(), i32::from(refresh), &mut out)
+            xmtp_sys::xmtp_client_inbox_state(
+                self.handle.as_ptr(),
+                i32::from(refresh),
+                &raw mut out,
+            )
         };
         error::check(rc)?;
         let result = read_inbox_state_list(out);
@@ -194,7 +202,7 @@ impl Client {
                 c_ptrs.as_ptr(),
                 c_ptrs.len() as i32,
                 i32::from(refresh),
-                &mut out,
+                &raw mut out,
             )
         };
         error::check(rc)?;
@@ -214,8 +222,8 @@ impl Client {
             xmtp_sys::xmtp_client_sign_with_installation_key(
                 self.handle.as_ptr(),
                 c.as_ptr(),
-                &mut out,
-                &mut out_len,
+                &raw mut out,
+                &raw mut out_len,
             )
         };
         error::check(rc)?;
@@ -277,7 +285,7 @@ impl Client {
                 self.handle.as_ptr(),
                 entity_type as i32,
                 c.as_ptr(),
-                &mut out,
+                &raw mut out,
             )
         };
         error::check(rc)?;
@@ -289,7 +297,7 @@ impl Client {
     pub fn mls_stats(&self) -> Result<ApiStats> {
         let mut out = xmtp_sys::XmtpFfiApiStats::default();
         error::check(unsafe {
-            xmtp_sys::xmtp_client_api_statistics(self.handle.as_ptr(), &mut out)
+            xmtp_sys::xmtp_client_api_statistics(self.handle.as_ptr(), &raw mut out)
         })?;
         Ok(ApiStats {
             upload_key_package: out.upload_key_package,
@@ -310,7 +318,7 @@ impl Client {
     pub fn identity_stats(&self) -> Result<IdentityStats> {
         let mut out = xmtp_sys::XmtpFfiIdentityStats::default();
         error::check(unsafe {
-            xmtp_sys::xmtp_client_api_identity_statistics(self.handle.as_ptr(), &mut out)
+            xmtp_sys::xmtp_client_api_identity_statistics(self.handle.as_ptr(), &raw mut out)
         })?;
         Ok(IdentityStats {
             publish_identity_update: out.publish_identity_update,
@@ -343,7 +351,7 @@ impl Client {
                 self.handle.as_ptr(),
                 ptrs.as_ptr(),
                 ptrs.len() as i32,
-                &mut out,
+                &raw mut out,
             )
         };
         error::check(rc)?;
@@ -352,14 +360,18 @@ impl Client {
         }
         let result = read_key_package_status_list(out);
         unsafe { xmtp_sys::xmtp_key_package_status_list_free(out) };
-        result
+        Ok(result)
     }
 
     /// Send a device sync request to retrieve records from another installation.
     pub fn request_device_sync(&self) -> Result<()> {
         let opts = xmtp_sys::XmtpFfiArchiveOptions::default();
         error::check(unsafe {
-            xmtp_sys::xmtp_device_sync_send_request(self.handle.as_ptr(), &opts, ptr::null())
+            xmtp_sys::xmtp_device_sync_send_request(
+                self.handle.as_ptr(),
+                &raw const opts,
+                ptr::null(),
+            )
         })
     }
 }
@@ -380,7 +392,7 @@ pub struct ClientBuilder {
 impl ClientBuilder {
     /// Set the network environment (default: [`Env::Dev`]).
     #[must_use]
-    pub fn env(mut self, env: Env) -> Self {
+    pub const fn env(mut self, env: Env) -> Self {
         self.env = env;
         self
     }
@@ -422,14 +434,14 @@ impl ClientBuilder {
 
     /// Set the nonce for inbox ID generation (default: 0, which FFI treats as 1).
     #[must_use]
-    pub fn nonce(mut self, n: u64) -> Self {
+    pub const fn nonce(mut self, n: u64) -> Self {
         self.nonce = n;
         self
     }
 
     /// Disable the device sync worker.
     #[must_use]
-    pub fn disable_device_sync(mut self) -> Self {
+    pub const fn disable_device_sync(mut self) -> Self {
         self.disable_device_sync = true;
         self
     }
@@ -470,7 +482,7 @@ impl ClientBuilder {
         };
 
         let mut raw: *mut xmtp_sys::XmtpFfiClient = ptr::null_mut();
-        error::check(unsafe { xmtp_sys::xmtp_client_create(&opts, &mut raw) })?;
+        error::check(unsafe { xmtp_sys::xmtp_client_create(&raw const opts, &raw mut raw) })?;
         let handle = OwnedHandle::new(raw, xmtp_sys::xmtp_client_free)?;
         let client = Client { handle };
 
@@ -525,7 +537,7 @@ pub(crate) fn apply_signature_request(
 fn register_identity(client: &Client, signer: &dyn Signer) -> Result<()> {
     let mut raw: *mut xmtp_sys::XmtpFfiSignatureRequest = ptr::null_mut();
     error::check(unsafe {
-        xmtp_sys::xmtp_client_create_inbox_signature_request(client.handle.as_ptr(), &mut raw)
+        xmtp_sys::xmtp_client_create_inbox_signature_request(client.handle.as_ptr(), &raw mut raw)
     })?;
     if raw.is_null() {
         return Ok(());
@@ -572,7 +584,7 @@ pub fn is_address_authorized(env: Env, inbox_id: &str, address: &str) -> Result<
             i32::from(env.is_secure()),
             c_inbox.as_ptr(),
             c_addr.as_ptr(),
-            &mut out,
+            &raw mut out,
         )
     };
     error::check(rc)?;
@@ -595,7 +607,7 @@ pub fn is_installation_authorized(
             c_inbox.as_ptr(),
             installation_id.as_ptr(),
             installation_id.len() as i32,
-            &mut out,
+            &raw mut out,
         )
     };
     error::check(rc)?;
@@ -605,9 +617,9 @@ pub fn is_installation_authorized(
 /// Read an FFI key package status list. Does NOT free the list.
 fn read_key_package_status_list(
     list: *const xmtp_sys::XmtpFfiKeyPackageStatusList,
-) -> Result<Vec<KeyPackageStatus>> {
+) -> Vec<KeyPackageStatus> {
     if list.is_null() {
-        return Ok(vec![]);
+        return vec![];
     }
     let len = unsafe { xmtp_sys::xmtp_key_package_status_list_len(list) };
     let mut statuses = Vec::with_capacity(len.max(0) as usize);
@@ -631,7 +643,7 @@ fn read_key_package_status_list(
             validation_error,
         });
     }
-    Ok(statuses)
+    statuses
 }
 
 /// Read an FFI inbox state list into `Vec<InboxState>`. Does NOT free the list.
@@ -647,11 +659,11 @@ fn read_inbox_state_list(list: *const xmtp_sys::XmtpFfiInboxStateList) -> Result
             unsafe { take_c_string(xmtp_sys::xmtp_inbox_state_recovery_identifier(list, i)) }?;
         let mut ident_count = 0i32;
         let ident_ptr =
-            unsafe { xmtp_sys::xmtp_inbox_state_identifiers(list, i, &mut ident_count) };
+            unsafe { xmtp_sys::xmtp_inbox_state_identifiers(list, i, &raw mut ident_count) };
         let identifiers = unsafe { read_borrowed_strings(ident_ptr, ident_count) };
         let mut inst_count = 0i32;
         let inst_ptr =
-            unsafe { xmtp_sys::xmtp_inbox_state_installation_ids(list, i, &mut inst_count) };
+            unsafe { xmtp_sys::xmtp_inbox_state_installation_ids(list, i, &raw mut inst_count) };
         let installation_ids = unsafe { read_borrowed_strings(inst_ptr, inst_count) };
         states.push(InboxState {
             inbox_id,

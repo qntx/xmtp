@@ -468,6 +468,71 @@ pub unsafe extern "C" fn xmtp_message_content_bytes(
 free_opaque!(xmtp_message_list_free, FfiMessageList);
 free_opaque!(xmtp_message_free, FfiMessage);
 
+// --- Single-message accessors (for stream callback data extraction) ---
+
+/// Get the message ID (hex) from a single message handle.
+/// Caller must free with [`xmtp_free_string`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn xmtp_single_message_id(msg: *const FfiMessage) -> *mut c_char {
+    match unsafe { ref_from(msg) } {
+        Ok(m) => to_c_string(&hex::encode(&m.inner.id)),
+        Err(_) => std::ptr::null_mut(),
+    }
+}
+
+/// Get the group ID (hex) from a single message handle.
+/// Caller must free with [`xmtp_free_string`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn xmtp_single_message_group_id(msg: *const FfiMessage) -> *mut c_char {
+    match unsafe { ref_from(msg) } {
+        Ok(m) => to_c_string(&hex::encode(&m.inner.group_id)),
+        Err(_) => std::ptr::null_mut(),
+    }
+}
+
+/// Get the sender inbox ID from a single message handle.
+/// Caller must free with [`xmtp_free_string`].
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn xmtp_single_message_sender_inbox_id(
+    msg: *const FfiMessage,
+) -> *mut c_char {
+    match unsafe { ref_from(msg) } {
+        Ok(m) => to_c_string(&m.inner.sender_inbox_id),
+        Err(_) => std::ptr::null_mut(),
+    }
+}
+
+/// Get the sent-at timestamp (ns) from a single message handle.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn xmtp_single_message_sent_at_ns(msg: *const FfiMessage) -> i64 {
+    match unsafe { ref_from(msg) } {
+        Ok(m) => m.inner.sent_at_ns,
+        Err(_) => 0,
+    }
+}
+
+/// Get raw content bytes from a single message handle.
+/// The returned pointer is borrowed — valid only while the message handle is alive.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn xmtp_single_message_content_bytes(
+    msg: *const FfiMessage,
+    out_len: *mut i32,
+) -> *const u8 {
+    if out_len.is_null() {
+        return std::ptr::null();
+    }
+    match unsafe { ref_from(msg) } {
+        Ok(m) => {
+            unsafe { *out_len = m.inner.decrypted_message_bytes.len() as i32 };
+            m.inner.decrypted_message_bytes.as_ptr()
+        }
+        Err(_) => {
+            unsafe { *out_len = 0 };
+            std::ptr::null()
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Members
 // ---------------------------------------------------------------------------
@@ -1444,15 +1509,23 @@ free_opaque!(xmtp_group_permissions_free, FfiGroupPermissions);
 // Enriched messages + last read times
 // ---------------------------------------------------------------------------
 
-/// Convert a DecodedMessage to an FfiEnrichedMessage.
+/// Convert a DecodedMessage + raw content bytes to an FfiEnrichedMessage.
 pub(crate) fn decoded_to_enriched(
     msg: &xmtp_mls::messages::decoded_message::DecodedMessage,
+    raw_content: &[u8],
 ) -> FfiEnrichedMessage {
     let ct = &msg.metadata.content_type;
     let ct_str = format!(
         "{}/{}:{}.{}",
         ct.authority_id, ct.type_id, ct.version_major, ct.version_minor
     );
+    let (content_bytes, content_bytes_len) = if raw_content.is_empty() {
+        (std::ptr::null_mut(), 0)
+    } else {
+        let b = raw_content.to_vec().into_boxed_slice();
+        let len = b.len() as i32;
+        (Box::into_raw(b) as *mut u8, len)
+    };
     FfiEnrichedMessage {
         id: to_c_string(&hex::encode(&msg.metadata.id)),
         group_id: to_c_string(&hex::encode(&msg.metadata.group_id)),
@@ -1479,10 +1552,13 @@ pub(crate) fn decoded_to_enriched(
         expires_at_ns: msg.metadata.expires_at_ns.unwrap_or(0),
         num_reactions: msg.reactions.len() as i32,
         num_replies: msg.num_replies as i32,
+        content_bytes,
+        content_bytes_len,
     }
 }
 
 /// List enriched (decoded) messages for a conversation.
+/// Fetches both enriched metadata and raw content bytes in a single call.
 /// Caller must free with [`xmtp_enriched_message_list_free`].
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn xmtp_conversation_list_enriched_messages(
@@ -1496,8 +1572,19 @@ pub unsafe extern "C" fn xmtp_conversation_list_enriched_messages(
             return Err("null output pointer".into());
         }
         let args = parse_msg_query_args(opts);
-        let messages = conv.inner.find_messages_v2(&args)?;
-        let items: Vec<FfiEnrichedMessage> = messages.iter().map(decoded_to_enriched).collect();
+        let raw = conv.inner.find_messages(&args)?;
+        let enriched = conv.inner.find_messages_v2(&args)?;
+        let items: Vec<FfiEnrichedMessage> = enriched
+            .iter()
+            .enumerate()
+            .map(|(i, e)| {
+                let bytes = raw
+                    .get(i)
+                    .map(|r| r.decrypted_message_bytes.as_slice())
+                    .unwrap_or(&[]);
+                decoded_to_enriched(e, bytes)
+            })
+            .collect();
         unsafe { write_out(out, FfiEnrichedMessageList { items })? };
         Ok(())
     })
@@ -1510,18 +1597,34 @@ ffi_list_get!(
     FfiEnrichedMessage
 );
 
-ffi_list_free!(
-    xmtp_enriched_message_list_free,
-    FfiEnrichedMessageList,
-    [
-        id,
-        group_id,
-        sender_inbox_id,
-        sender_installation_id,
-        content_type,
-        fallback_text
-    ]
-);
+/// Free an enriched message list (including owned strings and content bytes).
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn xmtp_enriched_message_list_free(list: *mut FfiEnrichedMessageList) {
+    if list.is_null() {
+        return;
+    }
+    let l = unsafe { Box::from_raw(list) };
+    for item in &l.items {
+        free_c_strings!(
+            item,
+            id,
+            group_id,
+            sender_inbox_id,
+            sender_installation_id,
+            content_type,
+            fallback_text
+        );
+        if !item.content_bytes.is_null() && item.content_bytes_len > 0 {
+            drop(unsafe {
+                Vec::from_raw_parts(
+                    item.content_bytes,
+                    item.content_bytes_len as usize,
+                    item.content_bytes_len as usize,
+                )
+            });
+        }
+    }
+}
 
 /// Get per-inbox last read times for a conversation.
 /// Caller must free with [`xmtp_last_read_time_list_free`].

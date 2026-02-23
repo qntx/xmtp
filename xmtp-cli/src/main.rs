@@ -82,7 +82,7 @@ fn run() -> xmtp::Result<()> {
     let mut peer = String::new();
     io::stdin()
         .read_line(&mut peer)
-        .expect("failed to read stdin");
+        .map_err(|e| xmtp::Error::InvalidArgument(format!("failed to read stdin: {e}")))?;
     let peer = peer.trim();
     if peer.is_empty() {
         return Err(xmtp::Error::InvalidArgument("empty peer ID".into()));
@@ -96,16 +96,13 @@ fn run() -> xmtp::Result<()> {
     // FFI layer, so treat errors containing "not found" as None.
     let existing = client.find_dm_by_inbox_id(peer).unwrap_or(None);
 
-    let conv = match existing {
-        Some(c) => {
-            println!("dm      : {} (found)", c.id()?);
-            c
-        }
-        None => {
-            let c = client.create_dm_by_inbox_id(peer)?;
-            println!("dm      : {} (created)", c.id()?);
-            c
-        }
+    let conv = if let Some(c) = existing {
+        println!("dm      : {} (found)", c.id()?);
+        c
+    } else {
+        let c = client.create_dm_by_inbox_id(peer)?;
+        println!("dm      : {} (created)", c.id()?);
+        c
     };
     conv.sync()?;
     println!("--- type messages, press Enter to send (Ctrl-C to quit) ---");

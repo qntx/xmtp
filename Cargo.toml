@@ -12,6 +12,8 @@ repository = "https://github.com/qntx/xmtp"
 description = "Client library for the XMTP messaging protocol."
 
 [workspace.dependencies]
+alloy-signer = "1.7"
+alloy-signer-local = { version = "1.7", default-features = false }
 bindgen = "0.72"
 flate2 = "1"
 getrandom = "0.2"

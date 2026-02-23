@@ -1,0 +1,8 @@
+# Cargo configuration for the xmtp-ffi standalone crate.
+#
+# Cap lint level for all upstream dependency crates to suppress warnings from
+# third-party code (e.g. ambiguous_glob_imports in xmtp_db, dead_code in
+# xmtp_mls) that cannot be fixed locally. This does NOT affect warnings in
+# xmtp-ffi's own source files.
+[build]
+rustflags = ["--cap-lints", "allow"]

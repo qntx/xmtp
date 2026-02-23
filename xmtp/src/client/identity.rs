@@ -5,7 +5,7 @@ use std::ptr;
 
 use crate::error::{self, Result};
 use crate::ffi::{OwnedHandle, to_c_string};
-use crate::types::*;
+use crate::types::{AccountIdentifier, Signer};
 
 use super::{Client, apply_signature_request, sign_request};
 

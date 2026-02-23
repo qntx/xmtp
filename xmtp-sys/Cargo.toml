@@ -1,6 +1,6 @@
 [package]
 name = "xmtp-sys"
-version = "0.1.3"
+version = "0.1.4"
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
@@ -24,5 +24,6 @@ flate2.workspace = true
 tar.workspace = true
 zip.workspace = true
 
-[lints]
-workspace = true
+# Auto-generated bindings: suppress all clippy lints.
+[lints.clippy]
+all = "allow"

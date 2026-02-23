@@ -15,7 +15,7 @@ pub enum Env {
 impl Env {
     /// gRPC API URL for this environment.
     #[must_use]
-    pub fn url(self) -> &'static str {
+    pub const fn url(self) -> &'static str {
         match self {
             Self::Local => "http://localhost:5556",
             Self::Dev => "https://grpc.dev.xmtp.network:443",
@@ -25,7 +25,7 @@ impl Env {
 
     /// Whether this environment uses TLS.
     #[must_use]
-    pub fn is_secure(self) -> bool {
+    pub const fn is_secure(self) -> bool {
         !matches!(self, Self::Local)
     }
 }
@@ -42,7 +42,7 @@ macro_rules! ffi_enum {
         impl $name {
             /// Convert from FFI `i32`. Returns `None` for unknown values.
             #[must_use]
-            pub fn from_ffi(v: i32) -> Option<Self> {
+            pub const fn from_ffi(v: i32) -> Option<Self> {
                 match v { $($val => Some(Self::$variant),)* _ => None }
             }
         }
@@ -247,6 +247,16 @@ pub struct ListMessagesOptions {
     pub kind: Option<MessageKind>,
 }
 
+/// Sort order for listing conversations.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum ConversationOrderBy {
+    /// Order by creation timestamp (default).
+    #[default]
+    CreatedAt = 0,
+    /// Order by last activity timestamp.
+    LastActivity = 1,
+}
+
 /// Options for listing conversations.
 #[derive(Debug, Clone, Default)]
 pub struct ListConversationsOptions {
@@ -258,8 +268,16 @@ pub struct ListConversationsOptions {
     pub created_after_ns: i64,
     /// Only conversations created before this timestamp (ns).
     pub created_before_ns: i64,
+    /// Only conversations with last activity after this timestamp (ns).
+    pub last_activity_after_ns: i64,
+    /// Only conversations with last activity before this timestamp (ns).
+    pub last_activity_before_ns: i64,
     /// Filter by consent states. Empty = all.
     pub consent_states: Vec<ConsentState>,
+    /// Sort order for results.
+    pub order_by: ConversationOrderBy,
+    /// Whether to include duplicate DMs.
+    pub include_duplicate_dms: bool,
 }
 
 /// Options for sending a message.
@@ -457,6 +475,10 @@ pub trait Signer: Send + Sync {
     fn identifier(&self) -> AccountIdentifier;
 
     /// Sign the given text and return raw signature bytes.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if signing fails (e.g. key unavailable or hardware error).
     fn sign(&self, text: &str) -> crate::error::Result<Vec<u8>>;
 
     /// Whether this is a smart contract wallet (ERC-1271). Default: `false`.

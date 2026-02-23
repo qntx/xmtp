@@ -726,10 +726,14 @@ pub struct XmtpFfiEnrichedMessage {
     pub num_reactions: i32,
     #[doc = " Number of replies."]
     pub num_replies: i32,
+    #[doc = " Raw decrypted content bytes (protobuf-encoded EncodedContent, owned)."]
+    pub content_bytes: *mut u8,
+    #[doc = " Length of `content_bytes`. 0 if unavailable."]
+    pub content_bytes_len: i32,
 }
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
-    ["Size of XmtpFfiEnrichedMessage"][::core::mem::size_of::<XmtpFfiEnrichedMessage>() - 88usize];
+    ["Size of XmtpFfiEnrichedMessage"][::core::mem::size_of::<XmtpFfiEnrichedMessage>() - 104usize];
     ["Alignment of XmtpFfiEnrichedMessage"]
         [::core::mem::align_of::<XmtpFfiEnrichedMessage>() - 8usize];
     ["Offset of field: XmtpFfiEnrichedMessage::id"]
@@ -758,6 +762,10 @@ const _: () = {
         [::core::mem::offset_of!(XmtpFfiEnrichedMessage, num_reactions) - 80usize];
     ["Offset of field: XmtpFfiEnrichedMessage::num_replies"]
         [::core::mem::offset_of!(XmtpFfiEnrichedMessage, num_replies) - 84usize];
+    ["Offset of field: XmtpFfiEnrichedMessage::content_bytes"]
+        [::core::mem::offset_of!(XmtpFfiEnrichedMessage, content_bytes) - 88usize];
+    ["Offset of field: XmtpFfiEnrichedMessage::content_bytes_len"]
+        [::core::mem::offset_of!(XmtpFfiEnrichedMessage, content_bytes_len) - 96usize];
 };
 impl Default for XmtpFfiEnrichedMessage {
     fn default() -> Self {
@@ -1446,6 +1454,31 @@ unsafe extern "C" {
     pub fn xmtp_message_free(ptr: *mut XmtpFfiMessage);
 }
 unsafe extern "C" {
+    #[doc = " Get the message ID (hex) from a single message handle.\n Caller must free with [`xmtp_free_string`]."]
+    pub fn xmtp_single_message_id(msg: *const XmtpFfiMessage) -> *mut ::core::ffi::c_char;
+}
+unsafe extern "C" {
+    #[doc = " Get the group ID (hex) from a single message handle.\n Caller must free with [`xmtp_free_string`]."]
+    pub fn xmtp_single_message_group_id(msg: *const XmtpFfiMessage) -> *mut ::core::ffi::c_char;
+}
+unsafe extern "C" {
+    #[doc = " Get the sender inbox ID from a single message handle.\n Caller must free with [`xmtp_free_string`]."]
+    pub fn xmtp_single_message_sender_inbox_id(
+        msg: *const XmtpFfiMessage,
+    ) -> *mut ::core::ffi::c_char;
+}
+unsafe extern "C" {
+    #[doc = " Get the sent-at timestamp (ns) from a single message handle."]
+    pub fn xmtp_single_message_sent_at_ns(msg: *const XmtpFfiMessage) -> i64;
+}
+unsafe extern "C" {
+    #[doc = " Get raw content bytes from a single message handle.\n The returned pointer is borrowed — valid only while the message handle is alive."]
+    pub fn xmtp_single_message_content_bytes(
+        msg: *const XmtpFfiMessage,
+        out_len: *mut i32,
+    ) -> *const u8;
+}
+unsafe extern "C" {
     #[doc = " List group members. Caller must free with [`xmtp_group_member_list_free`]."]
     pub fn xmtp_conversation_list_members(
         conv: *const XmtpFfiConversation,
@@ -1746,7 +1779,7 @@ unsafe extern "C" {
     pub fn xmtp_group_permissions_free(ptr: *mut XmtpFfiGroupPermissions);
 }
 unsafe extern "C" {
-    #[doc = " List enriched (decoded) messages for a conversation.\n Caller must free with [`xmtp_enriched_message_list_free`]."]
+    #[doc = " List enriched (decoded) messages for a conversation.\n Fetches both enriched metadata and raw content bytes in a single call.\n Caller must free with [`xmtp_enriched_message_list_free`]."]
     pub fn xmtp_conversation_list_enriched_messages(
         conversation: *const XmtpFfiConversation,
         opts: *const XmtpFfiListMessagesOptions,
@@ -1763,6 +1796,7 @@ unsafe extern "C" {
     ) -> *const XmtpFfiEnrichedMessage;
 }
 unsafe extern "C" {
+    #[doc = " Free an enriched message list (including owned strings and content bytes)."]
     pub fn xmtp_enriched_message_list_free(list: *mut XmtpFfiEnrichedMessageList);
 }
 unsafe extern "C" {

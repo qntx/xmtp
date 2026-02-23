@@ -568,6 +568,14 @@ typedef struct XmtpFfiEnrichedMessage {
      * Number of replies.
      */
     int32_t num_replies;
+    /**
+     * Raw decrypted content bytes (protobuf-encoded EncodedContent, owned).
+     */
+    uint8_t *content_bytes;
+    /**
+     * Length of `content_bytes`. 0 if unavailable.
+     */
+    int32_t content_bytes_len;
 } XmtpFfiEnrichedMessage;
 
 /**
@@ -1168,6 +1176,36 @@ void xmtp_message_list_free(struct XmtpFfiMessageList *ptr);
 void xmtp_message_free(struct XmtpFfiMessage *ptr);
 
 /**
+ * Get the message ID (hex) from a single message handle.
+ * Caller must free with [`xmtp_free_string`].
+ */
+char *xmtp_single_message_id(const struct XmtpFfiMessage *msg);
+
+/**
+ * Get the group ID (hex) from a single message handle.
+ * Caller must free with [`xmtp_free_string`].
+ */
+char *xmtp_single_message_group_id(const struct XmtpFfiMessage *msg);
+
+/**
+ * Get the sender inbox ID from a single message handle.
+ * Caller must free with [`xmtp_free_string`].
+ */
+char *xmtp_single_message_sender_inbox_id(const struct XmtpFfiMessage *msg);
+
+/**
+ * Get the sent-at timestamp (ns) from a single message handle.
+ */
+int64_t xmtp_single_message_sent_at_ns(const struct XmtpFfiMessage *msg);
+
+/**
+ * Get raw content bytes from a single message handle.
+ * The returned pointer is borrowed — valid only while the message handle is alive.
+ */
+const uint8_t *xmtp_single_message_content_bytes(const struct XmtpFfiMessage *msg,
+                                                 int32_t *out_len);
+
+/**
  * List group members. Caller must free with [`xmtp_group_member_list_free`].
  */
 int32_t xmtp_conversation_list_members(const struct XmtpFfiConversation *conv,
@@ -1429,6 +1467,7 @@ void xmtp_group_permissions_free(struct XmtpFfiGroupPermissions *ptr);
 
 /**
  * List enriched (decoded) messages for a conversation.
+ * Fetches both enriched metadata and raw content bytes in a single call.
  * Caller must free with [`xmtp_enriched_message_list_free`].
  */
 int32_t xmtp_conversation_list_enriched_messages(const struct XmtpFfiConversation *conversation,
@@ -1440,6 +1479,9 @@ int32_t xmtp_enriched_message_list_len(const struct XmtpFfiEnrichedMessageList *
 const struct XmtpFfiEnrichedMessage *xmtp_enriched_message_list_get(const struct XmtpFfiEnrichedMessageList *list,
                                                                     int32_t index);
 
+/**
+ * Free an enriched message list (including owned strings and content bytes).
+ */
 void xmtp_enriched_message_list_free(struct XmtpFfiEnrichedMessageList *list);
 
 /**

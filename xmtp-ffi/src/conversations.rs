@@ -555,8 +555,9 @@ pub unsafe extern "C" fn xmtp_client_get_enriched_message_by_id(
         }
         let id_str = unsafe { c_str_to_string(message_id)? };
         let id_bytes = hex::decode(&id_str)?;
+        let raw_msg = c.inner.message(id_bytes.clone())?;
         let msg = c.inner.message_v2(id_bytes)?;
-        let item = crate::conversation::decoded_to_enriched(&msg);
+        let item = crate::conversation::decoded_to_enriched(&msg, &raw_msg.decrypted_message_bytes);
         unsafe { write_out(out, FfiEnrichedMessageList { items: vec![item] })? };
         Ok(())
     })

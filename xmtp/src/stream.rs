@@ -11,7 +11,7 @@ use crate::client::Client;
 use crate::conversation::Conversation;
 use crate::error::{self, Result};
 use crate::ffi::OwnedHandle;
-use crate::types::*;
+use crate::types::{ConsentEntityType, ConsentState, ConversationType};
 
 /// RAII handle for an active FFI stream.
 ///
@@ -37,7 +37,7 @@ impl StreamHandle {
 }
 
 /// Construct an empty `on_close` value (no close callback).
-fn no_on_close() -> xmtp_sys::XmtpOption_FnOnCloseCallback {
+const fn no_on_close() -> xmtp_sys::XmtpOption_FnOnCloseCallback {
     unsafe { std::mem::zeroed() }
 }
 
@@ -48,16 +48,16 @@ fn start_stream<F: Send + 'static>(
     start: impl FnOnce(*mut c_void, *mut *mut xmtp_sys::XmtpFfiStreamHandle) -> i32,
 ) -> Result<StreamHandle> {
     let boxed: Box<Box<F>> = Box::new(Box::new(callback));
-    let ctx_ptr = Box::into_raw(boxed) as *mut c_void;
+    let ctx_ptr = Box::into_raw(boxed).cast::<c_void>();
     let mut out: *mut xmtp_sys::XmtpFfiStreamHandle = ptr::null_mut();
-    let rc = start(ctx_ptr, &mut out);
+    let rc = start(ctx_ptr, &raw mut out);
     if rc != 0 {
         // Reclaim the context to avoid a leak on error.
-        let _ = unsafe { Box::from_raw(ctx_ptr as *mut Box<F>) };
+        let _ = unsafe { Box::from_raw(ctx_ptr.cast::<Box<F>>()) };
         return Err(error::last_ffi_error());
     }
     let handle = OwnedHandle::new(out, xmtp_sys::xmtp_stream_free)?;
-    let ctx_box = unsafe { Box::from_raw(ctx_ptr as *mut Box<F>) };
+    let ctx_box = unsafe { Box::from_raw(ctx_ptr.cast::<Box<F>>()) };
     Ok(StreamHandle {
         handle,
         _ctx: Some(ctx_box),
@@ -67,6 +67,10 @@ fn start_stream<F: Send + 'static>(
 /// Stream new conversations. The callback receives each new [`Conversation`].
 ///
 /// Pass `None` for `conversation_type` to receive all types.
+///
+/// # Errors
+///
+/// Returns an error if the FFI stream could not be started.
 pub fn stream_conversations(
     client: &Client,
     conversation_type: Option<ConversationType>,
@@ -94,23 +98,26 @@ unsafe extern "C" fn conv_trampoline(
         if context.is_null() || conv.is_null() {
             return;
         }
-        let cb = &*(context as *const Box<dyn Fn(Conversation) + Send>);
+        let cb = &*context.cast::<Box<dyn Fn(Conversation) + Send>>();
         if let Ok(c) = Conversation::from_raw(conv) {
             cb(c);
         }
     }
 }
 
-/// Stream all messages across conversations. The callback fires for each new
-/// message. The opaque FFI message is freed automatically; use
-/// [`Client::conversations`] or [`Conversation::messages`] to fetch content.
+/// Stream all messages across conversations.
 ///
+/// The callback receives `(message_id, conversation_id)` — both hex-encoded.
 /// Pass `None` for `conversation_type` to receive from all types.
+///
+/// # Errors
+///
+/// Returns an error if the FFI stream could not be started.
 pub fn stream_all_messages(
     client: &Client,
     conversation_type: Option<ConversationType>,
     consent_states: &[ConsentState],
-    callback: impl Fn() + Send + 'static,
+    callback: impl Fn(String, String) + Send + 'static,
 ) -> Result<StreamHandle> {
     let client_ptr = client.handle.as_ptr();
     let conv_type = conversation_type.map_or(-1, |t| t as i32);
@@ -120,7 +127,7 @@ pub fn stream_all_messages(
     } else {
         cs.as_ptr()
     };
-    let cs_len = cs.len() as i32;
+    let cs_len = i32::try_from(cs.len()).unwrap_or(i32::MAX);
     start_stream(callback, |ctx, out| unsafe {
         xmtp_sys::xmtp_stream_all_messages(
             client_ptr,
@@ -135,11 +142,16 @@ pub fn stream_all_messages(
     })
 }
 
-/// Stream messages for a single conversation. The callback fires for each new
-/// message. Use [`Conversation::messages`] to fetch content.
+/// Stream messages for a single conversation.
+///
+/// The callback receives `(message_id, conversation_id)` — both hex-encoded.
+///
+/// # Errors
+///
+/// Returns an error if the FFI stream could not be started.
 pub fn stream_messages(
     conversation: &Conversation,
-    callback: impl Fn() + Send + 'static,
+    callback: impl Fn(String, String) + Send + 'static,
 ) -> Result<StreamHandle> {
     let conv_ptr = conversation.handle_ptr();
     start_stream(callback, |ctx, out| unsafe {
@@ -155,15 +167,39 @@ pub fn stream_messages(
 
 unsafe extern "C" fn msg_trampoline(msg: *mut xmtp_sys::XmtpFfiMessage, context: *mut c_void) {
     unsafe {
-        // Free the opaque message handle immediately.
-        if !msg.is_null() {
-            xmtp_sys::xmtp_message_free(msg);
-        }
-        if context.is_null() {
+        if context.is_null() || msg.is_null() {
+            if !msg.is_null() {
+                xmtp_sys::xmtp_message_free(msg);
+            }
             return;
         }
-        let cb = &*(context as *const Box<dyn Fn() + Send>);
-        cb();
+        // Extract message ID and group ID before freeing.
+        let id_ptr = xmtp_sys::xmtp_single_message_id(msg);
+        let gid_ptr = xmtp_sys::xmtp_single_message_group_id(msg);
+        xmtp_sys::xmtp_message_free(msg);
+
+        let cb = &*context.cast::<Box<dyn Fn(String, String) + Send>>();
+        let id = if id_ptr.is_null() {
+            String::new()
+        } else {
+            let s = CStr::from_ptr(id_ptr)
+                .to_str()
+                .unwrap_or_default()
+                .to_owned();
+            xmtp_sys::xmtp_free_string(id_ptr);
+            s
+        };
+        let gid = if gid_ptr.is_null() {
+            String::new()
+        } else {
+            let s = CStr::from_ptr(gid_ptr)
+                .to_str()
+                .unwrap_or_default()
+                .to_owned();
+            xmtp_sys::xmtp_free_string(gid_ptr);
+            s
+        };
+        cb(id, gid);
     }
 }
 
@@ -179,6 +215,10 @@ pub struct ConsentUpdate {
 }
 
 /// Stream consent state changes.
+///
+/// # Errors
+///
+/// Returns an error if the FFI stream could not be started.
 pub fn stream_consent(
     client: &Client,
     callback: impl Fn(Vec<ConsentUpdate>) + Send + 'static,
@@ -204,8 +244,8 @@ unsafe extern "C" fn consent_trampoline(
         if context.is_null() || records.is_null() || count <= 0 {
             return;
         }
-        let cb = &*(context as *const Box<dyn Fn(Vec<ConsentUpdate>) + Send>);
-        let slice = std::slice::from_raw_parts(records, count as usize);
+        let cb = &*context.cast::<Box<dyn Fn(Vec<ConsentUpdate>) + Send>>();
+        let slice = std::slice::from_raw_parts(records, count.unsigned_abs() as usize);
         let updates: Vec<ConsentUpdate> = slice
             .iter()
             .filter_map(|r| {
@@ -228,13 +268,17 @@ unsafe extern "C" fn consent_trampoline(
 /// A user preference update event.
 #[derive(Debug, Clone)]
 pub struct PreferenceUpdate {
-    /// The kind of preference change (0 = Consent, 1 = HmacKey).
+    /// The kind of preference change (0 = Consent, 1 = `HmacKey`).
     pub kind: i32,
     /// For Consent updates: the consent change details.
     pub consent: Option<ConsentUpdate>,
 }
 
 /// Stream preference updates.
+///
+/// # Errors
+///
+/// Returns an error if the FFI stream could not be started.
 pub fn stream_preferences(
     client: &Client,
     callback: impl Fn(Vec<PreferenceUpdate>) + Send + 'static,
@@ -260,8 +304,8 @@ unsafe extern "C" fn pref_trampoline(
         if context.is_null() || updates.is_null() || count <= 0 {
             return;
         }
-        let cb = &*(context as *const Box<dyn Fn(Vec<PreferenceUpdate>) + Send>);
-        let slice = std::slice::from_raw_parts(updates, count as usize);
+        let cb = &*context.cast::<Box<dyn Fn(Vec<PreferenceUpdate>) + Send>>();
+        let slice = std::slice::from_raw_parts(updates, count.unsigned_abs() as usize);
         let items: Vec<PreferenceUpdate> = slice
             .iter()
             .map(|u| {
@@ -297,6 +341,10 @@ unsafe extern "C" fn pref_trampoline(
 }
 
 /// Stream message deletion events. The callback receives the hex message ID.
+///
+/// # Errors
+///
+/// Returns an error if the FFI stream could not be started.
 pub fn stream_message_deletions(
     client: &Client,
     callback: impl Fn(String) + Send + 'static,
@@ -321,7 +369,7 @@ unsafe extern "C" fn deletion_trampoline(
         if context.is_null() || message_id.is_null() {
             return;
         }
-        let cb = &*(context as *const Box<dyn Fn(String) + Send>);
+        let cb = &*context.cast::<Box<dyn Fn(String) + Send>>();
         if let Ok(id) = CStr::from_ptr(message_id).to_str() {
             cb(id.to_owned());
         }

@@ -1,5 +1,14 @@
 #![doc = include_str!("../README.md")]
 #![allow(unsafe_code)]
+// FFI wrapper crate: i32 ↔ usize casts at the C boundary are systematic and
+// bounds-checked. Every public function follows the same error pattern (FFI
+// call failure), so per-function `# Errors` docs would be pure boilerplate.
+#![allow(
+    clippy::cast_sign_loss,
+    clippy::cast_possible_truncation,
+    clippy::cast_possible_wrap,
+    clippy::missing_errors_doc
+)]
 
 pub mod client;
 pub mod conversation;
@@ -9,19 +18,24 @@ pub mod types;
 
 mod ffi;
 
+#[cfg(feature = "alloy")]
+mod signer;
+
 // Re-export core public API at crate root.
 pub use client::{Client, ClientBuilder};
 pub use conversation::{Conversation, GroupMember, Message};
 pub use error::{Error, Result};
+#[cfg(feature = "alloy")]
+pub use signer::AlloySigner;
 pub use stream::{ConsentUpdate, PreferenceUpdate, StreamHandle};
 pub use types::{
     AccountIdentifier, ApiStats, ConsentEntityType, ConsentState, ConversationDebugInfo,
-    ConversationMetadata, ConversationType, CreateDmOptions, CreateGroupOptions, Cursor,
-    DeliveryStatus, DisappearingSettings, Env, GroupPermissionsPreset, HmacKey, HmacKeyEntry,
-    IdentifierKind, IdentityStats, InboxState, KeyPackageStatus, LastReadTime,
-    ListConversationsOptions, ListMessagesOptions, MembershipState, MessageKind, PermissionLevel,
-    PermissionPolicy, PermissionPolicySet, PermissionUpdateType, Permissions, SendOptions, Signer,
-    SortDirection, SyncResult,
+    ConversationMetadata, ConversationOrderBy, ConversationType, CreateDmOptions,
+    CreateGroupOptions, Cursor, DeliveryStatus, DisappearingSettings, Env, GroupPermissionsPreset,
+    HmacKey, HmacKeyEntry, IdentifierKind, IdentityStats, InboxState, KeyPackageStatus,
+    LastReadTime, ListConversationsOptions, ListMessagesOptions, MembershipState, MessageKind,
+    PermissionLevel, PermissionPolicy, PermissionPolicySet, PermissionUpdateType, Permissions,
+    SendOptions, Signer, SortDirection, SyncResult,
 };
 
 // Re-export standalone functions.

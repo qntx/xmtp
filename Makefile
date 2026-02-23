@@ -33,7 +33,7 @@ bench:
 run:
 	cargo run --release --all-features
 
-# Lint with Clippy (auto-fix)
+# Lint with Clippy (auto-fix). Excludes xmtp-sys (auto-generated bindings).
 .PHONY: clippy
 clippy:
 	cargo +nightly clippy --fix \
@@ -114,8 +114,7 @@ update:
 # Pipeline: build xmtp-ffi (cbindgen → xmtp_ffi.h) → bindgen → src/bindings.rs
 .PHONY: regenerate-bindings
 regenerate-bindings: ffi-check
-	XMTP_FFI_DIR=../$(FFI_DIR) XMTP_UPDATE_BINDINGS=1 \
-		cargo check -p xmtp-sys --features regenerate
+	set "XMTP_FFI_DIR=../$(FFI_DIR)" && set "XMTP_UPDATE_BINDINGS=1" && cargo check -p xmtp-sys --features regenerate
 
 # Check for unused dependencies (workspace only)
 .PHONY: udeps

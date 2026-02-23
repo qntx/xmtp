@@ -11,9 +11,15 @@ categories = ["api-bindings", "cryptography", "network-programming"]
 keywords = ["xmtp", "messaging", "e2e-encryption", "mls", "web3"]
 rust-version = "1.85"
 
+[features]
+default = []
+alloy = ["dep:alloy-signer", "dep:alloy-signer-local"]
+
 [dependencies]
 xmtp-sys.workspace = true
 thiserror.workspace = true
+alloy-signer = { workspace = true, optional = true }
+alloy-signer-local = { workspace = true, optional = true }
 
 [lints]
 workspace = true
