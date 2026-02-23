@@ -24,6 +24,9 @@ flate2.workspace = true
 tar.workspace = true
 zip.workspace = true
 
+[package.metadata.docs.rs]
+rustdoc-args = ["--cfg", "docsrs"]
+
 # Auto-generated bindings: suppress all clippy lints.
 [lints.clippy]
 all = "allow"

@@ -29,6 +29,13 @@ fn main() {
     println!("cargo:rerun-if-env-changed=XMTP_FFI_DIR");
     println!("cargo:rerun-if-env-changed=XMTP_FFI_VERSION");
     println!("cargo:rerun-if-env-changed=XMTP_UPDATE_BINDINGS");
+    println!("cargo:rerun-if-env-changed=DOCS_RS");
+
+    // docs.rs builds run in a network-isolated sandbox; skip downloading and
+    // linking the native library entirely. The crate still compiles for docs.
+    if env::var("DOCS_RS").is_ok() {
+        return;
+    }
 
     let target = env::var("TARGET").expect("TARGET not set");
     let out_dir = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR not set"));
