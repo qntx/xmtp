@@ -318,7 +318,7 @@ pub unsafe extern "C" fn xmtp_client_set_consent_states(
             return Err("null pointer or invalid count".into());
         }
 
-        let now_ns = xmtp_common::time::now_ns() as i64;
+        let now_ns = xmtp_common::time::now_ns();
         let mut records = Vec::with_capacity(count as usize);
         for i in 0..count as usize {
             let entity = unsafe { c_str_to_string(*entities.add(i))? };

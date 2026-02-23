@@ -626,7 +626,6 @@ unsafe fn parse_group_opts(
         image_url_square: unsafe { c_str_to_option(o.image_url)? },
         app_data: unsafe { c_str_to_option(o.app_data)? },
         message_disappearing_settings: disappearing,
-        ..Default::default()
     };
     Ok((policy, Some(meta)))
 }

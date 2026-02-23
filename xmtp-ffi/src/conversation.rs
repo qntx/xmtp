@@ -324,10 +324,10 @@ fn parse_msg_query_args(
         let ids = unsafe {
             collect_strings(o.exclude_sender_inbox_ids, o.exclude_sender_inbox_ids_count)
         };
-        if let Ok(ids) = ids {
-            if !ids.is_empty() {
-                args.exclude_sender_inbox_ids = Some(ids);
-            }
+        if let Ok(ids) = ids
+            && !ids.is_empty()
+        {
+            args.exclude_sender_inbox_ids = Some(ids);
         }
     }
     args.exclude_disappearing = o.exclude_disappearing != 0;
