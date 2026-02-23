@@ -11,7 +11,9 @@ xmtp.workspace = true
 k256.workspace = true
 sha3.workspace = true
 hex.workspace = true
-getrandom.workspace = true
+tokio.workspace = true
+unicode-width.workspace = true
+ratatui.workspace = true
 
 [lints]
 workspace = true

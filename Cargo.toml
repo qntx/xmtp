@@ -16,17 +16,20 @@ alloy-signer = "1.7"
 alloy-signer-local = { version = "1.7", default-features = false }
 bindgen = "0.72"
 flate2 = "1"
-getrandom = "0.2"
+getrandom = "0.4"
 hex = "0.4"
 k256 = { version = "0.13", features = ["ecdsa"] }
 sha3 = "0.10"
 tar = "0.4"
-prost = { version = "0.13", features = ["derive"] }
+prost = { version = "0.14", features = ["derive"] }
 thiserror = "2"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time"] }
+unicode-width = "0.2"
 ureq = "3"
 xmtp = { version = "0.1", path = "xmtp" }
 xmtp-sys = { version = "0.1", path = "xmtp-sys" }
 zip = { version = "8", default-features = false, features = ["deflate"] }
+ratatui = "0.30"
 
 [profile.release]
 codegen-units = 1

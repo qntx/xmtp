@@ -82,6 +82,7 @@ pub unsafe extern "C" fn xmtp_stream_conversations(
     out: *mut *mut FfiStreamHandle,
 ) -> i32 {
     catch(|| {
+        let _rt = runtime().enter();
         let c = unsafe { ref_from(client)? };
         if out.is_null() {
             return Err("null output pointer".into());
@@ -124,6 +125,7 @@ pub unsafe extern "C" fn xmtp_stream_all_messages(
     out: *mut *mut FfiStreamHandle,
 ) -> i32 {
     catch(|| {
+        let _rt = runtime().enter();
         let c = unsafe { ref_from(client)? };
         if out.is_null() {
             return Err("null output pointer".into());
@@ -163,6 +165,7 @@ pub unsafe extern "C" fn xmtp_conversation_stream_messages(
     out: *mut *mut FfiStreamHandle,
 ) -> i32 {
     catch(|| {
+        let _rt = runtime().enter();
         let c = unsafe { ref_from(conv)? };
         if out.is_null() {
             return Err("null output pointer".into());
@@ -200,6 +203,7 @@ pub unsafe extern "C" fn xmtp_stream_consent(
     out: *mut *mut FfiStreamHandle,
 ) -> i32 {
     catch(|| {
+        let _rt = runtime().enter();
         let c = unsafe { ref_from(client)? };
         if out.is_null() {
             return Err("null output pointer".into());
@@ -244,6 +248,7 @@ pub unsafe extern "C" fn xmtp_stream_preferences(
     out: *mut *mut FfiStreamHandle,
 ) -> i32 {
     catch(|| {
+        let _rt = runtime().enter();
         let c = unsafe { ref_from(client)? };
         if out.is_null() {
             return Err("null output pointer".into());
@@ -314,6 +319,7 @@ pub unsafe extern "C" fn xmtp_stream_message_deletions(
     out: *mut *mut FfiStreamHandle,
 ) -> i32 {
     catch(|| {
+        let _rt = runtime().enter();
         let c = unsafe { ref_from(client)? };
         if out.is_null() {
             return Err("null output pointer".into());
