@@ -119,8 +119,16 @@ impl ProfileConfig {
     }
 }
 
-/// Load config + create signer from a stored profile.
-pub fn create_signer(profile: &str) -> xmtp::Result<(ProfileConfig, Box<dyn Signer>)> {
+/// Open a profile without a signer (for TUI and info — no signing needed).
+pub fn open_client(profile: &str) -> xmtp::Result<(ProfileConfig, Client)> {
+    let cfg = ProfileConfig::load(profile)?;
+    let db = profile_dir(profile).join("messages.db3");
+    let client = build_client(&cfg, &db.to_string_lossy(), None)?;
+    Ok((cfg, client))
+}
+
+/// Open a profile with a signer (for operations that need signing, e.g. revoke).
+pub fn open_with_signer(profile: &str) -> xmtp::Result<(ProfileConfig, Box<dyn Signer>, Client)> {
     let cfg = ProfileConfig::load(profile)?;
     let dir = profile_dir(profile);
 
@@ -139,21 +147,7 @@ pub fn create_signer(profile: &str) -> xmtp::Result<(ProfileConfig, Box<dyn Sign
         }
     };
 
-    Ok((cfg, signer))
-}
-
-/// Open a profile without a signer (for TUI and info — no signing needed).
-pub fn open_client(profile: &str) -> xmtp::Result<(ProfileConfig, Client)> {
-    let cfg = ProfileConfig::load(profile)?;
-    let db = profile_dir(profile).join("messages.db3");
-    let client = build_client(&cfg, &db.to_string_lossy(), None)?;
-    Ok((cfg, client))
-}
-
-/// Open a profile with a signer (for operations that need signing, e.g. revoke).
-pub fn open_with_signer(profile: &str) -> xmtp::Result<(ProfileConfig, Box<dyn Signer>, Client)> {
-    let (cfg, signer) = create_signer(profile)?;
-    let db = profile_dir(profile).join("messages.db3");
+    let db = dir.join("messages.db3");
     let client = build_client(&cfg, &db.to_string_lossy(), Some(signer.as_ref()))?;
     Ok((cfg, signer, client))
 }

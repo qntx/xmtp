@@ -7,6 +7,7 @@ use xmtp::{AlloySigner, Client, LedgerSigner, Signer};
 
 use super::NewArgs;
 use super::config::{self, ProfileConfig, SignerKind};
+use crate::app::truncate_id;
 
 /// Create a new profile, register with the XMTP network, and save config.
 ///
@@ -26,18 +27,19 @@ pub fn create(args: &NewArgs) -> xmtp::Result<(ProfileConfig, Client)> {
     let db_path = dir.join("messages.db3");
 
     // Determine signer kind and create signer.
-    let (signer_kind, signer): (SignerKind, Box<dyn Signer>) = if let Some(index) = args.ledger {
-        (
+    let (signer_kind, signer): (SignerKind, Box<dyn Signer>) = match args.ledger {
+        Some(index) => (
             SignerKind::Ledger(index),
             Box::new(LedgerSigner::new(index)?),
-        )
-    } else {
-        if let Some(ref hex) = args.import {
-            import_hex_key(hex, &key_path)?;
-        } else if let Some(ref src) = args.key {
-            fs::copy(src, &key_path).map_err(|e| xmtp::Error::Ffi(format!("copy key: {e}")))?;
+        ),
+        None => {
+            if let Some(ref hex) = args.import {
+                import_hex_key(hex, &key_path)?;
+            } else if let Some(ref src) = args.key {
+                fs::copy(src, &key_path).map_err(|e| xmtp::Error::Ffi(format!("copy key: {e}")))?;
+            }
+            (SignerKind::File, Box::new(load_or_create_key(&key_path)?))
         }
-        (SignerKind::File, Box::new(load_or_create_key(&key_path)?))
     };
 
     // Copy database if provided.
@@ -99,13 +101,18 @@ pub fn list() -> xmtp::Result<()> {
         let star = if *name == default { " *" } else { "" };
 
         if let Ok(cfg) = ProfileConfig::load(&name) {
+            let addr = if cfg.address.is_empty() {
+                "—".into()
+            } else {
+                truncate_id(&cfg.address, 14)
+            };
             println!(
-                "  {name:<16} [{:<10}] [{}]{star}",
+                "  {name:<16} {addr:<16} [{:<10}] [{}]{star}",
                 cfg.signer,
                 config::env_name(cfg.env),
             );
         } else {
-            println!("  {name:<16} [legacy]{star}");
+            println!("  {name:<16} [no config]{star}");
         }
     }
     println!("\n  * = default");

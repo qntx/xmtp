@@ -258,19 +258,20 @@ pub fn run(client: Client, rx: mpsc::Receiver<Cmd>, tx: Tx) {
             }
 
             Cmd::NewMessage { msg_id, conv_id } => {
-                let is_active = active.as_ref().is_some_and(|(aid, _)| *aid == conv_id);
-                if is_active && let Some((ref id, ref conv)) = active {
+                let is_active = matches!(&active, Some((id, _)) if *id == conv_id);
+                if let Some((_, ref conv)) = active
+                    && is_active
+                {
                     let msgs = load_messages(conv);
                     let _ = tx.send(Event::Messages {
-                        conv_id: id.clone(),
+                        conv_id: conv_id.clone(),
                         msgs,
                     });
                 }
                 if let Ok(Some(msg)) = client.message_by_id(&msg_id) {
-                    let preview = decode_preview(&msg);
                     let _ = tx.send(Event::Preview {
                         conv_id,
-                        text: preview,
+                        text: decode_preview(&msg),
                         time_ns: msg.sent_at_ns,
                         unread: !is_active,
                     });
