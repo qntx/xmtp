@@ -42,13 +42,13 @@ pub enum Mode {
 }
 
 const HINT_SIDEBAR: &str =
-    " Tab:input  ↑↓:nav  ←→:tab  n:DM  g:group  d:hide  r:sync  ?:help  q:quit";
+    " ↑↓:nav  ←→:tab  n:DM  N:group  r:sync  x:hide  m:members  ?:help  q:quit";
 const HINT_INPUT: &str = " Enter:send  Esc:sidebar  ↑/↓:scroll  Tab:members";
 const HINT_NEW_DM: &str = " Address (0x…) / ENS (name.eth) / Inbox ID  Enter:create  Esc:cancel";
 const HINT_GROUP_NAME: &str = " Group name (optional)  Enter:next step  Esc:cancel";
-const HINT_REQUESTS: &str = " ↑↓:nav  a:accept  x:reject  Enter:preview  ←→:tab  q:quit";
-const HINT_HIDDEN: &str = " ↑↓:nav  ←→:tab  a:allow  u:request  r:sync  ?:help  q:quit";
-const HINT_MEMBERS: &str = " ↑↓:nav  x:kick  p:admin  a:add  r:name  e:desc  s:perms  Esc:close";
+const HINT_REQUESTS: &str = " ↑↓:nav  a:accept  x:reject  Enter:open  ←→:tab  ?:help  q:quit";
+const HINT_HIDDEN: &str = " ↑↓:nav  ←→:tab  a:allow  u:undo  r:sync  ?:help  q:quit";
+const HINT_MEMBERS: &str = " ↑↓:nav  a:add  x:kick  p:admin  r:name  e:desc  P:perms  Esc:close";
 const HINT_ADD_MEMBER: &str = " Address (0x…) / ENS / Inbox ID  Enter:add  Esc:cancel";
 const HINT_GROUP_EDIT: &str = " Enter:save  Esc:cancel";
 const HINT_PERMISSIONS: &str = " ↑↓:nav  Enter:cycle  Esc:back";
@@ -256,7 +256,7 @@ impl App {
             KeyCode::Right => self.switch_tab(self.next_tab()),
             KeyCode::Char('j') | KeyCode::Down => self.nav(1),
             KeyCode::Char('k') | KeyCode::Up => self.nav(-1),
-            KeyCode::Char('h') | KeyCode::Home => {
+            KeyCode::Char('g') | KeyCode::Home => {
                 if !self.sidebar().is_empty() {
                     self.sidebar_idx = 0;
                     self.open_selected();
@@ -269,53 +269,39 @@ impl App {
                     self.open_selected();
                 }
             }
-            KeyCode::Enter | KeyCode::Tab | KeyCode::Char('l') => {
+            KeyCode::Enter | KeyCode::Tab => {
                 if self.active_id.is_some() {
                     self.focus = Focus::Input;
                     self.set_default_status();
                 } else if !self.sidebar().is_empty() {
-                    // First launch: open the selected (first) conversation.
                     self.open_selected();
                 }
             }
-            KeyCode::Char('a') if self.tab == Tab::Requests => {
-                if let Some(e) = self.requests.get(self.sidebar_idx) {
+            // Consent: accept/allow (Requests + Hidden tabs).
+            KeyCode::Char('a') if self.tab == Tab::Requests || self.tab == Tab::Hidden => {
+                if let Some(e) = self.sidebar().get(self.sidebar_idx) {
                     self.cmd(Cmd::SetConsent {
                         id: e.id.clone(),
                         state: ConsentState::Allowed,
                     });
                 }
             }
-            KeyCode::Char('x') if self.tab == Tab::Requests => {
-                if let Some(e) = self.requests.get(self.sidebar_idx) {
-                    self.cmd(Cmd::SetConsent {
-                        id: e.id.clone(),
-                        state: ConsentState::Denied,
-                    });
-                }
-            }
-            KeyCode::Char('d') if self.tab == Tab::Inbox => {
+            // Consent: deny/hide (Inbox + Requests tabs).
+            KeyCode::Char('x') if self.tab == Tab::Inbox || self.tab == Tab::Requests => {
                 if let Some(e) = self.sidebar().get(self.sidebar_idx) {
                     let id = e.id.clone();
                     self.cmd(Cmd::SetConsent {
                         id: id.clone(),
                         state: ConsentState::Denied,
                     });
-                    if self.active_id.as_deref() == Some(&id) {
+                    if self.tab == Tab::Inbox && self.active_id.as_deref() == Some(&id) {
                         self.active_id = None;
                         self.messages.clear();
                         self.scroll = 0;
                     }
                 }
             }
-            KeyCode::Char('a') if self.tab == Tab::Hidden => {
-                if let Some(e) = self.sidebar().get(self.sidebar_idx) {
-                    self.cmd(Cmd::SetConsent {
-                        id: e.id.clone(),
-                        state: ConsentState::Allowed,
-                    });
-                }
-            }
+            // Consent: undo (Hidden → Unknown).
             KeyCode::Char('u') if self.tab == Tab::Hidden => {
                 if let Some(e) = self.sidebar().get(self.sidebar_idx) {
                     self.cmd(Cmd::SetConsent {
@@ -330,7 +316,7 @@ impl App {
                 self.cursor = 0;
                 self.status = HINT_NEW_DM.into();
             }
-            KeyCode::Char('g') => {
+            KeyCode::Char('N') => {
                 self.mode = Mode::NewGroupName;
                 self.group_name = None;
                 self.group_members.clear();
@@ -341,6 +327,13 @@ impl App {
             KeyCode::Char('r') => {
                 self.cmd(Cmd::Sync);
                 self.flash("Syncing…");
+            }
+            KeyCode::Char('m') => {
+                if self.active_id.is_some() {
+                    self.mode = Mode::Members;
+                    self.status = HINT_MEMBERS.into();
+                    self.cmd(Cmd::LoadMembers);
+                }
             }
             _ => {}
         }
@@ -470,7 +463,7 @@ impl App {
 
     fn key_members(&mut self, key: KeyEvent) {
         match key.code {
-            KeyCode::Esc | KeyCode::Tab => {
+            KeyCode::Esc => {
                 self.mode = Mode::Normal;
                 self.members.clear();
                 self.member_idx = 0;
@@ -487,6 +480,12 @@ impl App {
                     self.member_idx = self.member_idx.checked_sub(1).unwrap_or(len - 1);
                 }
             }
+            KeyCode::Char('a') => {
+                self.input.clear();
+                self.cursor = 0;
+                self.mode = Mode::AddMember;
+                self.status = HINT_ADD_MEMBER.into();
+            }
             KeyCode::Char('x') => {
                 if let Some(m) = self.members.get(self.member_idx)
                     && m.inbox_id != self.inbox_id
@@ -501,12 +500,6 @@ impl App {
                     self.cmd(Cmd::ToggleAdmin(m.inbox_id.clone()));
                 }
             }
-            KeyCode::Char('a') => {
-                self.input.clear();
-                self.cursor = 0;
-                self.mode = Mode::AddMember;
-                self.status = HINT_ADD_MEMBER.into();
-            }
             KeyCode::Char('r') => {
                 self.input = self.active_label().unwrap_or_default().to_owned();
                 self.cursor = self.input.chars().count();
@@ -519,7 +512,7 @@ impl App {
                 self.mode = Mode::GroupEdit(GroupField::Description);
                 self.status = HINT_GROUP_EDIT.into();
             }
-            KeyCode::Char('s') => {
+            KeyCode::Char('P') => {
                 self.perm_idx = 0;
                 self.mode = Mode::Permissions;
                 self.status = HINT_PERMISSIONS.into();

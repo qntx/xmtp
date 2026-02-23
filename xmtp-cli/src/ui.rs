@@ -126,7 +126,7 @@ fn draw_sidebar(app: &App, frame: &mut Frame<'_>, area: Rect) {
 
     if list_data.is_empty() {
         let hint = match app.tab {
-            Tab::Inbox => "\n  No conversations\n\n  Press  n  for DM\n  Press  g  for group",
+            Tab::Inbox => "\n  No conversations\n\n  Press  n  for DM\n  Press  N  for group",
             Tab::Requests => "\n  No pending requests",
             Tab::Hidden => "\n  No hidden conversations",
         };
@@ -201,7 +201,7 @@ fn draw_chat(app: &mut App, frame: &mut Frame<'_>, area: Rect) {
                 Span::styled("  Press ", Style::default().fg(DIM)),
                 Span::styled("n", Style::default().fg(ACCENT)),
                 Span::styled(" for DM · ", Style::default().fg(DIM)),
-                Span::styled("g", Style::default().fg(ACCENT)),
+                Span::styled("N", Style::default().fg(ACCENT)),
                 Span::styled(" for group · ", Style::default().fg(DIM)),
                 Span::styled("?", Style::default().fg(ACCENT)),
                 Span::styled(" for help", Style::default().fg(DIM)),
@@ -433,21 +433,26 @@ fn draw_status(app: &App, frame: &mut Frame<'_>, area: Rect) {
 fn draw_help(frame: &mut Frame<'_>, area: Rect) {
     let help = vec![
         Line::default(),
-        help_line("↑ / ↓", "Navigate conversations"),
-        help_line("← / →", "Switch Inbox / Requests tab"),
-        help_line("Tab / Enter", "Open / focus input"),
+        help_line("j/↓  k/↑", "Navigate list"),
+        help_line("g/Home  G/End", "Jump to top / bottom"),
+        help_line("←/→  1/2/3", "Switch tab"),
+        help_line("Enter / Tab", "Open / focus input"),
         help_line("Esc", "Back to sidebar"),
+        Line::default(),
         help_line("n", "New DM"),
-        help_line("g", "New group (name → members)"),
-        help_line("d", "Hide conversation (deny)"),
-        help_line("a / x", "Accept / Reject request"),
-        help_line("Tab", "View members (in chat)"),
-        help_line("x / p", "Kick / Toggle admin (members)"),
-        help_line("r / e", "Rename / Edit desc (members)"),
-        help_line("s", "Permissions (members)"),
-        help_line("a / u", "Allow / Request (hidden tab)"),
-        help_line("r", "Sync conversations"),
-        help_line("↑ / ↓", "Scroll chat (in input mode)"),
+        help_line("N", "New group"),
+        help_line("r", "Refresh / sync"),
+        help_line("x", "Deny / hide / reject"),
+        help_line("a", "Accept / allow"),
+        help_line("u", "Undo (hidden → request)"),
+        Line::default(),
+        help_line("m / Tab", "Members (sidebar / input)"),
+        help_line("a / x", "Add / kick member"),
+        help_line("p", "Promote / demote admin"),
+        help_line("r / e", "Rename / edit description"),
+        help_line("P", "Permissions"),
+        Line::default(),
+        help_line("↑/↓", "Scroll chat (input mode)"),
         help_line("Ctrl+C / q", "Quit"),
         Line::default(),
         Line::from(Span::styled(
@@ -541,7 +546,7 @@ fn draw_members(app: &App, frame: &mut Frame<'_>, area: Rect) {
         ]));
     }
     lines.push(Line::from(Span::styled(
-        " ↑↓:nav  x:kick  p:admin  a:add  r:name  e:desc  s:perms  Esc:close",
+        " ↑↓:nav  a:add  x:kick  p:admin  r:name  e:desc  P:perms  Esc:close",
         Style::default().fg(DIM),
     )));
     frame.render_widget(Paragraph::new(lines), rows[1]);
