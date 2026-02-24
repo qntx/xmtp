@@ -21,7 +21,7 @@ xmtp wraps the official [`libxmtp`](https://github.com/xmtp/libxmtp) FFI layer w
 | --- | --- | --- |
 | **[`xmtp`](xmtp/)** | [![crates.io][xmtp-crate]][xmtp-crate-url] [![docs.rs][xmtp-doc]][xmtp-doc-url] | SDK — Client, Conversation, Message, content codecs, ENS, Ledger |
 | **[`xmtp-sys`](xmtp-sys/)** | [![crates.io][sys-crate]][sys-crate-url] [![docs.rs][sys-doc]][sys-doc-url] | Raw FFI bindings to `libxmtp_ffi` static library |
-| **[`xmtp-cli`](xmtp-cli/)** | [![crates.io][cli-crate]][cli-crate-url] [![docs.rs][cli-doc]][cli-doc-url] | TUI chat client + profile management CLI |
+| **[`xmtp-cli`](xmtp-cli/)** | [![crates.io][cli-crate]][cli-crate-url] | TUI chat client + profile management CLI |
 
 [xmtp-crate]: https://img.shields.io/crates/v/xmtp.svg
 [xmtp-crate-url]: https://crates.io/crates/xmtp
@@ -33,8 +33,6 @@ xmtp wraps the official [`libxmtp`](https://github.com/xmtp/libxmtp) FFI layer w
 [xmtp-doc-url]: https://docs.rs/xmtp
 [sys-doc]: https://img.shields.io/docsrs/xmtp-sys.svg
 [sys-doc-url]: https://docs.rs/xmtp-sys
-[cli-doc]: https://img.shields.io/docsrs/xmtp-cli.svg
-[cli-doc-url]: https://docs.rs/xmtp-cli
 
 ## Quick Start
 
