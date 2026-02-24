@@ -142,9 +142,44 @@ Inbox ID
       └── ...
 ```
 
-- **Wallet signature** is required only for identity-changing operations: creating an inbox, adding/removing identities, revoking installations.
-- **Installation key** (stored in the local database) handles all routine messaging — no external signer needed after initial registration.
-- **Each installation has its own encryption keys.** Compromising one device does not expose messages on other devices (forward secrecy).
+### Two-Tier Key Architecture
+
+XMTP separates **identity-level operations** (rare, high-privilege) from **messaging operations** (frequent, automated) using two distinct key tiers:
+
+**Wallet key** (EOA private key / hardware wallet / smart contract wallet) — used exclusively for identity mutations that alter the on-chain association graph:
+
+| Operation | When | Signers Required |
+| --- | --- | --- |
+| Create inbox (register) | First launch | Wallet |
+| Add identity to inbox | Linking a new wallet | Existing wallet + new wallet |
+| Remove identity from inbox | Unlinking a wallet | Wallet |
+| Revoke installations | Device lost/compromised | Wallet |
+| Change recovery identifier | Security rotation | Wallet |
+
+**Installation key** (ed25519 key pair, auto-generated, stored in the local encrypted database) — handles everything else with zero user interaction:
+
+- Sending and receiving messages
+- Creating / joining conversations
+- Syncing conversations, messages, and preferences
+- Streaming real-time updates
+- Managing consent state
+- Group admin operations (add/remove members, update metadata)
+
+> After initial registration, the wallet key is never needed for day-to-day messaging. For CLI users with Ledger hardware wallets, this means the device only needs to be connected for `xmtp new` and `xmtp revoke`.
+
+### Compromise & Recovery Model
+
+Each installation holds **independent MLS epoch keys**. This architecture provides strong security guarantees through MLS forward secrecy and post-compromise security:
+
+| Scenario | Messages before compromise | Messages during compromise | Messages after revoke + new installation |
+| --- | --- | --- | --- |
+| Single installation compromised | Safe (on other devices) | Exposed (on that device only) | Safe (new keys, new epoch) |
+| Wallet key compromised | Safe (cannot decrypt) | N/A (wallet key ≠ message key) | Rotate wallet, revoke installations |
+| All installations lost | Unrecoverable* | N/A | Fresh start, no history |
+
+\* Unless another installation was online to complete [History Transfer](#history-transfer) beforehand.
+
+**Key insight**: compromising an installation key exposes only messages decrypted by _that specific installation_ during the compromise window. The attacker cannot decrypt messages on other devices, nor future messages after the compromised installation is revoked — because MLS generates fresh epoch keys that exclude the revoked installation.
 
 ### Message Synchronization
 
