@@ -126,20 +126,54 @@ for c in &convs {
 | --- | --- |
 | `regenerate` | Re-generate bindings from `xmtp_ffi.h` at build time (requires `libclang`) |
 
-## XMTP Identity Model
+## XMTP Protocol Overview
+
+### Identity Model
+
+XMTP V3 uses [MLS (RFC 9750)](https://www.rfc-editor.org/rfc/rfc9750.html) for E2E encryption. Each user is identified by an **Inbox ID**, which can own multiple blockchain identities, each with up to 10 installations (devices/apps).
 
 ```text
 Inbox ID
  ├── Identity (EOA / Smart Contract Wallet / Passkey)
- │    └── Installation 1  ← key pair stored in local DB
- │    └── Installation 2
- │    └── ...  (up to 10)
+ │    └── Installation 1  ← unique key pair, stored in local DB
+ │    └── Installation 2  ← independent key pair, separate DB
+ │    └── ...  (up to 10 per identity)
  └── Identity 2
       └── ...
 ```
 
 - **Wallet signature** is required only for identity-changing operations: creating an inbox, adding/removing identities, revoking installations.
 - **Installation key** (stored in the local database) handles all routine messaging — no external signer needed after initial registration.
+- **Each installation has its own encryption keys.** Compromising one device does not expose messages on other devices (forward secrecy).
+
+### Message Synchronization
+
+Every installation maintains independent MLS state. Understanding what syncs automatically and what requires explicit action is critical:
+
+| Scenario | Automatic? | Mechanism |
+| --- | --- | --- |
+| New messages across existing installations | Yes | MLS group — all member installations decrypt in real time |
+| New conversations (invites/welcomes) | Yes | `conversations.sync()` or `syncAll()` fetches new welcomes |
+| Consent & preference state | Yes | Preference sync via a hidden sync group between your devices |
+| **Historical messages on a new installation** | **No** | **History Transfer — requires an existing installation online** |
+
+Each installation tracks a **cursor** (bookmark) per conversation. `sync()` only fetches messages after the cursor, making incremental sync efficient. Streaming (`stream()`) delivers messages in real time but does not advance the cursor — only `sync()` does.
+
+### History Transfer
+
+A new installation cannot decrypt messages sent before it joined the MLS group. To access historical messages, XMTP provides [History Transfer](https://docs.xmtp.org/chat-apps/list-stream-sync/history-sync) (defined in [XIP-64](https://github.com/xmtp/XIPs/blob/main/XIPs/xip-64-history-transfer.md)):
+
+1. **New device** requests history via the sync group (`initiateHistoryRequest`)
+2. **Existing device** (must be online) prepares and uploads an encrypted archive to the history server
+3. **New device** downloads and imports the archive into its local database
+
+Key details:
+
+- History transfer is **enabled by default** — the SDK sets `historySyncUrl` to an XMTP Labs-hosted server based on your `env` setting
+- The encrypted payload is stored on the history server for **24 hours** only
+- The archive includes conversations, messages, consent state, and HMAC keys
+- **If all installations are lost**, message history is unrecoverable (no server-side plaintext storage)
+- You can self-host the history server or disable it by setting `historySyncUrl` to an empty string
 
 ## Supported Platforms
 
