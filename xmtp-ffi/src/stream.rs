@@ -10,7 +10,7 @@
 //! `xmtp_stream_is_closed(handle)` → poll status.
 //! `xmtp_stream_free(handle)` → release handle memory.
 
-use std::ffi::c_void;
+use std::ffi::{c_char, c_void};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -19,6 +19,23 @@ use xmtp_mls::Client as MlsClient;
 use xmtp_mls::groups::MlsGroup;
 
 use crate::ffi::*;
+
+/// Nullable on-close callback passed to stream functions.
+///
+/// This MUST be written inline (not as `Option<FnOnCloseCallback>`) in every
+/// `extern "C"` signature. cbindgen cannot represent `Option<TypeAlias>` where
+/// the alias is a function pointer — it emits an opaque zero-sized struct
+/// instead of a nullable function pointer, causing an ABI mismatch:
+///
+/// - **System V ABI (Linux/macOS)**: ZSTs are skipped entirely, shifting all
+///   subsequent parameters (`context`, `out`) and corrupting the call.
+/// - **Windows MSVC ABI**: every argument occupies an 8-byte slot regardless
+///   of size, so the ZST happens to not shift parameters — but the value
+///   read for `on_close` is still garbage.
+///
+/// Using this alias *inside Rust* (helpers, closures) is fine; only the
+/// `extern "C"` boundary requires the inline form.
+type OnCloseCb = Option<FnOnCloseCallback>;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -44,7 +61,7 @@ fn new_on_close_guard() -> OnCloseGuard {
 
 /// Invoke the on_close callback with a null error (normal close).
 /// No-op if already called.
-fn invoke_on_close_ok(on_close: Option<FnOnCloseCallback>, ctx: usize, guard: &OnCloseGuard) {
+fn invoke_on_close_ok(on_close: OnCloseCb, ctx: usize, guard: &OnCloseGuard) {
     if guard.swap(true, Ordering::AcqRel) {
         return; // already fired
     }
@@ -56,7 +73,7 @@ fn invoke_on_close_ok(on_close: Option<FnOnCloseCallback>, ctx: usize, guard: &O
 /// Invoke the on_close callback with an error message.
 /// No-op if already called.
 fn invoke_on_close_err(
-    on_close: Option<FnOnCloseCallback>,
+    on_close: OnCloseCb,
     ctx: usize,
     err: &str,
     guard: &OnCloseGuard,
@@ -99,7 +116,7 @@ pub unsafe extern "C" fn xmtp_stream_conversations(
     client: *const FfiClient,
     conversation_type: i32,
     callback: FnConversationCallback,
-    on_close: Option<FnOnCloseCallback>,
+    on_close: Option<unsafe extern "C" fn(*const c_char, *mut c_void)>,
     context: *mut c_void,
     out: *mut *mut FfiStreamHandle,
 ) -> i32 {
@@ -145,7 +162,7 @@ pub unsafe extern "C" fn xmtp_stream_all_messages(
     consent_states: *const i32,
     consent_states_count: i32,
     callback: FnMessageCallback,
-    on_close: Option<FnOnCloseCallback>,
+    on_close: Option<unsafe extern "C" fn(*const c_char, *mut c_void)>,
     context: *mut c_void,
     out: *mut *mut FfiStreamHandle,
 ) -> i32 {
@@ -188,7 +205,7 @@ pub unsafe extern "C" fn xmtp_stream_all_messages(
 pub unsafe extern "C" fn xmtp_conversation_stream_messages(
     conv: *const FfiConversation,
     callback: FnMessageCallback,
-    on_close: Option<FnOnCloseCallback>,
+    on_close: Option<unsafe extern "C" fn(*const c_char, *mut c_void)>,
     context: *mut c_void,
     out: *mut *mut FfiStreamHandle,
 ) -> i32 {
@@ -229,7 +246,7 @@ pub unsafe extern "C" fn xmtp_conversation_stream_messages(
 pub unsafe extern "C" fn xmtp_stream_consent(
     client: *const FfiClient,
     callback: FnConsentCallback,
-    on_close: Option<FnOnCloseCallback>,
+    on_close: Option<unsafe extern "C" fn(*const c_char, *mut c_void)>,
     context: *mut c_void,
     out: *mut *mut FfiStreamHandle,
 ) -> i32 {
@@ -283,7 +300,7 @@ pub unsafe extern "C" fn xmtp_stream_consent(
 pub unsafe extern "C" fn xmtp_stream_preferences(
     client: *const FfiClient,
     callback: FnPreferenceCallback,
-    on_close: Option<FnOnCloseCallback>,
+    on_close: Option<unsafe extern "C" fn(*const c_char, *mut c_void)>,
     context: *mut c_void,
     out: *mut *mut FfiStreamHandle,
 ) -> i32 {
@@ -371,7 +388,7 @@ pub unsafe extern "C" fn xmtp_stream_preferences(
 pub unsafe extern "C" fn xmtp_stream_message_deletions(
     client: *const FfiClient,
     callback: FnMessageDeletionCallback,
-    on_close: Option<FnOnCloseCallback>,
+    on_close: Option<unsafe extern "C" fn(*const c_char, *mut c_void)>,
     context: *mut c_void,
     out: *mut *mut FfiStreamHandle,
 ) -> i32 {

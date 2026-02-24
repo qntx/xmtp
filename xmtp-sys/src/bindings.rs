@@ -153,11 +153,6 @@ pub struct XmtpFfiSignatureRequest {
 pub struct XmtpFfiStreamHandle {
     _unused: [u8; 0],
 }
-#[repr(C)]
-#[derive(Debug, Copy, Clone)]
-pub struct XmtpOption_FnOnCloseCallback {
-    _unused: [u8; 0],
-}
 #[doc = " Options for creating a client. All string fields are borrowed (not freed by this library)."]
 #[repr(C)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -2235,7 +2230,9 @@ unsafe extern "C" {
         client: *const XmtpFfiClient,
         conversation_type: i32,
         callback: XmtpFnConversationCallback,
-        on_close: XmtpOption_FnOnCloseCallback,
+        on_close: ::core::option::Option<
+            unsafe extern "C" fn(arg1: *const ::core::ffi::c_char, arg2: *mut ::core::ffi::c_void),
+        >,
         context: *mut ::core::ffi::c_void,
         out: *mut *mut XmtpFfiStreamHandle,
     ) -> i32;
@@ -2248,7 +2245,9 @@ unsafe extern "C" {
         consent_states: *const i32,
         consent_states_count: i32,
         callback: XmtpFnMessageCallback,
-        on_close: XmtpOption_FnOnCloseCallback,
+        on_close: ::core::option::Option<
+            unsafe extern "C" fn(arg1: *const ::core::ffi::c_char, arg2: *mut ::core::ffi::c_void),
+        >,
         context: *mut ::core::ffi::c_void,
         out: *mut *mut XmtpFfiStreamHandle,
     ) -> i32;
@@ -2258,7 +2257,9 @@ unsafe extern "C" {
     pub fn xmtp_conversation_stream_messages(
         conv: *const XmtpFfiConversation,
         callback: XmtpFnMessageCallback,
-        on_close: XmtpOption_FnOnCloseCallback,
+        on_close: ::core::option::Option<
+            unsafe extern "C" fn(arg1: *const ::core::ffi::c_char, arg2: *mut ::core::ffi::c_void),
+        >,
         context: *mut ::core::ffi::c_void,
         out: *mut *mut XmtpFfiStreamHandle,
     ) -> i32;
@@ -2268,7 +2269,9 @@ unsafe extern "C" {
     pub fn xmtp_stream_consent(
         client: *const XmtpFfiClient,
         callback: XmtpFnConsentCallback,
-        on_close: XmtpOption_FnOnCloseCallback,
+        on_close: ::core::option::Option<
+            unsafe extern "C" fn(arg1: *const ::core::ffi::c_char, arg2: *mut ::core::ffi::c_void),
+        >,
         context: *mut ::core::ffi::c_void,
         out: *mut *mut XmtpFfiStreamHandle,
     ) -> i32;
@@ -2278,7 +2281,9 @@ unsafe extern "C" {
     pub fn xmtp_stream_preferences(
         client: *const XmtpFfiClient,
         callback: XmtpFnPreferenceCallback,
-        on_close: XmtpOption_FnOnCloseCallback,
+        on_close: ::core::option::Option<
+            unsafe extern "C" fn(arg1: *const ::core::ffi::c_char, arg2: *mut ::core::ffi::c_void),
+        >,
         context: *mut ::core::ffi::c_void,
         out: *mut *mut XmtpFfiStreamHandle,
     ) -> i32;
@@ -2288,7 +2293,9 @@ unsafe extern "C" {
     pub fn xmtp_stream_message_deletions(
         client: *const XmtpFfiClient,
         callback: XmtpFnMessageDeletionCallback,
-        on_close: XmtpOption_FnOnCloseCallback,
+        on_close: ::core::option::Option<
+            unsafe extern "C" fn(arg1: *const ::core::ffi::c_char, arg2: *mut ::core::ffi::c_void),
+        >,
         context: *mut ::core::ffi::c_void,
         out: *mut *mut XmtpFfiStreamHandle,
     ) -> i32;

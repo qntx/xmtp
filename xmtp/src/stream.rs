@@ -36,11 +36,6 @@ impl StreamHandle {
     }
 }
 
-/// Construct an empty `on_close` value (no close callback).
-const fn no_on_close() -> xmtp_sys::XmtpOption_FnOnCloseCallback {
-    unsafe { std::mem::zeroed() }
-}
-
 /// Generic helper to start a stream. Handles context boxing, error recovery,
 /// and wrapping the result in a `StreamHandle`.
 ///
@@ -89,7 +84,7 @@ pub fn stream_conversations(
             client_ptr,
             conv_type,
             Some(conv_trampoline),
-            no_on_close(),
+            None,
             ctx,
             out,
         )
@@ -142,7 +137,7 @@ pub fn stream_all_messages(
             cs_ptr,
             cs_len,
             Some(msg_trampoline),
-            no_on_close(),
+            None,
             ctx,
             out,
         )
@@ -166,7 +161,7 @@ pub fn stream_messages(
         xmtp_sys::xmtp_conversation_stream_messages(
             conv_ptr,
             Some(msg_trampoline),
-            no_on_close(),
+            None,
             ctx,
             out,
         )
@@ -237,7 +232,7 @@ pub fn stream_consent(
         xmtp_sys::xmtp_stream_consent(
             client_ptr,
             Some(consent_trampoline),
-            no_on_close(),
+            None,
             ctx,
             out,
         )
@@ -298,7 +293,7 @@ pub fn stream_preferences(
         xmtp_sys::xmtp_stream_preferences(
             client_ptr,
             Some(pref_trampoline),
-            no_on_close(),
+            None,
             ctx,
             out,
         )
@@ -365,7 +360,7 @@ pub fn stream_message_deletions(
         xmtp_sys::xmtp_stream_message_deletions(
             client_ptr,
             Some(deletion_trampoline),
-            no_on_close(),
+            None,
             ctx,
             out,
         )

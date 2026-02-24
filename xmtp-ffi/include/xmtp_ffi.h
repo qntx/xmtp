@@ -219,8 +219,6 @@ typedef struct XmtpFfiSignatureRequest XmtpFfiSignatureRequest;
  */
 typedef struct XmtpFfiStreamHandle XmtpFfiStreamHandle;
 
-typedef struct XmtpOption_FnOnCloseCallback XmtpOption_FnOnCloseCallback;
-
 /**
  * Options for creating a client. All string fields are borrowed (not freed by this library).
  */
@@ -1914,7 +1912,7 @@ int32_t xmtp_verify_signed_with_public_key(const char *signature_text,
 int32_t xmtp_stream_conversations(const struct XmtpFfiClient *client,
                                   int32_t conversation_type,
                                   XmtpFnConversationCallback callback,
-                                  struct XmtpOption_FnOnCloseCallback on_close,
+                                  void (*on_close)(const char*, void*),
                                   void *context,
                                   struct XmtpFfiStreamHandle **out);
 
@@ -1927,7 +1925,7 @@ int32_t xmtp_stream_all_messages(const struct XmtpFfiClient *client,
                                  const int32_t *consent_states,
                                  int32_t consent_states_count,
                                  XmtpFnMessageCallback callback,
-                                 struct XmtpOption_FnOnCloseCallback on_close,
+                                 void (*on_close)(const char*, void*),
                                  void *context,
                                  struct XmtpFfiStreamHandle **out);
 
@@ -1936,7 +1934,7 @@ int32_t xmtp_stream_all_messages(const struct XmtpFfiClient *client,
  */
 int32_t xmtp_conversation_stream_messages(const struct XmtpFfiConversation *conv,
                                           XmtpFnMessageCallback callback,
-                                          struct XmtpOption_FnOnCloseCallback on_close,
+                                          void (*on_close)(const char*, void*),
                                           void *context,
                                           struct XmtpFfiStreamHandle **out);
 
@@ -1946,7 +1944,7 @@ int32_t xmtp_conversation_stream_messages(const struct XmtpFfiConversation *conv
  */
 int32_t xmtp_stream_consent(const struct XmtpFfiClient *client,
                             XmtpFnConsentCallback callback,
-                            struct XmtpOption_FnOnCloseCallback on_close,
+                            void (*on_close)(const char*, void*),
                             void *context,
                             struct XmtpFfiStreamHandle **out);
 
@@ -1956,7 +1954,7 @@ int32_t xmtp_stream_consent(const struct XmtpFfiClient *client,
  */
 int32_t xmtp_stream_preferences(const struct XmtpFfiClient *client,
                                 XmtpFnPreferenceCallback callback,
-                                struct XmtpOption_FnOnCloseCallback on_close,
+                                void (*on_close)(const char*, void*),
                                 void *context,
                                 struct XmtpFfiStreamHandle **out);
 
@@ -1967,7 +1965,7 @@ int32_t xmtp_stream_preferences(const struct XmtpFfiClient *client,
  */
 int32_t xmtp_stream_message_deletions(const struct XmtpFfiClient *client,
                                       XmtpFnMessageDeletionCallback callback,
-                                      struct XmtpOption_FnOnCloseCallback on_close,
+                                      void (*on_close)(const char*, void*),
                                       void *context,
                                       struct XmtpFfiStreamHandle **out);
 
