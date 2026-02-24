@@ -61,11 +61,35 @@ for c in &convs {
 }
 ```
 
+### Install the CLI
+
+**Shell** (macOS / Linux):
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/qntx/xmtp/main/install.sh | sh
+```
+
+**PowerShell** (Windows):
+
+```powershell
+irm https://raw.githubusercontent.com/qntx/xmtp/main/install.ps1 | iex
+```
+
+**Cargo binstall** (prebuilt binary, no compilation):
+
+```bash
+cargo binstall xmtp-cli
+```
+
+**Cargo install** (build from source):
+
+```bash
+cargo install xmtp-cli
+```
+
 ### CLI
 
 ```bash
-# Install
-cargo install xmtp-cli
 
 # Create a profile (generates a new key, registers with XMTP)
 xmtp new alice
@@ -135,6 +159,7 @@ Inbox ID
 | --- | --- |
 | `x86_64-unknown-linux-gnu` | ✅ |
 | `aarch64-unknown-linux-gnu` | ✅ |
+| `x86_64-apple-darwin` | ✅ |
 | `aarch64-apple-darwin` | ✅ |
 | `x86_64-pc-windows-msvc` | ✅ |
 | `aarch64-pc-windows-msvc` | ✅ |
