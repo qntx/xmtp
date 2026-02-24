@@ -38,53 +38,18 @@ xmtp wraps the official [`libxmtp`](https://github.com/xmtp/libxmtp) FFI layer w
 
 ## Quick Start
 
-### Library
-
-```rust
-use xmtp::{Client, Env, AlloySigner};
-
-// Create a client and register identity.
-let signer = AlloySigner::random()?;
-let client = Client::builder()
-    .env(Env::Dev)
-    .db_path("./alice.db3")
-    .build(&signer)?;
-
-// Send a DM.
-let conv = client.dm(&"0xBob...".into())?;
-conv.send_text("hello from Rust")?;
-
-// List conversations.
-let convs = client.list_conversations(&Default::default())?;
-for c in &convs {
-    println!("{}: {}", c.id()?, c.name().unwrap_or_default());
-}
-```
-
 ### Install the CLI
 
 **Shell** (macOS / Linux):
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/qntx/xmtp/main/install.sh | sh
+curl -fsSL https://sh.qntx.fun/xmtp | sh
 ```
 
 **PowerShell** (Windows):
 
 ```powershell
-irm https://raw.githubusercontent.com/qntx/xmtp/main/install.ps1 | iex
-```
-
-**Cargo binstall** (prebuilt binary, no compilation):
-
-```bash
-cargo binstall xmtp-cli
-```
-
-**Cargo install** (build from source):
-
-```bash
-cargo install xmtp-cli
+irm https://sh.qntx.fun/xmtp/ps | iex
 ```
 
 ### CLI
@@ -113,6 +78,29 @@ xmtp clear         # delete ALL profiles
 
 # Revoke all other installations (requires wallet signature)
 xmtp revoke alice
+```
+
+### Library
+
+```rust
+use xmtp::{Client, Env, AlloySigner};
+
+// Create a client and register identity.
+let signer = AlloySigner::random()?;
+let client = Client::builder()
+    .env(Env::Dev)
+    .db_path("./alice.db3")
+    .build(&signer)?;
+
+// Send a DM.
+let conv = client.dm(&"0xBob...".into())?;
+conv.send_text("hello from Rust")?;
+
+// List conversations.
+let convs = client.list_conversations(&Default::default())?;
+for c in &convs {
+    println!("{}: {}", c.id()?, c.name().unwrap_or_default());
+}
 ```
 
 ## Architecture
