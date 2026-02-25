@@ -22,16 +22,10 @@ use crate::event::{
 /// so the main (UI) thread is never blocked by these network operations.
 #[allow(clippy::needless_pass_by_value)]
 pub fn run(client: Client, rx: mpsc::Receiver<Cmd>, tx: Tx, cmd_tx: CmdTx) {
-    // Start streams in the worker thread — avoids blocking TUI startup.
-    let _streams = match start_streams(&client, &cmd_tx) {
-        Ok(s) => Some(s),
-        Err(e) => {
-            let _ = tx.send(Event::Flash(format!("Streams: {e}")));
-            None
-        }
-    };
-
     let mut w = Worker::new(client, tx);
+
+    // Start streams in the worker thread — avoids blocking TUI startup.
+    let _streams = w.start_streams(&cmd_tx);
 
     // Initial sync so conversations appear without a manual refresh.
     w.sync();
@@ -62,24 +56,23 @@ impl Worker {
         }
     }
 
-    /// Load messages with unpublished sorted to the end.
-    fn load_messages(&self, conv: &xmtp::Conversation) -> Vec<Message> {
-        let mut msgs = conv.list_messages(&self.list_opts).unwrap_or_default();
-        msgs.sort_by_key(|m| m.delivery_status == DeliveryStatus::Unpublished);
-        msgs
-    }
-
-    /// Send loaded messages to the UI thread.
-    fn send_msgs(&self, conv_id: &str, conv: &xmtp::Conversation) {
-        let msgs = self.load_messages(conv);
-        let _ = self.tx.send(Event::Messages {
-            conv_id: conv_id.to_owned(),
-            msgs,
+    /// Wire up XMTP real-time streams. Returns handles that must be kept alive.
+    fn start_streams(&self, cmd_tx: &CmdTx) -> Option<(xmtp::StreamHandle, xmtp::StreamHandle)> {
+        let msg_tx = cmd_tx.clone();
+        let msgs = stream::stream_all_messages(&self.client, None, &[], move |msg_id, conv_id| {
+            let _ = msg_tx.send(Cmd::StreamMsg { msg_id, conv_id });
         });
-    }
-
-    fn flash(&self, msg: &str) {
-        let _ = self.tx.send(Event::Flash(msg.into()));
+        let conv_tx = cmd_tx.clone();
+        let convs = stream::stream_conversations(&self.client, None, move |_| {
+            let _ = conv_tx.send(Cmd::StreamConv);
+        });
+        match (msgs, convs) {
+            (Ok(m), Ok(c)) => Some((m, c)),
+            (Err(e), _) | (_, Err(e)) => {
+                self.flash(&format!("Streams: {e}"));
+                None
+            }
+        }
     }
 
     fn dispatch(&mut self, cmd: Cmd) {
@@ -90,17 +83,9 @@ impl Worker {
             Cmd::CreateGroup { name, addrs } => self.create_group(name, addrs),
             Cmd::SetConsent { id, state } => self.set_consent(&id, state),
             Cmd::Sync => self.sync(),
-            Cmd::LoadMembers => {
-                if let Some((_, ref conv)) = self.active {
-                    send_members(conv, &self.tx);
-                }
-            }
+            Cmd::LoadMembers => self.send_members(),
+            Cmd::LoadPermissions => self.send_permissions(),
             Cmd::SetGroupMeta { field, value } => self.set_group_meta(field, &value),
-            Cmd::LoadPermissions => {
-                if let Some((_, ref conv)) = self.active {
-                    send_permissions(conv, &self.tx);
-                }
-            }
             Cmd::SetPermission {
                 update_type,
                 policy,
@@ -109,10 +94,10 @@ impl Worker {
             Cmd::AddMember(input) => self.add_member(&input),
             Cmd::RemoveMember(id) => self.remove_member(&id),
             Cmd::ToggleAdmin(id) => self.toggle_admin(&id),
-            Cmd::NewMessage { msg_id, conv_id } => self.new_message(&msg_id, conv_id),
-            Cmd::NewConversation => {
+            Cmd::StreamMsg { msg_id, conv_id } => self.on_stream_msg(&msg_id, conv_id),
+            Cmd::StreamConv => {
                 let _ = self.client.sync_welcomes();
-                send_conversations(&self.client, &self.tx);
+                self.send_conversations();
             }
         }
     }
@@ -121,36 +106,27 @@ impl Worker {
         if self.active.as_ref().is_some_and(|(aid, _)| *aid == id) {
             return;
         }
-        if let Ok(Some(conv)) = self.client.conversation(id) {
-            // Show locally cached messages immediately so the UI feels instant.
-            self.send_msgs(id, &conv);
-            self.active = Some((id.to_owned(), conv));
-            // Then sync from network and refresh with any new messages.
-            if let Some((ref cid, ref c)) = self.active {
-                let _ = c.sync();
-                self.send_msgs(cid, c);
-            }
-        }
-    }
-
-    fn send_text(&self, text: &str) {
-        let Some((ref id, ref conv)) = self.active else {
+        let Ok(Some(conv)) = self.client.conversation(id) else {
             return;
         };
-        let encoded = xmtp::content::encode_text(text);
-        match conv.send_optimistic(&encoded) {
-            Ok(_) => {
-                // Show message with ○ instantly.
-                self.send_msgs(id, conv);
-                // Publish to network (blocking but UI already updated).
-                if let Err(e) = conv.publish_messages() {
-                    self.flash(&format!("Publish: {e}"));
-                }
-                // Update status to ✓.
-                self.send_msgs(id, conv);
-            }
-            Err(e) => self.flash(&format!("Send: {e}")),
-        }
+        // Show locally cached messages instantly, then sync from network.
+        self.send_msgs(id, &conv);
+        let _ = conv.sync();
+        self.send_msgs(id, &conv);
+        self.active = Some((id.to_owned(), conv));
+    }
+
+    /// Shared post-creation setup for DM and group conversations.
+    fn activate(&mut self, conv: xmtp::Conversation, label: &str) {
+        let id = conv.id().unwrap_or_default();
+        let _ = conv.set_consent(ConsentState::Allowed);
+        let _ = self.tx.send(Event::Created {
+            conv_id: id.clone(),
+        });
+        self.send_msgs(&id, &conv);
+        self.active = Some((id, conv));
+        self.send_conversations();
+        self.flash(label);
     }
 
     fn create_dm(&mut self, input: &str) {
@@ -159,17 +135,7 @@ impl Worker {
             return;
         }
         match self.client.dm(&recipient) {
-            Ok(conv) => {
-                let cid = conv.id().unwrap_or_default();
-                let _ = conv.set_consent(ConsentState::Allowed);
-                let _ = self.tx.send(Event::Created {
-                    conv_id: cid.clone(),
-                });
-                self.send_msgs(&cid, &conv);
-                self.active = Some((cid, conv));
-                send_conversations(&self.client, &self.tx);
-                self.flash("DM created");
-            }
+            Ok(conv) => self.activate(conv, "DM created"),
             Err(e) => self.flash(&format!("DM: {e}")),
         }
     }
@@ -187,7 +153,6 @@ impl Worker {
         if !self.check_reachable(&members.iter().collect::<Vec<_>>()) {
             return;
         }
-        // Auto-generate name from member strings if not provided.
         let group_name = name.or_else(|| {
             let names: Vec<_> = members
                 .iter()
@@ -200,37 +165,44 @@ impl Worker {
             ..Default::default()
         };
         match self.client.group(&members, &opts) {
-            Ok(conv) => {
-                let cid = conv.id().unwrap_or_default();
-                let _ = conv.set_consent(ConsentState::Allowed);
-                let _ = self.tx.send(Event::Created {
-                    conv_id: cid.clone(),
-                });
-                self.send_msgs(&cid, &conv);
-                self.active = Some((cid, conv));
-                send_conversations(&self.client, &self.tx);
-                self.flash("Group created");
-            }
+            Ok(conv) => self.activate(conv, "Group created"),
             Err(e) => self.flash(&format!("Group: {e}")),
         }
     }
 
-    fn set_consent(&self, id: &str, state: ConsentState) {
-        if let Ok(Some(conv)) = self.client.conversation(id) {
-            let _ = conv.set_consent(state);
-            send_conversations(&self.client, &self.tx);
-            let msg = match state {
-                ConsentState::Allowed => "Accepted",
-                ConsentState::Denied => "Hidden",
-                ConsentState::Unknown => "Reset",
-            };
-            self.flash(msg);
+    fn send_text(&self, text: &str) {
+        let Some((ref id, ref conv)) = self.active else {
+            return;
+        };
+        let encoded = xmtp::content::encode_text(text);
+        match conv.send_optimistic(&encoded) {
+            Ok(_) => {
+                self.send_msgs(id, conv);
+                if let Err(e) = conv.publish_messages() {
+                    self.flash(&format!("Publish: {e}"));
+                }
+                self.send_msgs(id, conv);
+            }
+            Err(e) => self.flash(&format!("Send: {e}")),
         }
+    }
+
+    fn set_consent(&self, id: &str, state: ConsentState) {
+        let Ok(Some(conv)) = self.client.conversation(id) else {
+            return;
+        };
+        let _ = conv.set_consent(state);
+        self.send_conversations();
+        self.flash(match state {
+            ConsentState::Allowed => "Accepted",
+            ConsentState::Denied => "Hidden",
+            ConsentState::Unknown => "Reset",
+        });
     }
 
     fn sync(&self) {
         let _ = self.client.sync_welcomes();
-        send_conversations(&self.client, &self.tx);
+        self.send_conversations();
         if let Some((ref id, ref conv)) = self.active {
             let _ = conv.sync();
             self.send_msgs(id, conv);
@@ -248,12 +220,11 @@ impl Worker {
         };
         match result {
             Ok(()) => {
-                let msg = match field {
+                self.flash(match field {
                     GroupField::Name => "Renamed",
                     GroupField::Description => "Description updated",
-                };
-                self.flash(msg);
-                send_conversations(&self.client, &self.tx);
+                });
+                self.send_conversations();
             }
             Err(e) => self.flash(&format!("Update: {e}")),
         }
@@ -285,8 +256,8 @@ impl Worker {
         match self.client.add_members(conv, &[recipient]) {
             Ok(()) => {
                 self.flash("Member added");
-                send_members(conv, &self.tx);
-                send_conversations(&self.client, &self.tx);
+                self.send_members();
+                self.send_conversations();
             }
             Err(e) => self.flash(&format!("Add: {e}")),
         }
@@ -299,8 +270,8 @@ impl Worker {
         match conv.remove_members_by_inbox_id(&[inbox_id]) {
             Ok(()) => {
                 self.flash("Removed");
-                send_members(conv, &self.tx);
-                send_conversations(&self.client, &self.tx);
+                self.send_members();
+                self.send_conversations();
             }
             Err(e) => self.flash(&format!("Remove: {e}")),
         }
@@ -317,25 +288,25 @@ impl Worker {
         };
         match result {
             Ok(()) => {
-                let msg = if conv.is_admin(inbox_id) {
+                self.flash(if conv.is_admin(inbox_id) {
                     "Promoted"
                 } else {
                     "Demoted"
-                };
-                self.flash(msg);
-                send_members(conv, &self.tx);
+                });
+                self.send_members();
             }
             Err(e) => self.flash(&format!("Admin: {e}")),
         }
     }
 
-    fn new_message(&self, msg_id: &str, conv_id: String) {
-        let is_active = matches!(&self.active, Some((id, _)) if *id == conv_id);
-        if let Some((_, ref conv)) = self.active
-            && is_active
-        {
-            self.send_msgs(&conv_id, conv);
-        }
+    fn on_stream_msg(&self, msg_id: &str, conv_id: String) {
+        let is_active = match &self.active {
+            Some((id, conv)) if *id == conv_id => {
+                self.send_msgs(&conv_id, conv);
+                true
+            }
+            _ => false,
+        };
         if let Ok(Some(msg)) = self.client.message_by_id(msg_id) {
             let _ = self.tx.send(Event::Preview {
                 conv_id,
@@ -345,7 +316,155 @@ impl Worker {
             });
         }
     }
-    /// Pre-check reachability for address recipients. Returns `false` if any are unreachable.
+
+    fn flash(&self, msg: &str) {
+        let _ = self.tx.send(Event::Flash(msg.into()));
+    }
+
+    fn load_messages(&self, conv: &xmtp::Conversation) -> Vec<Message> {
+        let mut msgs = conv.list_messages(&self.list_opts).unwrap_or_default();
+        msgs.sort_by_key(|m| m.delivery_status == DeliveryStatus::Unpublished);
+        msgs
+    }
+
+    fn send_msgs(&self, conv_id: &str, conv: &xmtp::Conversation) {
+        let _ = self.tx.send(Event::Messages {
+            conv_id: conv_id.to_owned(),
+            msgs: self.load_messages(conv),
+        });
+    }
+
+    fn send_conversations(&self) {
+        let inbox = self.build_conv_list(&[ConsentState::Allowed]);
+        let requests = self.build_conv_list(&[ConsentState::Unknown]);
+        let hidden = self.build_conv_list(&[ConsentState::Denied]);
+        let _ = self.tx.send(Event::Conversations {
+            inbox,
+            requests,
+            hidden,
+        });
+    }
+
+    fn send_members(&self) {
+        let Some((_, ref conv)) = self.active else {
+            return;
+        };
+        match conv.members() {
+            Ok(members) => {
+                let entries = members
+                    .into_iter()
+                    .map(|m| {
+                        let address = m
+                            .account_identifiers
+                            .first()
+                            .cloned()
+                            .unwrap_or_else(|| m.inbox_id.clone());
+                        MemberEntry {
+                            inbox_id: m.inbox_id,
+                            address,
+                            permission: m.permission_level,
+                        }
+                    })
+                    .collect();
+                let info = GroupInfo {
+                    description: conv.description().unwrap_or_default(),
+                };
+                let _ = self.tx.send(Event::Members {
+                    members: entries,
+                    info,
+                });
+            }
+            Err(e) => self.flash(&format!("Members: {e}")),
+        }
+    }
+
+    fn send_permissions(&self) {
+        use xmtp::{MetadataField, PermissionUpdateType};
+        let Some((_, ref conv)) = self.active else {
+            return;
+        };
+        match conv.permissions() {
+            Ok(perms) => {
+                let p = perms.policies;
+                let rows = vec![
+                    PermissionRow {
+                        label: "Add Members",
+                        policy: p.add_member,
+                        update_type: PermissionUpdateType::AddMember,
+                        metadata_field: None,
+                    },
+                    PermissionRow {
+                        label: "Remove Members",
+                        policy: p.remove_member,
+                        update_type: PermissionUpdateType::RemoveMember,
+                        metadata_field: None,
+                    },
+                    PermissionRow {
+                        label: "Add Admins",
+                        policy: p.add_admin,
+                        update_type: PermissionUpdateType::AddAdmin,
+                        metadata_field: None,
+                    },
+                    PermissionRow {
+                        label: "Remove Admins",
+                        policy: p.remove_admin,
+                        update_type: PermissionUpdateType::RemoveAdmin,
+                        metadata_field: None,
+                    },
+                    PermissionRow {
+                        label: "Group Name",
+                        policy: p.update_group_name,
+                        update_type: PermissionUpdateType::UpdateMetadata,
+                        metadata_field: Some(MetadataField::GroupName),
+                    },
+                    PermissionRow {
+                        label: "Description",
+                        policy: p.update_group_description,
+                        update_type: PermissionUpdateType::UpdateMetadata,
+                        metadata_field: Some(MetadataField::Description),
+                    },
+                ];
+                let _ = self.tx.send(Event::Permissions(rows));
+            }
+            Err(e) => self.flash(&format!("Permissions: {e}")),
+        }
+    }
+
+    fn build_conv_list(&self, consent: &[ConsentState]) -> Vec<ConvEntry> {
+        let opts = ListConversationsOptions {
+            consent_states: consent.to_vec(),
+            order_by: ConversationOrderBy::LastActivity,
+            ..Default::default()
+        };
+        self.client
+            .list_conversations(&opts)
+            .unwrap_or_default()
+            .iter()
+            .map(|conv| {
+                let id = conv.id().unwrap_or_default();
+                let is_group = conv.conversation_type() == Some(ConversationType::Group);
+                let label = if is_group {
+                    conv.name()
+                        .unwrap_or_else(|| format!("Group {}", truncate_id(&id, 8)))
+                } else {
+                    conv.dm_peer_inbox_id()
+                        .map_or_else(|| "DM".into(), |s| truncate_id(&s, 16))
+                };
+                let last = conv.last_message().ok().flatten();
+                let preview = last.as_ref().map_or(String::new(), decode_preview);
+                let last_ns = last.as_ref().map_or(0, |m| m.sent_at_ns);
+                ConvEntry {
+                    id,
+                    label,
+                    preview,
+                    last_ns,
+                    unread: false,
+                }
+            })
+            .collect()
+    }
+
+    /// Pre-check reachability for address recipients.
     fn check_reachable(&self, recipients: &[&Recipient]) -> bool {
         let idents: Vec<AccountIdentifier> = recipients
             .iter()
@@ -381,154 +500,4 @@ impl Worker {
             }
         }
     }
-}
-
-/// Wire up XMTP streams to the worker command channel.
-pub fn start_streams(
-    client: &Client,
-    cmd_tx: &CmdTx,
-) -> xmtp::Result<(xmtp::StreamHandle, xmtp::StreamHandle)> {
-    let msg_tx = cmd_tx.clone();
-    let msg_stream = stream::stream_all_messages(client, None, &[], move |msg_id, conv_id| {
-        let _ = msg_tx.send(Cmd::NewMessage { msg_id, conv_id });
-    })?;
-
-    let conv_tx = cmd_tx.clone();
-    let conv_stream = stream::stream_conversations(client, None, move |_| {
-        let _ = conv_tx.send(Cmd::NewConversation);
-    })?;
-
-    Ok((msg_stream, conv_stream))
-}
-
-/// Load and send permission policies for the given conversation.
-fn send_permissions(conv: &xmtp::Conversation, tx: &Tx) {
-    use xmtp::{MetadataField, PermissionUpdateType};
-    match conv.permissions() {
-        Ok(perms) => {
-            let p = perms.policies;
-            let rows = vec![
-                PermissionRow {
-                    label: "Add Members",
-                    policy: p.add_member,
-                    update_type: PermissionUpdateType::AddMember,
-                    metadata_field: None,
-                },
-                PermissionRow {
-                    label: "Remove Members",
-                    policy: p.remove_member,
-                    update_type: PermissionUpdateType::RemoveMember,
-                    metadata_field: None,
-                },
-                PermissionRow {
-                    label: "Add Admins",
-                    policy: p.add_admin,
-                    update_type: PermissionUpdateType::AddAdmin,
-                    metadata_field: None,
-                },
-                PermissionRow {
-                    label: "Remove Admins",
-                    policy: p.remove_admin,
-                    update_type: PermissionUpdateType::RemoveAdmin,
-                    metadata_field: None,
-                },
-                PermissionRow {
-                    label: "Group Name",
-                    policy: p.update_group_name,
-                    update_type: PermissionUpdateType::UpdateMetadata,
-                    metadata_field: Some(MetadataField::GroupName),
-                },
-                PermissionRow {
-                    label: "Description",
-                    policy: p.update_group_description,
-                    update_type: PermissionUpdateType::UpdateMetadata,
-                    metadata_field: Some(MetadataField::Description),
-                },
-            ];
-            let _ = tx.send(Event::Permissions(rows));
-        }
-        Err(e) => {
-            let _ = tx.send(Event::Flash(format!("Permissions: {e}")));
-        }
-    }
-}
-
-/// Load and send group members + group info for the given conversation.
-fn send_members(conv: &xmtp::Conversation, tx: &Tx) {
-    match conv.members() {
-        Ok(members) => {
-            let entries: Vec<MemberEntry> = members
-                .into_iter()
-                .map(|m| {
-                    let address = m
-                        .account_identifiers
-                        .first()
-                        .cloned()
-                        .unwrap_or_else(|| m.inbox_id.clone());
-                    MemberEntry {
-                        inbox_id: m.inbox_id,
-                        address,
-                        permission: m.permission_level,
-                    }
-                })
-                .collect();
-            let info = GroupInfo {
-                description: conv.description().unwrap_or_default(),
-            };
-            let _ = tx.send(Event::Members {
-                members: entries,
-                info,
-            });
-        }
-        Err(e) => {
-            let _ = tx.send(Event::Flash(format!("Members: {e}")));
-        }
-    }
-}
-
-/// Build and send conversation lists for Inbox, Requests, and Hidden.
-fn send_conversations(client: &Client, tx: &Tx) {
-    let inbox = build_conv_list(client, &[ConsentState::Allowed]);
-    let requests = build_conv_list(client, &[ConsentState::Unknown]);
-    let hidden = build_conv_list(client, &[ConsentState::Denied]);
-    let _ = tx.send(Event::Conversations {
-        inbox,
-        requests,
-        hidden,
-    });
-}
-
-/// Build a sidebar list from conversations matching the given consent states.
-fn build_conv_list(client: &Client, consent: &[ConsentState]) -> Vec<ConvEntry> {
-    let opts = ListConversationsOptions {
-        consent_states: consent.to_vec(),
-        order_by: ConversationOrderBy::LastActivity,
-        ..Default::default()
-    };
-    client
-        .list_conversations(&opts)
-        .unwrap_or_default()
-        .iter()
-        .map(|conv| {
-            let id = conv.id().unwrap_or_default();
-            let is_group = conv.conversation_type() == Some(ConversationType::Group);
-            let label = if is_group {
-                conv.name()
-                    .unwrap_or_else(|| format!("Group {}", truncate_id(&id, 8)))
-            } else {
-                conv.dm_peer_inbox_id()
-                    .map_or_else(|| "DM".into(), |s| truncate_id(&s, 16))
-            };
-            let last = conv.last_message().ok().flatten();
-            let preview = last.as_ref().map_or(String::new(), decode_preview);
-            let last_ns = last.as_ref().map_or(0, |m| m.sent_at_ns);
-            ConvEntry {
-                id,
-                label,
-                preview,
-                last_ns,
-                unread: false,
-            }
-        })
-        .collect()
 }

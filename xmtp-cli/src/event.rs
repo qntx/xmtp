@@ -3,7 +3,7 @@
 //! Architecture: the main thread only handles UI rendering and key input.
 //! All FFI / network operations run on a dedicated **worker thread**.
 //!
-//! - Stream callbacks → `CmdTx` → Worker (via [`Cmd::NewMessage`] / [`Cmd::NewConversation`])
+//! - Stream callbacks → `CmdTx` → Worker (via [`Cmd::StreamMsg`] / [`Cmd::StreamConv`])
 //! - App key handling → `CmdTx` → Worker (via [`Cmd::Send`], [`Cmd::Refresh`], etc.)
 //! - Worker results  → `Tx`    → Main thread (via [`Event::Conversations`], [`Event::Messages`], etc.)
 
@@ -134,10 +134,10 @@ pub enum Cmd {
         policy: PermissionPolicy,
         metadata_field: Option<MetadataField>,
     },
-    /// Stream callback: new message arrived.
-    NewMessage { msg_id: String, conv_id: String },
-    /// Stream callback: new conversation received.
-    NewConversation,
+    /// Stream: incoming message.
+    StreamMsg { msg_id: String, conv_id: String },
+    /// Stream: new or updated conversation.
+    StreamConv,
 }
 
 /// Spawn the terminal-polling thread. Sends [`Event::Key`], [`Event::Resize`], [`Event::Tick`].
