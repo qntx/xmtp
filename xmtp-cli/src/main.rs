@@ -68,9 +68,11 @@ fn run() -> xmtp::Result<()> {
 
     let inbox_id = client.inbox_id()?;
 
+    let env_name = config::env_name(cfg.env).to_owned();
+
     eprintln!("address: {}", cfg.address);
     eprintln!("inbox:   {inbox_id}");
-    run_tui(client, cfg.address, inbox_id)
+    run_tui(client, cfg.address, inbox_id, env_name)
 }
 
 fn dispatch(command: &Command) -> xmtp::Result<()> {
@@ -93,19 +95,19 @@ fn resolve_profile(explicit: Option<String>) -> String {
     explicit.unwrap_or_else(config::default_profile)
 }
 
-fn run_tui(client: Client, address: String, inbox_id: String) -> xmtp::Result<()> {
+fn run_tui(client: Client, address: String, inbox_id: String, env: String) -> xmtp::Result<()> {
     let (event_tx, event_rx) = mpsc::channel::<Event>();
     let (cmd_tx, cmd_rx) = mpsc::channel::<Cmd>();
 
     event::spawn_poller(event_tx.clone(), Duration::from_millis(50));
-    let _streams = worker::start_streams(&client, &cmd_tx)?;
 
+    // Streams + initial sync happen inside the worker thread so the TUI
+    // renders immediately without blocking on network setup.
     let worker_tx = event_tx;
-    std::thread::spawn(move || worker::run(client, cmd_rx, worker_tx));
+    let worker_cmd_tx = cmd_tx.clone();
+    std::thread::spawn(move || worker::run(client, cmd_rx, worker_tx, worker_cmd_tx));
 
-    let _ = cmd_tx.send(Cmd::Sync);
-
-    let mut app = App::new(address, inbox_id, cmd_tx);
+    let mut app = App::new(address, inbox_id, env, cmd_tx);
 
     tui::install_panic_hook();
     let mut terminal = tui::init().map_err(|e| xmtp::Error::Ffi(format!("terminal: {e}")))?;

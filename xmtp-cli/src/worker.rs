@@ -18,10 +18,24 @@ use crate::event::{
 
 /// Run the worker loop. Owns the [`Client`], processes [`Cmd`], sends [`Event`].
 ///
-/// All blocking FFI calls happen here — the main thread never waits.
+/// Starts streams and performs the initial sync before entering the main loop,
+/// so the main (UI) thread is never blocked by these network operations.
 #[allow(clippy::needless_pass_by_value)]
-pub fn run(client: Client, rx: mpsc::Receiver<Cmd>, tx: Tx) {
+pub fn run(client: Client, rx: mpsc::Receiver<Cmd>, tx: Tx, cmd_tx: CmdTx) {
+    // Start streams in the worker thread — avoids blocking TUI startup.
+    let _streams = match start_streams(&client, &cmd_tx) {
+        Ok(s) => Some(s),
+        Err(e) => {
+            let _ = tx.send(Event::Flash(format!("Streams: {e}")));
+            None
+        }
+    };
+
     let mut w = Worker::new(client, tx);
+
+    // Initial sync so conversations appear without a manual refresh.
+    w.sync();
+
     while let Ok(cmd) = rx.recv() {
         w.dispatch(cmd);
     }
@@ -108,9 +122,14 @@ impl Worker {
             return;
         }
         if let Ok(Some(conv)) = self.client.conversation(id) {
-            let _ = conv.sync();
+            // Show locally cached messages immediately so the UI feels instant.
             self.send_msgs(id, &conv);
             self.active = Some((id.to_owned(), conv));
+            // Then sync from network and refresh with any new messages.
+            if let Some((ref cid, ref c)) = self.active {
+                let _ = c.sync();
+                self.send_msgs(cid, c);
+            }
         }
     }
 

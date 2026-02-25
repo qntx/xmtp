@@ -75,7 +75,7 @@ fn draw_header(app: &App, frame: &mut Frame<'_>, area: Rect) {
         Span::styled(" XMTP ", Style::default().fg(Color::Black).bg(ACCENT)),
         Span::raw("  "),
         Span::styled(&app.address, Style::default().add_modifier(Modifier::BOLD)),
-        Span::styled("  ·  dev  ", Style::default().fg(DIM)),
+        Span::styled(format!("  ·  {}  ", app.env), Style::default().fg(DIM)),
     ];
     if req_count > 0 {
         spans.push(Span::styled(

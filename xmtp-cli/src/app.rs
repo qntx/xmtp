@@ -54,6 +54,7 @@ pub struct App {
     pub quit: bool,
     pub address: String,
     pub inbox_id: String,
+    pub env: String,
 
     pub tab: Tab,
     pub focus: Focus,
@@ -88,11 +89,12 @@ pub struct App {
 }
 
 impl App {
-    pub fn new(address: String, inbox_id: String, cmd: CmdTx) -> Self {
+    pub fn new(address: String, inbox_id: String, env: String, cmd: CmdTx) -> Self {
         Self {
             quit: false,
             address,
             inbox_id,
+            env,
             tab: Tab::Inbox,
             focus: Focus::Sidebar,
             mode: Mode::Normal,
@@ -150,6 +152,12 @@ impl App {
                 self.inbox = inbox;
                 self.requests = requests;
                 self.hidden = hidden;
+                // Keep sidebar selection in sync with the active conversation.
+                if let Some(ref id) = self.active_id
+                    && let Some(pos) = self.sidebar().iter().position(|e| e.id == *id)
+                {
+                    self.sidebar_idx = pos;
+                }
                 self.clamp_sidebar();
             }
             Event::Messages { conv_id, msgs } => {
@@ -361,6 +369,7 @@ impl App {
                     let name = self.group_name.take();
                     self.cmd(Cmd::CreateGroup { name, addrs });
                     self.close_prompt();
+                    self.flash("Creating group…");
                 }
                 Prompt::AddMember | Prompt::Edit(_) => self.back_to_members(),
                 _ => self.close_prompt(),
@@ -369,10 +378,13 @@ impl App {
                 let text = self.input.trim().to_owned();
                 match prompt {
                     Prompt::Dm => {
-                        if !text.is_empty() {
+                        if text.is_empty() {
+                            self.close_prompt();
+                        } else {
                             self.cmd(Cmd::CreateDm(text));
+                            self.close_prompt();
+                            self.flash("Creating DM…");
                         }
-                        self.close_prompt();
                     }
                     Prompt::GroupName => {
                         self.group_name = if text.is_empty() { None } else { Some(text) };

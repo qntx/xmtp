@@ -158,13 +158,7 @@ pub fn stream_messages(
     let conv_ptr = conversation.handle_ptr();
     let dyn_cb: Box<dyn Fn(String, String) + Send> = Box::new(callback);
     start_stream(dyn_cb, |ctx, out| unsafe {
-        xmtp_sys::xmtp_conversation_stream_messages(
-            conv_ptr,
-            Some(msg_trampoline),
-            None,
-            ctx,
-            out,
-        )
+        xmtp_sys::xmtp_conversation_stream_messages(conv_ptr, Some(msg_trampoline), None, ctx, out)
     })
 }
 
@@ -229,13 +223,7 @@ pub fn stream_consent(
     let client_ptr = client.handle.as_ptr();
     let dyn_cb: Box<dyn Fn(Vec<ConsentUpdate>) + Send> = Box::new(callback);
     start_stream(dyn_cb, |ctx, out| unsafe {
-        xmtp_sys::xmtp_stream_consent(
-            client_ptr,
-            Some(consent_trampoline),
-            None,
-            ctx,
-            out,
-        )
+        xmtp_sys::xmtp_stream_consent(client_ptr, Some(consent_trampoline), None, ctx, out)
     })
 }
 
@@ -290,13 +278,7 @@ pub fn stream_preferences(
     let client_ptr = client.handle.as_ptr();
     let dyn_cb: Box<dyn Fn(Vec<PreferenceUpdate>) + Send> = Box::new(callback);
     start_stream(dyn_cb, |ctx, out| unsafe {
-        xmtp_sys::xmtp_stream_preferences(
-            client_ptr,
-            Some(pref_trampoline),
-            None,
-            ctx,
-            out,
-        )
+        xmtp_sys::xmtp_stream_preferences(client_ptr, Some(pref_trampoline), None, ctx, out)
     })
 }
 
