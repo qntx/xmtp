@@ -52,9 +52,10 @@ fn run() -> xmtp::Result<()> {
     let name = resolve_profile(cli.profile);
 
     let (cfg, client) = if config::profile_dir(&name).join("profile.conf").exists() {
+        eprintln!("  Loading profile '{name}'");
         config::open_client(&name)?
     } else {
-        eprintln!("Creating profile '{name}'...");
+        eprintln!("  Creating profile '{name}'");
         cmd::profile::create(&cmd::NewArgs {
             name,
             env: xmtp::Env::Dev,
@@ -67,11 +68,12 @@ fn run() -> xmtp::Result<()> {
     };
 
     let inbox_id = client.inbox_id()?;
-
     let env_name = config::env_name(cfg.env).to_owned();
 
-    eprintln!("address: {}", cfg.address);
-    eprintln!("inbox:   {inbox_id}");
+    eprintln!("  address: {}", cfg.address);
+    eprintln!("  inbox:   {inbox_id}");
+    eprintln!("  env:     {env_name}");
+    eprintln!("  Starting TUI");
     run_tui(client, cfg.address, inbox_id, env_name)
 }
 

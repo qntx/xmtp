@@ -103,7 +103,12 @@ impl Worker {
     }
 
     fn open(&mut self, id: &str) {
-        if self.active.as_ref().is_some_and(|(aid, _)| *aid == id) {
+        // Already active — re-send cached messages (the UI may have cleared
+        // its state after a tab switch) but skip the network sync.
+        if let Some((ref aid, ref conv)) = self.active
+            && *aid == id
+        {
+            self.send_msgs(id, conv);
             return;
         }
         let Ok(Some(conv)) = self.client.conversation(id) else {

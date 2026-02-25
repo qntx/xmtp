@@ -72,7 +72,7 @@ pub fn render(app: &mut App, frame: &mut Frame<'_>) {
 fn draw_header(app: &App, frame: &mut Frame<'_>, area: Rect) {
     let req_count = app.requests.len();
     let mut spans = vec![
-        Span::styled(" XMTP ", Style::default().fg(Color::Black).bg(ACCENT)),
+        Span::styled(" QNTX ", Style::default().fg(Color::Black).bg(ACCENT)),
         Span::raw("  "),
         Span::styled(&app.address, Style::default().add_modifier(Modifier::BOLD)),
         Span::styled(format!("  ·  {}  ", app.env), Style::default().fg(DIM)),
@@ -195,7 +195,7 @@ fn draw_chat(app: &mut App, frame: &mut Frame<'_>, area: Rect) {
         let welcome = Paragraph::new(Text::from(vec![
             Line::default(),
             Line::from(Span::styled(
-                "  Welcome to XMTP",
+                "  QNTX · Encrypted Messaging",
                 Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
             )),
             Line::default(),
