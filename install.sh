@@ -1,16 +1,17 @@
 #!/bin/sh
-# Installer for the xmtp CLI — https://github.com/qntx/xmtp
+# CLI installer — downloads the latest release binary from GitHub.
+# Configure REPO and BIN below. Everything else is derived automatically.
 #
-# Usage:  curl -fsSL https://raw.githubusercontent.com/qntx/xmtp/main/install.sh | sh
-#
-# Environment:
-#   XMTP_VERSION      Override version (default: latest)
-#   XMTP_INSTALL_DIR  Override install directory (default: ~/.local/bin)
+# Environment (upper-cased BIN prefix):
+#   <BIN>_VERSION      Override version (default: latest)
+#   <BIN>_INSTALL_DIR  Override install directory (default: ~/.local/bin)
 
 set -eu
 
 REPO="qntx/xmtp"
 BIN="xmtp"
+
+BIN_UPPER=$(echo "$BIN" | tr '[:lower:]' '[:upper:]')
 
 say() { printf '\033[1m%s\033[0m\n' "$*"; }
 err() { printf '\033[31merror\033[0m: %s\n' "$*" >&2; exit 1; }
@@ -59,8 +60,8 @@ latest_version() {
 
 main() {
     target=$(detect_target)
-    ver="${XMTP_VERSION:-$(latest_version)}"
-    dir="${XMTP_INSTALL_DIR:-$HOME/.local/bin}"
+    eval "ver=\${${BIN_UPPER}_VERSION:-\$(latest_version)}"
+    eval "dir=\${${BIN_UPPER}_INSTALL_DIR:-\$HOME/.local/bin}"
 
     say "Installing $BIN v$ver ($target)"
 

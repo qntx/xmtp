@@ -1,15 +1,18 @@
-# Installer for the xmtp CLI — https://github.com/qntx/xmtp
+# CLI installer — downloads the latest release binary from GitHub.
+# Configure $Repo and $Bin below. Everything else is derived automatically.
 #
-# Usage:  irm https://raw.githubusercontent.com/qntx/xmtp/main/install.ps1 | iex
-#
-# Environment:
-#   XMTP_VERSION      Override version (default: latest)
-#   XMTP_INSTALL_DIR  Override install directory (default: %LOCALAPPDATA%\xmtp)
+# Environment (upper-cased $Bin prefix):
+#   <BIN>_VERSION      Override version (default: latest)
+#   <BIN>_INSTALL_DIR  Override install directory (default: %LOCALAPPDATA%\<bin>)
 
 $ErrorActionPreference = "Stop"
 $InformationPreference = "Continue"
 $Repo = "qntx/xmtp"
 $Bin = "xmtp"
+
+$BinUpper = $Bin.ToUpper()
+$VerEnv = "${BinUpper}_VERSION"
+$DirEnv = "${BinUpper}_INSTALL_DIR"
 
 function Get-TargetArch {
     try {
@@ -35,9 +38,9 @@ function Add-ToUserPath($Dir) {
     $current = (Get-Item -LiteralPath $reg).GetValue('Path', '', 'DoNotExpandEnvironmentNames') -split ';' -ne ''
     if ($Dir -in $current) { return }
 
-    Set-ItemProperty -Type ExpandString -LiteralPath $reg Path (($Dir, $current) -join ';')
+    Set-ItemProperty -Type ExpandString -LiteralPath $reg Path ((@($Dir) + $current) -join ';')
     # Broadcast WM_SETTINGCHANGE so Explorer picks up the new PATH
-    $k = "xmtp-" + [guid]::NewGuid().ToString()
+    $k = "$Bin-" + [guid]::NewGuid().ToString()
     [Environment]::SetEnvironmentVariable($k, "1", "User")
     [Environment]::SetEnvironmentVariable($k, [NullString]::value, "User")
 
@@ -46,8 +49,10 @@ function Add-ToUserPath($Dir) {
 
 try {
     $target = Get-TargetArch
-    $ver = if ($env:XMTP_VERSION) { $env:XMTP_VERSION } else { Get-LatestVersion }
-    $dir = if ($env:XMTP_INSTALL_DIR) { $env:XMTP_INSTALL_DIR } else { Join-Path $env:LOCALAPPDATA "xmtp" }
+    $envVer = [Environment]::GetEnvironmentVariable($VerEnv)
+    $envDir = [Environment]::GetEnvironmentVariable($DirEnv)
+    $ver = if ($envVer) { $envVer } else { Get-LatestVersion }
+    $dir = if ($envDir) { $envDir } else { Join-Path $env:LOCALAPPDATA $Bin }
 
     Write-Information "Installing $Bin v$ver ($target)"
 
