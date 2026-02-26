@@ -67,7 +67,7 @@ pub struct NewArgs {
     pub env: Env,
 
     /// Ethereum RPC URL for ENS resolution.
-    #[arg(long, default_value = "https://eth.llamarpc.com")]
+    #[arg(long, default_value = xmtp::DEFAULT_RPC)]
     pub rpc_url: String,
 
     /// Import a hex-encoded private key.

@@ -36,7 +36,7 @@ mod ens;
 pub use client::{Client, ClientBuilder};
 pub use conversation::{Conversation, GroupMember, Message};
 #[cfg(feature = "ens")]
-pub use ens::EnsResolver;
+pub use ens::{DEFAULT_RPC, EnsResolver};
 pub use error::{Error, Result};
 #[cfg(feature = "ledger")]
 pub use ledger::LedgerSigner;

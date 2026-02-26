@@ -20,7 +20,7 @@ use crate::resolve::Resolver;
 const RPC_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Default public Ethereum RPC endpoint for ENS resolution.
-const DEFAULT_RPC: &str = "https://eth.llamarpc.com";
+pub const DEFAULT_RPC: &str = "https://eth.llamarpc.com";
 
 /// ENS name resolver connecting to an Ethereum JSON-RPC endpoint.
 ///

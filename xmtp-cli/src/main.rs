@@ -56,7 +56,7 @@ fn run() -> xmtp::Result<()> {
         cmd::profile::create(&cmd::NewArgs {
             name: name.clone(),
             env: xmtp::Env::Dev,
-            rpc_url: "https://eth.llamarpc.com".into(),
+            rpc_url: xmtp::DEFAULT_RPC.into(),
             import: None,
             key: None,
             db: None,
