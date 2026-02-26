@@ -3,13 +3,13 @@
 //! The main thread sends [`Cmd`] requests; the worker processes them and
 //! sends [`Event`] results back. Stream callbacks also route through here.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::mpsc;
 
 use xmtp::{
     Client, ConsentState, ConversationOrderBy, ConversationType, CreateGroupOptions,
-    DeliveryStatus, ListConversationsOptions, ListMessagesOptions, Message, Recipient,
-    SortDirection, stream,
+    DeliveryStatus, EnsResolver, Env, IdentifierKind, ListConversationsOptions,
+    ListMessagesOptions, Message, Recipient, SortDirection, stream,
 };
 
 use crate::app::{decode_preview, truncate_id};
@@ -17,31 +17,64 @@ use crate::event::{
     Cmd, CmdTx, ConvEntry, Event, GroupField, GroupInfo, MemberEntry, PermissionRow, Tx,
 };
 
-/// Run the worker loop. Owns the [`Client`], processes [`Cmd`], sends [`Event`].
+/// Run the worker loop. Builds the [`Client`], performs initial sync, then
+/// processes [`Cmd`] and sends [`Event`].
 ///
-/// Starts streams and performs the initial sync before entering the main loop,
-/// so the main (UI) thread is never blocked by these network operations.
+/// Client construction + sync happen here (on the worker thread) so the TUI
+/// renders immediately without blocking on network setup.
 #[allow(clippy::needless_pass_by_value)]
 pub fn run(
-    client: Client,
     rx: mpsc::Receiver<Cmd>,
     tx: Tx,
     cmd_tx: CmdTx,
+    env: Env,
+    db_path: String,
     rpc_url: String,
     address: String,
 ) {
-    let mut w = Worker::new(client, tx, &rpc_url, &cmd_tx, address);
+    let _ = tx.send(Event::Flash("Connecting...".into()));
 
-    // Start streams in the worker thread — avoids blocking TUI startup.
+    let client = match connect(env, &db_path, &rpc_url, &address) {
+        Ok(c) => c,
+        Err(e) => {
+            let _ = tx.send(Event::Flash(format!("Fatal: {e}")));
+            return;
+        }
+    };
+
+    let mut w = Worker::new(client, tx, &rpc_url, &cmd_tx, &address);
     w.start_streams(&cmd_tx);
 
     // Initial sync — catch up on messages received while offline.
+    w.flash("Syncing...");
     let _ = w.client.sync_welcomes();
     let _ = w.client.sync_all(&[]);
     w.send_conversations();
+    w.flash("Ready");
 
     while let Ok(cmd) = rx.recv() {
         w.dispatch(cmd);
+    }
+}
+
+/// Build a connected XMTP client with stale-DB recovery.
+fn connect(env: Env, db_path: &str, rpc_url: &str, address: &str) -> xmtp::Result<Client> {
+    let build = |path: &str| {
+        let mut b = Client::builder().env(env).db_path(path);
+        if let Ok(r) = EnsResolver::new(rpc_url) {
+            b = b.resolver(r);
+        }
+        b.build_existing(address, IdentifierKind::Ethereum)
+    };
+    match build(db_path) {
+        Ok(c) => Ok(c),
+        Err(e) if e.to_string().contains("does not match the stored InboxId") => {
+            for ext in ["", "-shm", "-wal"] {
+                let _ = std::fs::remove_file(format!("{db_path}{ext}"));
+            }
+            build(db_path)
+        }
+        Err(e) => Err(e),
     }
 }
 
@@ -51,29 +84,22 @@ struct Worker {
     tx: Tx,
     active: Option<(String, xmtp::Conversation)>,
     list_opts: ListMessagesOptions,
-    /// Current user's wallet address.
+    /// Current user's wallet address (lowercase).
     my_address: String,
-    /// address → `Some("name.eth")` | `None` (no reverse record / pending).
+    /// address (lowercase) → `Some("name.eth")` | `None` (no reverse record / pending).
     ens_cache: HashMap<String, Option<String>>,
-    /// Addresses already queued for background resolution (dedup).
-    ens_queued: HashSet<String>,
     /// Send addresses to the background ENS resolver thread.
     ens_tx: Option<mpsc::Sender<String>>,
 }
 
 impl Worker {
-    fn new(client: Client, tx: Tx, rpc_url: &str, cmd_tx: &CmdTx, address: String) -> Self {
+    fn new(client: Client, tx: Tx, rpc_url: &str, cmd_tx: &CmdTx, address: &str) -> Self {
         let ens_tx = Self::start_ens_resolver(rpc_url, cmd_tx);
+        let my_address = address.to_lowercase();
 
-        // Queue own wallet address for background ENS resolution.
-        if let Some(ref ens) = ens_tx {
-            let _ = ens.send(address.clone());
-            let _ = tx.send(Event::Flash(format!(
-                "ENS resolver active ({})",
-                truncate_id(&address, 12)
-            )));
-        } else {
-            let _ = tx.send(Event::Flash("ENS resolver unavailable".into()));
+        // Queue own address for background ENS reverse resolution.
+        if let Some(ref tx) = ens_tx {
+            let _ = tx.send(my_address.clone());
         }
 
         Self {
@@ -84,9 +110,8 @@ impl Worker {
                 direction: Some(SortDirection::Ascending),
                 ..Default::default()
             },
-            my_address: address,
+            my_address,
             ens_cache: HashMap::new(),
-            ens_queued: HashSet::new(),
             ens_tx,
         }
     }
@@ -96,37 +121,27 @@ impl Worker {
     /// The thread stops automatically after 3 consecutive failures (e.g. RPC
     /// unreachable), avoiding minutes of futile retries.
     fn start_ens_resolver(rpc_url: &str, cmd_tx: &CmdTx) -> Option<mpsc::Sender<String>> {
-        let resolver = xmtp::EnsResolver::new(rpc_url).ok()?;
+        let resolver = EnsResolver::new(rpc_url).ok()?;
         let (tx, rx) = mpsc::channel::<String>();
         let cmd = cmd_tx.clone();
         std::thread::spawn(move || {
             use xmtp::Resolver;
-            let mut consecutive_failures: u8 = 0;
+            let mut failures: u8 = 0;
             while let Ok(addr) = rx.recv() {
-                if consecutive_failures >= 3 {
-                    // RPC appears unreachable — drain remaining without resolving.
-                    let _ = cmd.send(Cmd::EnsResolved {
-                        address: addr,
-                        name: None,
-                        error: Some("ENS disabled (RPC unreachable)".into()),
-                    });
-                    continue;
-                }
-                let (name, error) = match resolver.reverse_resolve(&addr) {
-                    Ok(n) => {
-                        consecutive_failures = 0;
-                        (n, None)
-                    }
-                    Err(e) => {
-                        consecutive_failures += 1;
-                        (None, Some(e.to_string()))
-                    }
+                // Circuit breaker: stop resolving after 3 consecutive failures.
+                let name = if failures >= 3 {
+                    None
+                } else if let Ok(n) = resolver.reverse_resolve(&addr) {
+                    failures = 0;
+                    n
+                } else {
+                    failures += 1;
+                    None
                 };
                 if cmd
                     .send(Cmd::EnsResolved {
                         address: addr,
                         name,
-                        error,
                     })
                     .is_err()
                 {
@@ -200,16 +215,7 @@ impl Worker {
                 let _ = self.client.sync_welcomes();
                 self.send_conversations();
             }
-            Cmd::EnsResolved {
-                address,
-                name,
-                error,
-            } => {
-                if let Some(ref e) = error {
-                    self.flash(&format!("ENS {}: {e}", truncate_id(&address, 8)));
-                }
-                self.on_ens_resolved(&address, name);
-            }
+            Cmd::EnsResolved { address, name } => self.on_ens_resolved(&address, name),
         }
     }
 
@@ -604,11 +610,10 @@ impl Worker {
         if let Ok(members) = conv.members()
             && let Some(peer) = members.iter().find(|m| m.inbox_id != my_inbox)
         {
-            let name = self.display_name(
+            return self.display_name(
                 peer.account_identifiers.first().map(String::as_str),
                 &peer.inbox_id,
             );
-            return truncate_id(&name, 16);
         }
         conv.dm_peer_inbox_id()
             .map_or_else(|| "DM".into(), |s| truncate_id(&s, 16))
@@ -617,45 +622,42 @@ impl Worker {
     /// Resolve a display name for a member identity (**non-blocking**).
     ///
     /// Priority: ENS name (cached) > wallet address > inbox ID.
-    /// On cache miss, queues the address for background ENS resolution
-    /// and returns the truncated address immediately.
+    /// On cache miss, inserts `None` (pending) and queues the address for
+    /// background resolution, returning the truncated address immediately.
     fn display_name(&mut self, address: Option<&str>, inbox_id: &str) -> String {
-        let Some(addr) = address else {
+        let Some(raw) = address else {
             return truncate_id(inbox_id, 16);
         };
-        // Return cached result immediately.
-        if let Some(cached) = self.ens_cache.get(addr) {
-            return cached.clone().unwrap_or_else(|| truncate_id(addr, 16));
+        let key = raw.to_lowercase();
+        if let Some(cached) = self.ens_cache.get(&key) {
+            return cached.clone().unwrap_or_else(|| truncate_id(raw, 16));
         }
-        // Queue for background resolution (dedup).
-        if let Some(ref ens_tx) = self.ens_tx
-            && self.ens_queued.insert(addr.to_owned())
-        {
-            let _ = ens_tx.send(addr.to_owned());
+        // Pre-cache as pending (dedup) and queue for background resolution.
+        self.ens_cache.insert(key.clone(), None);
+        if let Some(ref tx) = self.ens_tx {
+            let _ = tx.send(key);
         }
-        truncate_id(addr, 16)
+        truncate_id(raw, 16)
     }
 
     /// Handle a resolved ENS name from the background thread.
     fn on_ens_resolved(&mut self, address: &str, name: Option<String>) {
-        if self.ens_cache.get(address) == Some(&name) {
+        let key = address.to_lowercase();
+        if self.ens_cache.get(&key) == Some(&name) {
             return;
         }
 
-        // If this is the current user's address, update the header display.
-        if address == self.my_address
+        // Update header if this is the current user's address.
+        if key == self.my_address
             && let Some(ref n) = name
         {
             let _ = self.tx.send(Event::Identity(n.clone()));
         }
 
-        // Consume name into cache.
-        self.ens_cache.insert(address.to_owned(), name);
+        self.ens_cache.insert(key, name);
 
-        // Refresh sidebar labels.
+        // Refresh sidebar and active conversation to show resolved names.
         self.send_conversations();
-
-        // Refresh active conversation's sender labels.
         if let Some((id, conv)) = self.active.take() {
             self.send_msgs(&id, &conv);
             self.active = Some((id, conv));

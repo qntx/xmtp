@@ -22,7 +22,6 @@ use std::sync::mpsc;
 use std::time::Duration;
 
 use clap::Parser;
-use xmtp::Client;
 
 use crate::app::App;
 use crate::cmd::config;
@@ -51,30 +50,49 @@ fn run() -> xmtp::Result<()> {
     // TUI mode — resolve profile, auto-create default if needed.
     let name = resolve_profile(cli.profile);
 
-    let (cfg, client) = if config::profile_dir(&name).join("profile.conf").exists() {
-        eprintln!("  Loading profile '{name}'");
-        config::open_client(&name)?
-    } else {
+    // New profile: must register on main thread (requires signer + network).
+    if !config::profile_dir(&name).join("profile.conf").exists() {
         eprintln!("  Creating profile '{name}'");
         cmd::profile::create(&cmd::NewArgs {
-            name,
+            name: name.clone(),
             env: xmtp::Env::Dev,
             rpc_url: "https://eth.llamarpc.com".into(),
             import: None,
             key: None,
             db: None,
             ledger: None,
-        })?
-    };
+        })?;
+    }
 
-    let inbox_id = client.inbox_id()?;
+    let mut cfg = config::ProfileConfig::load(&name)?;
+
+    // Legacy profile without cached address — one-time migration.
+    if cfg.address.is_empty() {
+        eprintln!("  Migrating profile '{name}'");
+        let (migrated, _) = config::open_client(&name)?;
+        cfg = migrated;
+    }
+
+    // inbox_id is pure computation — no network required.
+    let inbox_id = xmtp::generate_inbox_id(&cfg.address, xmtp::IdentifierKind::Ethereum, 1)?;
     let env_name = config::env_name(cfg.env).to_owned();
+    let db_path = config::profile_dir(&name)
+        .join("messages.db3")
+        .to_string_lossy()
+        .into_owned();
 
     eprintln!("  address: {}", cfg.address);
     eprintln!("  inbox:   {inbox_id}");
     eprintln!("  env:     {env_name}");
     eprintln!("  Starting TUI");
-    run_tui(client, cfg.address, inbox_id, env_name, cfg.rpc_url)
+    run_tui(
+        cfg.env,
+        db_path,
+        cfg.address,
+        inbox_id,
+        env_name,
+        cfg.rpc_url,
+    )
 }
 
 fn dispatch(command: &Command) -> xmtp::Result<()> {
@@ -98,10 +116,11 @@ fn resolve_profile(explicit: Option<String>) -> String {
 }
 
 fn run_tui(
-    client: Client,
+    env: xmtp::Env,
+    db_path: String,
     address: String,
     inbox_id: String,
-    env: String,
+    env_name: String,
     rpc_url: String,
 ) -> xmtp::Result<()> {
     let (event_tx, event_rx) = mpsc::channel::<Event>();
@@ -109,23 +128,24 @@ fn run_tui(
 
     event::spawn_poller(event_tx.clone(), Duration::from_millis(50));
 
-    // Streams + initial sync happen inside the worker thread so the TUI
-    // renders immediately without blocking on network setup.
+    // Client construction + sync happen on the worker thread so the TUI
+    // renders immediately — typically under 100 ms from command to first frame.
     let worker_tx = event_tx;
     let worker_cmd_tx = cmd_tx.clone();
     let worker_addr = address.clone();
     std::thread::spawn(move || {
         worker::run(
-            client,
             cmd_rx,
             worker_tx,
             worker_cmd_tx,
+            env,
+            db_path,
             rpc_url,
             worker_addr,
         );
     });
 
-    let mut app = App::new(address, inbox_id, env, cmd_tx);
+    let mut app = App::new(address, inbox_id, env_name, cmd_tx);
 
     tui::install_panic_hook();
     let mut terminal = tui::init().map_err(|e| xmtp::Error::Ffi(format!("terminal: {e}")))?;

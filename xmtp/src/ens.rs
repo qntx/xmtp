@@ -17,7 +17,7 @@ use crate::error::{Error, Result};
 use crate::resolve::Resolver;
 
 /// Per-call timeout for RPC operations (connect + execute).
-const RPC_TIMEOUT: Duration = Duration::from_secs(15);
+const RPC_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Default public Ethereum RPC endpoint for ENS resolution.
 const DEFAULT_RPC: &str = "https://eth.llamarpc.com";
@@ -141,13 +141,13 @@ mod tests {
     #[ignore = "requires network access to Ethereum RPC"]
     fn smoke_resolve() {
         let resolver = EnsResolver::mainnet().expect("create resolver");
-        let fwd = resolver.resolve("vitalik.eth");
+        let fwd = resolver.resolve("qntx.eth");
         eprintln!("forward: {fwd:?}");
         assert!(fwd.is_ok(), "forward failed: {fwd:?}");
 
-        let rev = resolver.reverse_resolve("0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045");
+        let rev = resolver.reverse_resolve("0xE350Ef4E8557a3e2a24D11327d9F25B382Ac93Cb");
         eprintln!("reverse: {rev:?}");
         assert!(rev.is_ok(), "reverse failed: {rev:?}");
-        assert_eq!(rev.unwrap().as_deref(), Some("vitalik.eth"));
+        assert_eq!(rev.unwrap().as_deref(), Some("qntx.eth"));
     }
 }
