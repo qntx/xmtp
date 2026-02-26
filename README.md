@@ -58,6 +58,7 @@ irm https://sh.qntx.fun/xmtp/ps | iex
 xmtp new alice
 
 # Create a profile with a Ledger hardware wallet
+# (connect via USB and open the Ethereum app on the device first)
 xmtp new bob --ledger
 
 # Create a profile with an imported private key
@@ -118,6 +119,8 @@ for c in &convs {
 | `ledger` | Ledger hardware wallet signer via `alloy-signer-ledger` |
 | `ens` | ENS name resolution via `alloy-ens` + `alloy-provider` |
 
+> **ENS display names** — To show your `.eth` name in the TUI header and conversation list, you must set a **Primary Name** (reverse record) for your wallet address at [primary.ens.domains](https://primary.ens.domains/). Without it, the app displays your truncated address instead.
+
 ### `xmtp-sys` crate
 
 | Feature | Description |
@@ -163,7 +166,7 @@ XMTP separates **identity-level operations** (rare, high-privilege) from **messa
 - Managing consent state
 - Group admin operations (add/remove members, update metadata)
 
-> After initial registration, the wallet key is never needed for day-to-day messaging. For CLI users with Ledger hardware wallets, this means the device only needs to be connected for `xmtp new` and `xmtp revoke`.
+> After initial registration, the wallet key is never needed for day-to-day messaging. For CLI users with Ledger hardware wallets, this means the device only needs to be connected for `xmtp new` and `xmtp revoke`. Make sure the Ledger is connected via USB with the **Ethereum app open** before running those commands.
 
 ### Compromise & Recovery Model
 
