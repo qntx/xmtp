@@ -68,6 +68,8 @@ pub struct App {
 
     pub active_id: Option<String>,
     pub messages: Vec<Message>,
+    /// `inbox_id` → display address for the active conversation.
+    pub address_map: std::collections::HashMap<String, String>,
     pub members: Vec<MemberEntry>,
     pub member_idx: usize,
     pub group_desc: String,
@@ -105,6 +107,7 @@ impl App {
             hidden: Vec::new(),
             active_id: None,
             messages: Vec::new(),
+            address_map: std::collections::HashMap::new(),
             members: Vec::new(),
             member_idx: 0,
             group_desc: String::new(),
@@ -137,6 +140,15 @@ impl App {
         }
     }
 
+    /// Copy unread flags from `old` into `new` by matching conversation IDs.
+    fn merge_unread(old: &[ConvEntry], new: &mut [ConvEntry]) {
+        for entry in new.iter_mut() {
+            if old.iter().any(|o| o.id == entry.id && o.unread) {
+                entry.unread = true;
+            }
+        }
+    }
+
     fn cmd(&self, c: Cmd) {
         let _ = self.cmd.send(c);
     }
@@ -145,10 +157,15 @@ impl App {
     pub fn apply(&mut self, event: Event) {
         match event {
             Event::Conversations {
-                inbox,
-                requests,
-                hidden,
+                mut inbox,
+                mut requests,
+                mut hidden,
             } => {
+                // Preserve unread flags from old lists — send_conversations()
+                // rebuilds with unread=false, so we merge back prior state.
+                Self::merge_unread(&self.inbox, &mut inbox);
+                Self::merge_unread(&self.requests, &mut requests);
+                Self::merge_unread(&self.hidden, &mut hidden);
                 self.inbox = inbox;
                 self.requests = requests;
                 self.hidden = hidden;
@@ -160,9 +177,14 @@ impl App {
                 }
                 self.clamp_sidebar();
             }
-            Event::Messages { conv_id, msgs } => {
+            Event::Messages {
+                conv_id,
+                msgs,
+                address_map,
+            } => {
                 if self.active_id.as_deref() == Some(&conv_id) {
                     self.messages = msgs;
+                    self.address_map = address_map;
                 }
             }
             Event::Preview {

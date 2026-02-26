@@ -273,7 +273,11 @@ fn draw_chat(app: &mut App, frame: &mut Frame<'_>, area: Rect) {
                 Span::styled(bot, style),
             ]));
         } else {
-            let sender = truncate_id(&msg.sender_inbox_id, 12);
+            let sender_raw = app
+                .address_map
+                .get(&msg.sender_inbox_id)
+                .map_or(msg.sender_inbox_id.as_str(), String::as_str);
+            let sender = truncate_id(sender_raw, 16);
             lines.push(Line::from(vec![
                 Span::styled(format!("  {sender}"), Style::default().fg(PEER_CLR)),
                 Span::styled(format!("  {time}"), Style::default().fg(DIM)),

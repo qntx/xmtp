@@ -77,7 +77,12 @@ pub enum Event {
         hidden: Vec<ConvEntry>,
     },
     /// Worker: messages loaded (includes `conv_id` to prevent stale updates).
-    Messages { conv_id: String, msgs: Vec<Message> },
+    Messages {
+        conv_id: String,
+        msgs: Vec<Message>,
+        /// `inbox_id` → display address, for resolving sender identities.
+        address_map: std::collections::HashMap<String, String>,
+    },
     /// Worker: single sidebar preview updated.
     Preview {
         conv_id: String,

@@ -352,10 +352,30 @@ impl Worker {
     }
 
     fn send_msgs(&self, conv_id: &str, conv: &xmtp::Conversation) {
+        let address_map = Self::build_address_map(conv);
         let _ = self.tx.send(Event::Messages {
             conv_id: conv_id.to_owned(),
             msgs: self.load_messages(conv),
+            address_map,
         });
+    }
+
+    /// Build an `inbox_id` → wallet address map from the conversation members.
+    fn build_address_map(
+        conv: &xmtp::Conversation,
+    ) -> std::collections::HashMap<String, String> {
+        let mut map = std::collections::HashMap::new();
+        if let Ok(members) = conv.members() {
+            for m in members {
+                let display = m
+                    .account_identifiers
+                    .first()
+                    .cloned()
+                    .unwrap_or_else(|| m.inbox_id.clone());
+                map.insert(m.inbox_id, display);
+            }
+        }
+        map
     }
 
     fn send_conversations(&self) {
@@ -471,8 +491,7 @@ impl Worker {
                     conv.name()
                         .unwrap_or_else(|| format!("Group {}", truncate_id(&id, 8)))
                 } else {
-                    conv.dm_peer_inbox_id()
-                        .map_or_else(|| "DM".into(), |s| truncate_id(&s, 16))
+                    self.dm_peer_label(conv)
                 };
                 let last = conv.last_message().ok().flatten();
                 let preview = last.as_ref().map_or(String::new(), decode_preview);
@@ -486,6 +505,25 @@ impl Worker {
                 }
             })
             .collect()
+    }
+
+    /// Resolve the best display label for a DM peer.
+    ///
+    /// Prefers the peer's wallet address (from members list) over the raw
+    /// inbox ID, since addresses are more recognizable to users.
+    fn dm_peer_label(&self, conv: &xmtp::Conversation) -> String {
+        let my_inbox = self.client.inbox_id().unwrap_or_default();
+        if let Ok(members) = conv.members()
+            && let Some(peer) = members.iter().find(|m| m.inbox_id != my_inbox)
+        {
+            let display = peer
+                .account_identifiers
+                .first()
+                .unwrap_or(&peer.inbox_id);
+            return truncate_id(display, 16);
+        }
+        conv.dm_peer_inbox_id()
+            .map_or_else(|| "DM".into(), |s| truncate_id(&s, 16))
     }
 
     /// Pre-check reachability for recipients.
