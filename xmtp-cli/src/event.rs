@@ -57,7 +57,10 @@ pub struct GroupInfo {
 #[derive(Debug, Clone)]
 pub struct MemberEntry {
     pub inbox_id: String,
-    pub address: String,
+    /// Display name (ENS or truncated primary address).
+    pub label: String,
+    /// All wallet addresses bound to this inbox.
+    pub addresses: Vec<String>,
     pub permission: PermissionLevel,
 }
 
@@ -101,6 +104,8 @@ pub enum Event {
     Created { conv_id: String },
     /// Worker: flash status message.
     Flash(String),
+    /// Worker: resolved display name for current user (ENS or address).
+    Identity(String),
 }
 
 /// Commands sent from UI thread (or stream callbacks) to the worker thread.
@@ -143,6 +148,11 @@ pub enum Cmd {
     StreamMsg { msg_id: String, conv_id: String },
     /// Stream: new or updated conversation.
     StreamConv,
+    /// Background ENS resolver: address resolved to optional name.
+    EnsResolved {
+        address: String,
+        name: Option<String>,
+    },
 }
 
 /// Spawn the terminal-polling thread. Sends [`Event::Key`], [`Event::Resize`], [`Event::Tick`].

@@ -5406,9 +5406,10 @@ dependencies = [
 
 [[package]]
 name = "xmtp"
-version = "0.7.1"
+version = "0.7.2"
 dependencies = [
  "alloy-ens",
+ "alloy-primitives",
  "alloy-provider",
  "alloy-signer",
  "alloy-signer-ledger",
@@ -5423,7 +5424,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp-cli"
-version = "0.7.1"
+version = "0.7.2"
 dependencies = [
  "clap",
  "dirs",

@@ -227,6 +227,7 @@ impl App {
                 self.refresh_hint();
             }
             Event::Flash(msg) => self.flash(&msg),
+            Event::Identity(name) => self.address = name,
             Event::Key(_) | Event::Resize | Event::Tick => {}
         }
     }
@@ -650,8 +651,8 @@ impl App {
         if self.tab != tab {
             self.tab = tab;
             self.sidebar_idx = 0;
-            self.active_id = None;
-            self.messages.clear();
+            // Preserve active_id and messages — the chat area should keep
+            // showing the current conversation regardless of sidebar tab.
             self.refresh_hint();
         }
     }

@@ -7,12 +7,17 @@
 //! xmtp = { version = "0.1", features = ["ens"] }
 //! ```
 
+use std::time::Duration;
+
 use alloy_ens::ProviderEnsExt as _;
 use alloy_provider::ProviderBuilder;
 use tokio::runtime::Runtime;
 
 use crate::error::{Error, Result};
 use crate::resolve::Resolver;
+
+/// Per-call timeout for RPC operations (connect + execute).
+const RPC_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Default public Ethereum RPC endpoint for ENS resolution.
 const DEFAULT_RPC: &str = "https://eth.llamarpc.com";
@@ -81,10 +86,25 @@ impl EnsResolver {
 impl Resolver for EnsResolver {
     fn resolve(&self, name: &str) -> Result<String> {
         let provider = ProviderBuilder::new().connect_http(self.rpc_url.clone());
-        let addr = self
-            .rt
-            .block_on(provider.resolve_name(name))
-            .map_err(|e| Error::Resolution(format!("{name}: {e}")))?;
+        let addr = self.rt.block_on(async {
+            tokio::time::timeout(RPC_TIMEOUT, provider.resolve_name(name))
+                .await
+                .map_err(|_| Error::Resolution(format!("{name}: timeout")))?
+                .map_err(|e| Error::Resolution(format!("{name}: {e}")))
+        })?;
         Ok(addr.to_string().to_lowercase())
+    }
+
+    fn reverse_resolve(&self, address: &str) -> Result<Option<String>> {
+        let addr: alloy_primitives::Address = address
+            .parse()
+            .map_err(|e| Error::Resolution(format!("{address}: {e}")))?;
+        let provider = ProviderBuilder::new().connect_http(self.rpc_url.clone());
+        Ok(self.rt.block_on(async {
+            tokio::time::timeout(RPC_TIMEOUT, provider.lookup_address(&addr))
+                .await
+                .ok()?
+                .ok()
+        }))
     }
 }

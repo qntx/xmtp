@@ -3,6 +3,7 @@
 //! The main thread sends [`Cmd`] requests; the worker processes them and
 //! sends [`Event`] results back. Stream callbacks also route through here.
 
+use std::collections::{HashMap, HashSet};
 use std::sync::mpsc;
 
 use xmtp::{
@@ -21,14 +22,26 @@ use crate::event::{
 /// Starts streams and performs the initial sync before entering the main loop,
 /// so the main (UI) thread is never blocked by these network operations.
 #[allow(clippy::needless_pass_by_value)]
-pub fn run(client: Client, rx: mpsc::Receiver<Cmd>, tx: Tx, cmd_tx: CmdTx) {
-    let mut w = Worker::new(client, tx);
+pub fn run(
+    client: Client,
+    rx: mpsc::Receiver<Cmd>,
+    tx: Tx,
+    cmd_tx: CmdTx,
+    rpc_url: String,
+    address: String,
+) {
+    let mut w = Worker::new(client, tx, &rpc_url, &cmd_tx, address);
 
     // Start streams in the worker thread — avoids blocking TUI startup.
     w.start_streams(&cmd_tx);
 
-    // Initial sync so conversations appear without a manual refresh.
-    w.sync();
+    // Quick sync — show conversation list immediately.
+    let _ = w.client.sync_welcomes();
+    w.send_conversations();
+
+    // Full sync — download messages for all conversations (fixes group previews).
+    let _ = w.client.sync_all(&[]);
+    w.send_conversations();
 
     while let Ok(cmd) = rx.recv() {
         w.dispatch(cmd);
@@ -41,10 +54,25 @@ struct Worker {
     tx: Tx,
     active: Option<(String, xmtp::Conversation)>,
     list_opts: ListMessagesOptions,
+    /// Current user's wallet address.
+    my_address: String,
+    /// address → `Some("name.eth")` | `None` (no reverse record / pending).
+    ens_cache: HashMap<String, Option<String>>,
+    /// Addresses already queued for background resolution (dedup).
+    ens_queued: HashSet<String>,
+    /// Send addresses to the background ENS resolver thread.
+    ens_tx: Option<mpsc::Sender<String>>,
 }
 
 impl Worker {
-    fn new(client: Client, tx: Tx) -> Self {
+    fn new(client: Client, tx: Tx, rpc_url: &str, cmd_tx: &CmdTx, address: String) -> Self {
+        let ens_tx = Self::start_ens_resolver(rpc_url, cmd_tx);
+
+        // Queue own wallet address for background ENS resolution.
+        if let Some(ref ens) = ens_tx {
+            let _ = ens.send(address.clone());
+        }
+
         Self {
             client,
             tx,
@@ -53,7 +81,34 @@ impl Worker {
                 direction: Some(SortDirection::Ascending),
                 ..Default::default()
             },
+            my_address: address,
+            ens_cache: HashMap::new(),
+            ens_queued: HashSet::new(),
+            ens_tx,
         }
+    }
+
+    /// Spawn a background thread that resolves ENS names without blocking the worker.
+    fn start_ens_resolver(rpc_url: &str, cmd_tx: &CmdTx) -> Option<mpsc::Sender<String>> {
+        let resolver = xmtp::EnsResolver::new(rpc_url).ok()?;
+        let (tx, rx) = mpsc::channel::<String>();
+        let cmd = cmd_tx.clone();
+        std::thread::spawn(move || {
+            use xmtp::Resolver;
+            while let Ok(addr) = rx.recv() {
+                let name = resolver.reverse_resolve(&addr).ok().flatten();
+                if cmd
+                    .send(Cmd::EnsResolved {
+                        address: addr,
+                        name,
+                    })
+                    .is_err()
+                {
+                    break;
+                }
+            }
+        });
+        Some(tx)
     }
 
     /// Wire up XMTP real-time streams via [`Subscription`] iterators.
@@ -119,16 +174,17 @@ impl Worker {
                 let _ = self.client.sync_welcomes();
                 self.send_conversations();
             }
+            Cmd::EnsResolved { address, name } => self.on_ens_resolved(&address, name),
         }
     }
 
     fn open(&mut self, id: &str) {
         // Already active — re-send cached messages (the UI may have cleared
         // its state after a tab switch) but skip the network sync.
-        if let Some((ref aid, ref conv)) = self.active
-            && *aid == id
-        {
-            self.send_msgs(id, conv);
+        if self.active.as_ref().is_some_and(|(aid, _)| aid == id) {
+            let (aid, conv) = self.active.take().expect("checked");
+            self.send_msgs(id, &conv);
+            self.active = Some((aid, conv));
             return;
         }
         let Ok(Some(conv)) = self.client.conversation(id) else {
@@ -195,23 +251,24 @@ impl Worker {
         }
     }
 
-    fn send_text(&self, text: &str) {
-        let Some((ref id, ref conv)) = self.active else {
+    fn send_text(&mut self, text: &str) {
+        let Some((id, conv)) = self.active.take() else {
             return;
         };
         match conv.send_text_optimistic(text) {
             Ok(_) => {
-                self.send_msgs(id, conv);
+                self.send_msgs(&id, &conv);
                 if let Err(e) = conv.publish_messages() {
                     self.flash(&format!("Publish: {e}"));
                 }
-                self.send_msgs(id, conv);
+                self.send_msgs(&id, &conv);
             }
             Err(e) => self.flash(&format!("Send: {e}")),
         }
+        self.active = Some((id, conv));
     }
 
-    fn set_consent(&self, id: &str, state: ConsentState) {
+    fn set_consent(&mut self, id: &str, state: ConsentState) {
         let Ok(Some(conv)) = self.client.conversation(id) else {
             return;
         };
@@ -224,23 +281,24 @@ impl Worker {
         });
     }
 
-    fn sync(&self) {
+    fn sync(&mut self) {
         let _ = self.client.sync_welcomes();
         self.send_conversations();
-        if let Some((ref id, ref conv)) = self.active {
+        if let Some((id, conv)) = self.active.take() {
             let _ = conv.sync();
-            self.send_msgs(id, conv);
+            self.send_msgs(&id, &conv);
+            self.active = Some((id, conv));
         }
         self.flash("Synced");
     }
 
-    fn set_group_meta(&self, field: GroupField, value: &str) {
-        let Some((_, ref conv)) = self.active else {
-            return;
-        };
-        let result = match field {
-            GroupField::Name => conv.set_name(value),
-            GroupField::Description => conv.set_description(value),
+    fn set_group_meta(&mut self, field: GroupField, value: &str) {
+        let result = match &self.active {
+            Some((_, conv)) => match field {
+                GroupField::Name => conv.set_name(value),
+                GroupField::Description => conv.set_description(value),
+            },
+            None => return,
         };
         match result {
             Ok(()) => {
@@ -269,15 +327,16 @@ impl Worker {
         }
     }
 
-    fn add_member(&self, input: &str) {
-        let Some((_, ref conv)) = self.active else {
-            return;
-        };
+    fn add_member(&mut self, input: &str) {
         let recipient = Recipient::parse(input);
         if !self.check_reachable(&[&recipient]) {
             return;
         }
-        match self.client.add_members(conv, &[recipient]) {
+        let result = match &self.active {
+            Some((_, conv)) => self.client.add_members(conv, &[recipient]),
+            None => return,
+        };
+        match result {
             Ok(()) => {
                 self.flash("Member added");
                 self.send_members();
@@ -287,11 +346,12 @@ impl Worker {
         }
     }
 
-    fn remove_member(&self, inbox_id: &str) {
-        let Some((_, ref conv)) = self.active else {
-            return;
+    fn remove_member(&mut self, inbox_id: &str) {
+        let result = match &self.active {
+            Some((_, conv)) => conv.remove_members_by_inbox_id(&[inbox_id]),
+            None => return,
         };
-        match conv.remove_members_by_inbox_id(&[inbox_id]) {
+        match result {
             Ok(()) => {
                 self.flash("Removed");
                 self.send_members();
@@ -301,36 +361,35 @@ impl Worker {
         }
     }
 
-    fn toggle_admin(&self, inbox_id: &str) {
-        let Some((_, ref conv)) = self.active else {
-            return;
-        };
-        let result = if conv.is_admin(inbox_id) {
-            conv.remove_admin(inbox_id)
-        } else {
-            conv.add_admin(inbox_id)
+    fn toggle_admin(&mut self, inbox_id: &str) {
+        let (result, was_admin) = match &self.active {
+            Some((_, conv)) => {
+                let is = conv.is_admin(inbox_id);
+                let r = if is {
+                    conv.remove_admin(inbox_id)
+                } else {
+                    conv.add_admin(inbox_id)
+                };
+                (r, is)
+            }
+            None => return,
         };
         match result {
             Ok(()) => {
-                self.flash(if conv.is_admin(inbox_id) {
-                    "Promoted"
-                } else {
-                    "Demoted"
-                });
+                self.flash(if was_admin { "Demoted" } else { "Promoted" });
                 self.send_members();
             }
             Err(e) => self.flash(&format!("Admin: {e}")),
         }
     }
 
-    fn on_stream_msg(&self, msg_id: &str, conv_id: String) {
-        let is_active = match &self.active {
-            Some((id, conv)) if *id == conv_id => {
-                self.send_msgs(&conv_id, conv);
-                true
-            }
-            _ => false,
-        };
+    fn on_stream_msg(&mut self, msg_id: &str, conv_id: String) {
+        let is_active = self.active.as_ref().is_some_and(|(id, _)| *id == conv_id);
+        if is_active {
+            let (id, conv) = self.active.take().expect("checked");
+            self.send_msgs(&conv_id, &conv);
+            self.active = Some((id, conv));
+        }
         if let Ok(Some(msg)) = self.client.message_by_id(msg_id) {
             let _ = self.tx.send(Event::Preview {
                 conv_id,
@@ -351,8 +410,8 @@ impl Worker {
         msgs
     }
 
-    fn send_msgs(&self, conv_id: &str, conv: &xmtp::Conversation) {
-        let address_map = Self::build_address_map(conv);
+    fn send_msgs(&mut self, conv_id: &str, conv: &xmtp::Conversation) {
+        let address_map = self.build_address_map(conv);
         let _ = self.tx.send(Event::Messages {
             conv_id: conv_id.to_owned(),
             msgs: self.load_messages(conv),
@@ -360,25 +419,22 @@ impl Worker {
         });
     }
 
-    /// Build an `inbox_id` → wallet address map from the conversation members.
-    fn build_address_map(
-        conv: &xmtp::Conversation,
-    ) -> std::collections::HashMap<String, String> {
-        let mut map = std::collections::HashMap::new();
+    /// Build an `inbox_id` → display name map from the conversation members.
+    ///
+    /// Resolution priority: ENS name > wallet address > inbox ID.
+    fn build_address_map(&mut self, conv: &xmtp::Conversation) -> HashMap<String, String> {
+        let mut map = HashMap::new();
         if let Ok(members) = conv.members() {
             for m in members {
-                let display = m
-                    .account_identifiers
-                    .first()
-                    .cloned()
-                    .unwrap_or_else(|| m.inbox_id.clone());
+                let addr = m.account_identifiers.first().cloned();
+                let display = self.display_name(addr.as_deref(), &m.inbox_id);
                 map.insert(m.inbox_id, display);
             }
         }
         map
     }
 
-    fn send_conversations(&self) {
+    fn send_conversations(&mut self) {
         let inbox = self.build_conv_list(&[ConsentState::Allowed]);
         let requests = self.build_conv_list(&[ConsentState::Unknown]);
         let hidden = self.build_conv_list(&[ConsentState::Denied]);
@@ -389,30 +445,30 @@ impl Worker {
         });
     }
 
-    fn send_members(&self) {
-        let Some((_, ref conv)) = self.active else {
-            return;
+    fn send_members(&mut self) {
+        // Scope the borrow of self.active to extract owned data.
+        let (members_result, desc) = match &self.active {
+            Some((_, conv)) => (conv.members(), conv.description().unwrap_or_default()),
+            None => return,
         };
-        match conv.members() {
+        match members_result {
             Ok(members) => {
                 let entries = members
                     .into_iter()
                     .map(|m| {
-                        let address = m
-                            .account_identifiers
-                            .first()
-                            .cloned()
-                            .unwrap_or_else(|| m.inbox_id.clone());
+                        let label = self.display_name(
+                            m.account_identifiers.first().map(String::as_str),
+                            &m.inbox_id,
+                        );
                         MemberEntry {
                             inbox_id: m.inbox_id,
-                            address,
+                            label,
+                            addresses: m.account_identifiers,
                             permission: m.permission_level,
                         }
                     })
                     .collect();
-                let info = GroupInfo {
-                    description: conv.description().unwrap_or_default(),
-                };
+                let info = GroupInfo { description: desc };
                 let _ = self.tx.send(Event::Members {
                     members: entries,
                     info,
@@ -474,15 +530,14 @@ impl Worker {
         }
     }
 
-    fn build_conv_list(&self, consent: &[ConsentState]) -> Vec<ConvEntry> {
+    fn build_conv_list(&mut self, consent: &[ConsentState]) -> Vec<ConvEntry> {
         let opts = ListConversationsOptions {
             consent_states: consent.to_vec(),
             order_by: ConversationOrderBy::LastActivity,
             ..Default::default()
         };
-        self.client
-            .list_conversations(&opts)
-            .unwrap_or_default()
+        let convs = self.client.list_conversations(&opts).unwrap_or_default();
+        convs
             .iter()
             .map(|conv| {
                 let id = conv.id();
@@ -509,21 +564,68 @@ impl Worker {
 
     /// Resolve the best display label for a DM peer.
     ///
-    /// Prefers the peer's wallet address (from members list) over the raw
-    /// inbox ID, since addresses are more recognizable to users.
-    fn dm_peer_label(&self, conv: &xmtp::Conversation) -> String {
+    /// Resolution priority: ENS name > wallet address > inbox ID.
+    fn dm_peer_label(&mut self, conv: &xmtp::Conversation) -> String {
         let my_inbox = self.client.inbox_id().unwrap_or_default();
         if let Ok(members) = conv.members()
             && let Some(peer) = members.iter().find(|m| m.inbox_id != my_inbox)
         {
-            let display = peer
-                .account_identifiers
-                .first()
-                .unwrap_or(&peer.inbox_id);
-            return truncate_id(display, 16);
+            let name = self.display_name(
+                peer.account_identifiers.first().map(String::as_str),
+                &peer.inbox_id,
+            );
+            return truncate_id(&name, 16);
         }
         conv.dm_peer_inbox_id()
             .map_or_else(|| "DM".into(), |s| truncate_id(&s, 16))
+    }
+
+    /// Resolve a display name for a member identity (**non-blocking**).
+    ///
+    /// Priority: ENS name (cached) > wallet address > inbox ID.
+    /// On cache miss, queues the address for background ENS resolution
+    /// and returns the truncated address immediately.
+    fn display_name(&mut self, address: Option<&str>, inbox_id: &str) -> String {
+        let Some(addr) = address else {
+            return truncate_id(inbox_id, 16);
+        };
+        // Return cached result immediately.
+        if let Some(cached) = self.ens_cache.get(addr) {
+            return cached.clone().unwrap_or_else(|| truncate_id(addr, 16));
+        }
+        // Queue for background resolution (dedup).
+        if let Some(ref ens_tx) = self.ens_tx
+            && self.ens_queued.insert(addr.to_owned())
+        {
+            let _ = ens_tx.send(addr.to_owned());
+        }
+        truncate_id(addr, 16)
+    }
+
+    /// Handle a resolved ENS name from the background thread.
+    fn on_ens_resolved(&mut self, address: &str, name: Option<String>) {
+        if self.ens_cache.get(address) == Some(&name) {
+            return;
+        }
+
+        // If this is the current user's address, update the header display.
+        if address == self.my_address
+            && let Some(ref n) = name
+        {
+            let _ = self.tx.send(Event::Identity(n.clone()));
+        }
+
+        // Consume name into cache.
+        self.ens_cache.insert(address.to_owned(), name);
+
+        // Refresh sidebar labels.
+        self.send_conversations();
+
+        // Refresh active conversation's sender labels.
+        if let Some((id, conv)) = self.active.take() {
+            self.send_msgs(&id, &conv);
+            self.active = Some((id, conv));
+        }
     }
 
     /// Pre-check reachability for recipients.

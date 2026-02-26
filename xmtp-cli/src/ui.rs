@@ -492,8 +492,14 @@ fn draw_members(app: &App, frame: &mut Frame<'_>, area: Rect) {
     let adding = app.mode == Mode::Prompt(Prompt::AddMember);
     // Footer: 1 hint + optional desc + optional input.
     let footer_h = 1 + u16::from(has_desc) + u16::from(adding);
+    // Each member: 1 label line + N address lines.
     #[allow(clippy::cast_possible_truncation)]
-    let h = (app.members.len() as u16 + 2 + footer_h).min(area.height.saturating_sub(4));
+    let content_h: u16 = app
+        .members
+        .iter()
+        .map(|m| 1 + m.addresses.len().max(1) as u16)
+        .sum();
+    let h = (content_h + 2 + footer_h).min(area.height.saturating_sub(4));
     let popup = centered(area, w, h);
 
     let block = Block::default()
@@ -515,20 +521,35 @@ fn draw_members(app: &App, frame: &mut Frame<'_>, area: Rect) {
         .members
         .iter()
         .map(|m| {
-            let addr = truncate_id(&m.address, 24);
+            let display = truncate_id(&m.label, 24);
             let you = if m.inbox_id == app.inbox_id {
                 " (you)"
             } else {
                 ""
             };
             let role = role_label(m.permission);
-            ListItem::new(Line::from(vec![
-                Span::styled(format!("  {addr}{you}"), Style::default().fg(PEER_CLR)),
+            let mut lines = vec![Line::from(vec![
+                Span::styled(format!("  {display}{you}"), Style::default().fg(PEER_CLR)),
                 Span::styled(
                     format!("  {role}"),
                     Style::default().fg(role_color(m.permission)),
                 ),
-            ]))
+            ])];
+            // Show all bound wallet addresses indented below.
+            if m.addresses.is_empty() {
+                lines.push(Line::from(Span::styled(
+                    "    (no address)",
+                    Style::default().fg(DIM),
+                )));
+            } else {
+                for addr in &m.addresses {
+                    lines.push(Line::from(Span::styled(
+                        format!("    {}", truncate_id(addr, 42)),
+                        Style::default().fg(DIM),
+                    )));
+                }
+            }
+            ListItem::new(lines)
         })
         .collect();
 

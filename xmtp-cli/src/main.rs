@@ -74,7 +74,7 @@ fn run() -> xmtp::Result<()> {
     eprintln!("  inbox:   {inbox_id}");
     eprintln!("  env:     {env_name}");
     eprintln!("  Starting TUI");
-    run_tui(client, cfg.address, inbox_id, env_name)
+    run_tui(client, cfg.address, inbox_id, env_name, cfg.rpc_url)
 }
 
 fn dispatch(command: &Command) -> xmtp::Result<()> {
@@ -97,7 +97,13 @@ fn resolve_profile(explicit: Option<String>) -> String {
     explicit.unwrap_or_else(config::default_profile)
 }
 
-fn run_tui(client: Client, address: String, inbox_id: String, env: String) -> xmtp::Result<()> {
+fn run_tui(
+    client: Client,
+    address: String,
+    inbox_id: String,
+    env: String,
+    rpc_url: String,
+) -> xmtp::Result<()> {
     let (event_tx, event_rx) = mpsc::channel::<Event>();
     let (cmd_tx, cmd_rx) = mpsc::channel::<Cmd>();
 
@@ -107,7 +113,17 @@ fn run_tui(client: Client, address: String, inbox_id: String, env: String) -> xm
     // renders immediately without blocking on network setup.
     let worker_tx = event_tx;
     let worker_cmd_tx = cmd_tx.clone();
-    std::thread::spawn(move || worker::run(client, cmd_rx, worker_tx, worker_cmd_tx));
+    let worker_addr = address.clone();
+    std::thread::spawn(move || {
+        worker::run(
+            client,
+            cmd_rx,
+            worker_tx,
+            worker_cmd_tx,
+            rpc_url,
+            worker_addr,
+        );
+    });
 
     let mut app = App::new(address, inbox_id, env, cmd_tx);
 

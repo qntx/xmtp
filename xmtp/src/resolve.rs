@@ -74,7 +74,7 @@ impl std::fmt::Display for Recipient {
     }
 }
 
-/// Resolves external names (ENS, Lens, etc.) to Ethereum addresses.
+/// Resolves external names (ENS, Lens, etc.) to Ethereum addresses and back.
 ///
 /// Implement this trait to add custom identity resolution to the SDK.
 /// Register via [`ClientBuilder::resolver`](crate::ClientBuilder::resolver).
@@ -85,4 +85,15 @@ pub trait Resolver: Send + Sync {
     ///
     /// Returns [`Error::Resolution`](crate::Error::Resolution) if resolution fails.
     fn resolve(&self, name: &str) -> Result<String>;
+
+    /// Reverse-resolve an Ethereum address to a human-readable name (e.g. ENS).
+    ///
+    /// Returns `Ok(None)` if no reverse record exists.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::Resolution`](crate::Error::Resolution) on network/lookup failure.
+    fn reverse_resolve(&self, _address: &str) -> Result<Option<String>> {
+        Ok(None)
+    }
 }

@@ -145,6 +145,16 @@ impl Client {
             .resolve(name)
     }
 
+    /// Reverse-resolve an Ethereum address to a human-readable name (e.g. ENS).
+    ///
+    /// Returns `None` if no resolver is configured or no reverse record exists.
+    #[must_use]
+    pub fn reverse_resolve(&self, address: &str) -> Option<String> {
+        self.resolver
+            .as_ref()
+            .and_then(|r| r.reverse_resolve(address).ok().flatten())
+    }
+
     /// Resolve recipients into identifiers and inbox IDs.
     pub(crate) fn resolve_recipients(
         &self,

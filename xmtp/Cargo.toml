@@ -16,7 +16,7 @@ default = ["content"]
 content = ["dep:prost", "dep:hex"]
 alloy = ["dep:alloy-signer", "dep:alloy-signer-local"]
 ledger = ["dep:alloy-signer-ledger", "dep:alloy-signer", "dep:tokio"]
-ens = ["dep:alloy-ens", "dep:alloy-provider", "dep:url", "dep:tokio"]
+ens = ["dep:alloy-ens", "dep:alloy-primitives", "dep:alloy-provider", "dep:url", "dep:tokio"]
 
 [dependencies]
 xmtp-sys.workspace = true
@@ -24,11 +24,12 @@ thiserror.workspace = true
 hex = { workspace = true, optional = true }
 prost = { workspace = true, optional = true }
 alloy-ens = { workspace = true, optional = true }
+alloy-primitives = { workspace = true, optional = true }
 alloy-provider = { workspace = true, optional = true }
 alloy-signer = { workspace = true, optional = true }
 alloy-signer-ledger = { workspace = true, optional = true }
 alloy-signer-local = { workspace = true, optional = true }
-tokio = { version = "1", optional = true, default-features = false, features = ["rt"] }
+tokio = { version = "1", optional = true, default-features = false, features = ["rt", "time"] }
 url = { version = "2", optional = true }
 
 [package.metadata.docs.rs]
