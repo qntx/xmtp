@@ -25,7 +25,7 @@ pub fn run(client: Client, rx: mpsc::Receiver<Cmd>, tx: Tx, cmd_tx: CmdTx) {
     let mut w = Worker::new(client, tx);
 
     // Start streams in the worker thread — avoids blocking TUI startup.
-    let _streams = w.start_streams(&cmd_tx);
+    w.start_streams(&cmd_tx);
 
     // Initial sync so conversations appear without a manual refresh.
     w.sync();
@@ -56,22 +56,42 @@ impl Worker {
         }
     }
 
-    /// Wire up XMTP real-time streams. Returns handles that must be kept alive.
-    fn start_streams(&self, cmd_tx: &CmdTx) -> Option<(xmtp::StreamHandle, xmtp::StreamHandle)> {
-        let msg_tx = cmd_tx.clone();
-        let msgs = stream::stream_all_messages(&self.client, None, &[], move |msg_id, conv_id| {
-            let _ = msg_tx.send(Cmd::StreamMsg { msg_id, conv_id });
-        });
-        let conv_tx = cmd_tx.clone();
-        let convs = stream::stream_conversations(&self.client, None, move |_| {
-            let _ = conv_tx.send(Cmd::StreamConv);
-        });
-        match (msgs, convs) {
-            (Ok(m), Ok(c)) => Some((m, c)),
-            (Err(e), _) | (_, Err(e)) => {
-                self.flash(&format!("Streams: {e}"));
-                None
+    /// Wire up XMTP real-time streams via [`Subscription`] iterators.
+    ///
+    /// Each subscription is consumed in a dedicated thread that forwards events
+    /// to `cmd_tx`. Threads exit naturally when the sender breaks (app exit).
+    fn start_streams(&self, cmd_tx: &CmdTx) {
+        match stream::messages(&self.client, None, &[]) {
+            Ok(sub) => {
+                let tx = cmd_tx.clone();
+                std::thread::spawn(move || {
+                    for ev in sub {
+                        if tx
+                            .send(Cmd::StreamMsg {
+                                msg_id: ev.message_id,
+                                conv_id: ev.conversation_id,
+                            })
+                            .is_err()
+                        {
+                            break;
+                        }
+                    }
+                });
             }
+            Err(e) => self.flash(&format!("Message stream: {e}")),
+        }
+        match stream::conversations(&self.client, None) {
+            Ok(sub) => {
+                let tx = cmd_tx.clone();
+                std::thread::spawn(move || {
+                    for _ in sub {
+                        if tx.send(Cmd::StreamConv).is_err() {
+                            break;
+                        }
+                    }
+                });
+            }
+            Err(e) => self.flash(&format!("Conversation stream: {e}")),
         }
     }
 

@@ -1,11 +1,13 @@
 #![allow(unsafe_code)]
-//! Callback-based streaming for real-time event subscriptions.
+//! Channel-based streaming for real-time event subscriptions.
 //!
-//! Each `stream_*` function takes a callback closure and returns a [`StreamHandle`]
-//! that controls the stream lifetime. The stream stops when the handle is dropped.
+//! Each function returns a [`Subscription<T>`] that yields typed events via
+//! an internal channel. Implements [`Iterator`] for idiomatic consumption.
+//! The stream stops when the subscription is dropped.
 
 use std::ffi::{CStr, c_void};
-use std::ptr;
+use std::sync::mpsc;
+use std::{fmt, ptr};
 
 use crate::client::Client;
 use crate::conversation::Conversation;
@@ -13,19 +15,32 @@ use crate::error::{self, Result};
 use crate::ffi::OwnedHandle;
 use crate::types::{ConsentEntityType, ConsentState, ConversationType};
 
-/// RAII handle for an active FFI stream.
+/// A real-time event subscription backed by an internal channel.
 ///
-/// Signals the stream to stop on drop and frees the underlying handle.
-/// The boxed callback context is also freed on drop.
-#[derive(Debug)]
-pub struct StreamHandle {
+/// Yields events of type `T` via [`recv`](Self::recv),
+/// [`try_recv`](Self::try_recv), or [`Iterator`] consumption.
+/// The underlying FFI stream is stopped when this value is dropped.
+pub struct Subscription<T> {
+    rx: mpsc::Receiver<T>,
     handle: OwnedHandle<xmtp_sys::XmtpFfiStreamHandle>,
     _ctx: Option<Box<dyn std::any::Any + Send>>,
 }
 
-impl StreamHandle {
+impl<T> Subscription<T> {
+    /// Block until the next event, or `None` if the stream ended.
+    #[must_use]
+    pub fn recv(&self) -> Option<T> {
+        self.rx.recv().ok()
+    }
+
+    /// Non-blocking receive. Returns `None` if no event is ready.
+    #[must_use]
+    pub fn try_recv(&self) -> Option<T> {
+        self.rx.try_recv().ok()
+    }
+
     /// Signal the stream to stop. Safe to call multiple times.
-    pub fn end(&self) {
+    pub fn close(&self) {
         unsafe { xmtp_sys::xmtp_stream_end(self.handle.as_ptr()) };
     }
 
@@ -36,17 +51,67 @@ impl StreamHandle {
     }
 }
 
-/// Generic helper to start a stream. Handles context boxing, error recovery,
-/// and wrapping the result in a `StreamHandle`.
+impl<T> Iterator for Subscription<T> {
+    type Item = T;
+    fn next(&mut self) -> Option<T> {
+        self.rx.recv().ok()
+    }
+}
+
+impl<T> Drop for Subscription<T> {
+    fn drop(&mut self) {
+        // Signal the FFI stream to stop before OwnedHandle frees the resource.
+        unsafe { xmtp_sys::xmtp_stream_end(self.handle.as_ptr()) };
+    }
+}
+
+impl<T> fmt::Debug for Subscription<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Subscription")
+            .field("is_closed", &self.is_closed())
+            .finish()
+    }
+}
+
+/// A new-message event from a message stream.
+#[derive(Debug, Clone)]
+pub struct MessageEvent {
+    /// Hex-encoded message ID.
+    pub message_id: String,
+    /// Hex-encoded conversation (group) ID.
+    pub conversation_id: String,
+}
+
+/// A consent state change event.
+#[derive(Debug, Clone)]
+pub struct ConsentUpdate {
+    /// Entity type (group ID or inbox ID).
+    pub entity_type: ConsentEntityType,
+    /// The consent state.
+    pub state: ConsentState,
+    /// The entity identifier.
+    pub entity: String,
+}
+
+/// A user preference update event.
+#[derive(Debug, Clone)]
+pub struct PreferenceUpdate {
+    /// The kind of preference change (0 = Consent, 1 = `HmacKey`).
+    pub kind: i32,
+    /// For Consent updates: the consent change details.
+    pub consent: Option<ConsentUpdate>,
+}
+
+/// Start an FFI stream and wire its callback to a channel receiver.
 ///
-/// **Callers must pass a pre-erased trait object** (e.g. `Box<dyn Fn(…)>`) so
-/// that the heap allocation contains a full fat pointer (data + vtable). The
-/// corresponding trampoline then casts the context back to the same
-/// `Box<dyn Fn(…)>` type, reading exactly 16 bytes — matching what was stored.
-fn start_stream<F: Send + 'static>(
+/// The callback `F` is a pre-erased trait object (`Box<dyn Fn(…)>`) whose
+/// raw pointer is passed to the FFI trampoline. The corresponding trampoline
+/// casts the context back to the same type, reading the fat pointer correctly.
+fn subscribe<T: Send + 'static, F: Send + 'static>(
     callback: F,
+    rx: mpsc::Receiver<T>,
     start: impl FnOnce(*mut c_void, *mut *mut xmtp_sys::XmtpFfiStreamHandle) -> i32,
-) -> Result<StreamHandle> {
+) -> Result<Subscription<T>> {
     let boxed = Box::new(callback);
     let ctx_ptr = Box::into_raw(boxed).cast::<c_void>();
     let mut out: *mut xmtp_sys::XmtpFfiStreamHandle = ptr::null_mut();
@@ -58,32 +123,126 @@ fn start_stream<F: Send + 'static>(
     }
     let handle = OwnedHandle::new(out, xmtp_sys::xmtp_stream_free)?;
     let ctx_box = unsafe { Box::from_raw(ctx_ptr.cast::<F>()) };
-    Ok(StreamHandle {
+    Ok(Subscription {
+        rx,
         handle,
         _ctx: Some(ctx_box),
     })
 }
 
-/// Stream new conversations. The callback receives each new [`Conversation`].
+/// Stream new conversations.
 ///
 /// Pass `None` for `conversation_type` to receive all types.
-///
-/// # Errors
-///
-/// Returns an error if the FFI stream could not be started.
-pub fn stream_conversations(
+pub fn conversations(
     client: &Client,
     conversation_type: Option<ConversationType>,
-    callback: impl Fn(Conversation) + Send + 'static,
-) -> Result<StreamHandle> {
+) -> Result<Subscription<Conversation>> {
+    let (tx, rx) = mpsc::channel();
     let client_ptr = client.handle.as_ptr();
     let conv_type = conversation_type.map_or(-1, |t| t as i32);
-    let dyn_cb: Box<dyn Fn(Conversation) + Send> = Box::new(callback);
-    start_stream(dyn_cb, |ctx, out| unsafe {
+    let cb: Box<dyn Fn(Conversation) + Send> = Box::new(move |conv| {
+        let _ = tx.send(conv);
+    });
+    subscribe(cb, rx, |ctx, out| unsafe {
         xmtp_sys::xmtp_stream_conversations(
             client_ptr,
             conv_type,
             Some(conv_trampoline),
+            None,
+            ctx,
+            out,
+        )
+    })
+}
+
+/// Stream all messages across conversations.
+///
+/// Pass `None` for `conversation_type` to receive from all types.
+pub fn messages(
+    client: &Client,
+    conversation_type: Option<ConversationType>,
+    consent_states: &[ConsentState],
+) -> Result<Subscription<MessageEvent>> {
+    let (tx, rx) = mpsc::channel();
+    let client_ptr = client.handle.as_ptr();
+    let conv_type = conversation_type.map_or(-1, |t| t as i32);
+    let cs: Vec<i32> = consent_states.iter().map(|s| *s as i32).collect();
+    let cs_ptr = if cs.is_empty() {
+        ptr::null()
+    } else {
+        cs.as_ptr()
+    };
+    let cs_len = cs.len() as i32;
+    let cb: Box<dyn Fn(String, String) + Send> = Box::new(move |mid, cid| {
+        let _ = tx.send(MessageEvent {
+            message_id: mid,
+            conversation_id: cid,
+        });
+    });
+    subscribe(cb, rx, |ctx, out| unsafe {
+        xmtp_sys::xmtp_stream_all_messages(
+            client_ptr,
+            conv_type,
+            cs_ptr,
+            cs_len,
+            Some(msg_trampoline),
+            None,
+            ctx,
+            out,
+        )
+    })
+}
+
+/// Stream messages for a single conversation.
+pub fn conversation_messages(conversation: &Conversation) -> Result<Subscription<MessageEvent>> {
+    let (tx, rx) = mpsc::channel();
+    let conv_ptr = conversation.handle_ptr();
+    let cb: Box<dyn Fn(String, String) + Send> = Box::new(move |mid, cid| {
+        let _ = tx.send(MessageEvent {
+            message_id: mid,
+            conversation_id: cid,
+        });
+    });
+    subscribe(cb, rx, |ctx, out| unsafe {
+        xmtp_sys::xmtp_conversation_stream_messages(conv_ptr, Some(msg_trampoline), None, ctx, out)
+    })
+}
+
+/// Stream consent state changes.
+pub fn consent(client: &Client) -> Result<Subscription<Vec<ConsentUpdate>>> {
+    let (tx, rx) = mpsc::channel();
+    let client_ptr = client.handle.as_ptr();
+    let cb: Box<dyn Fn(Vec<ConsentUpdate>) + Send> = Box::new(move |updates| {
+        let _ = tx.send(updates);
+    });
+    subscribe(cb, rx, |ctx, out| unsafe {
+        xmtp_sys::xmtp_stream_consent(client_ptr, Some(consent_trampoline), None, ctx, out)
+    })
+}
+
+/// Stream preference updates.
+pub fn preferences(client: &Client) -> Result<Subscription<Vec<PreferenceUpdate>>> {
+    let (tx, rx) = mpsc::channel();
+    let client_ptr = client.handle.as_ptr();
+    let cb: Box<dyn Fn(Vec<PreferenceUpdate>) + Send> = Box::new(move |updates| {
+        let _ = tx.send(updates);
+    });
+    subscribe(cb, rx, |ctx, out| unsafe {
+        xmtp_sys::xmtp_stream_preferences(client_ptr, Some(pref_trampoline), None, ctx, out)
+    })
+}
+
+/// Stream message deletion events. Each event yields the hex message ID.
+pub fn message_deletions(client: &Client) -> Result<Subscription<String>> {
+    let (tx, rx) = mpsc::channel();
+    let client_ptr = client.handle.as_ptr();
+    let cb: Box<dyn Fn(String) + Send> = Box::new(move |id| {
+        let _ = tx.send(id);
+    });
+    subscribe(cb, rx, |ctx, out| unsafe {
+        xmtp_sys::xmtp_stream_message_deletions(
+            client_ptr,
+            Some(deletion_trampoline),
             None,
             ctx,
             out,
@@ -104,62 +263,6 @@ unsafe extern "C" fn conv_trampoline(
             cb(c);
         }
     }
-}
-
-/// Stream all messages across conversations.
-///
-/// The callback receives `(message_id, conversation_id)` — both hex-encoded.
-/// Pass `None` for `conversation_type` to receive from all types.
-///
-/// # Errors
-///
-/// Returns an error if the FFI stream could not be started.
-pub fn stream_all_messages(
-    client: &Client,
-    conversation_type: Option<ConversationType>,
-    consent_states: &[ConsentState],
-    callback: impl Fn(String, String) + Send + 'static,
-) -> Result<StreamHandle> {
-    let client_ptr = client.handle.as_ptr();
-    let conv_type = conversation_type.map_or(-1, |t| t as i32);
-    let cs: Vec<i32> = consent_states.iter().map(|s| *s as i32).collect();
-    let cs_ptr = if cs.is_empty() {
-        ptr::null()
-    } else {
-        cs.as_ptr()
-    };
-    let cs_len = cs.len() as i32;
-    let dyn_cb: Box<dyn Fn(String, String) + Send> = Box::new(callback);
-    start_stream(dyn_cb, |ctx, out| unsafe {
-        xmtp_sys::xmtp_stream_all_messages(
-            client_ptr,
-            conv_type,
-            cs_ptr,
-            cs_len,
-            Some(msg_trampoline),
-            None,
-            ctx,
-            out,
-        )
-    })
-}
-
-/// Stream messages for a single conversation.
-///
-/// The callback receives `(message_id, conversation_id)` — both hex-encoded.
-///
-/// # Errors
-///
-/// Returns an error if the FFI stream could not be started.
-pub fn stream_messages(
-    conversation: &Conversation,
-    callback: impl Fn(String, String) + Send + 'static,
-) -> Result<StreamHandle> {
-    let conv_ptr = conversation.handle_ptr();
-    let dyn_cb: Box<dyn Fn(String, String) + Send> = Box::new(callback);
-    start_stream(dyn_cb, |ctx, out| unsafe {
-        xmtp_sys::xmtp_conversation_stream_messages(conv_ptr, Some(msg_trampoline), None, ctx, out)
-    })
 }
 
 unsafe extern "C" fn msg_trampoline(msg: *mut xmtp_sys::XmtpFfiMessage, context: *mut c_void) {
@@ -200,33 +303,6 @@ unsafe extern "C" fn msg_trampoline(msg: *mut xmtp_sys::XmtpFfiMessage, context:
     }
 }
 
-/// A consent state change event.
-#[derive(Debug, Clone)]
-pub struct ConsentUpdate {
-    /// Entity type (group ID or inbox ID).
-    pub entity_type: ConsentEntityType,
-    /// The consent state.
-    pub state: ConsentState,
-    /// The entity identifier.
-    pub entity: String,
-}
-
-/// Stream consent state changes.
-///
-/// # Errors
-///
-/// Returns an error if the FFI stream could not be started.
-pub fn stream_consent(
-    client: &Client,
-    callback: impl Fn(Vec<ConsentUpdate>) + Send + 'static,
-) -> Result<StreamHandle> {
-    let client_ptr = client.handle.as_ptr();
-    let dyn_cb: Box<dyn Fn(Vec<ConsentUpdate>) + Send> = Box::new(callback);
-    start_stream(dyn_cb, |ctx, out| unsafe {
-        xmtp_sys::xmtp_stream_consent(client_ptr, Some(consent_trampoline), None, ctx, out)
-    })
-}
-
 unsafe extern "C" fn consent_trampoline(
     records: *const xmtp_sys::XmtpFfiConsentRecord,
     count: i32,
@@ -255,31 +331,6 @@ unsafe extern "C" fn consent_trampoline(
             cb(updates);
         }
     }
-}
-
-/// A user preference update event.
-#[derive(Debug, Clone)]
-pub struct PreferenceUpdate {
-    /// The kind of preference change (0 = Consent, 1 = `HmacKey`).
-    pub kind: i32,
-    /// For Consent updates: the consent change details.
-    pub consent: Option<ConsentUpdate>,
-}
-
-/// Stream preference updates.
-///
-/// # Errors
-///
-/// Returns an error if the FFI stream could not be started.
-pub fn stream_preferences(
-    client: &Client,
-    callback: impl Fn(Vec<PreferenceUpdate>) + Send + 'static,
-) -> Result<StreamHandle> {
-    let client_ptr = client.handle.as_ptr();
-    let dyn_cb: Box<dyn Fn(Vec<PreferenceUpdate>) + Send> = Box::new(callback);
-    start_stream(dyn_cb, |ctx, out| unsafe {
-        xmtp_sys::xmtp_stream_preferences(client_ptr, Some(pref_trampoline), None, ctx, out)
-    })
 }
 
 unsafe extern "C" fn pref_trampoline(
@@ -325,28 +376,6 @@ unsafe extern "C" fn pref_trampoline(
             cb(items);
         }
     }
-}
-
-/// Stream message deletion events. The callback receives the hex message ID.
-///
-/// # Errors
-///
-/// Returns an error if the FFI stream could not be started.
-pub fn stream_message_deletions(
-    client: &Client,
-    callback: impl Fn(String) + Send + 'static,
-) -> Result<StreamHandle> {
-    let client_ptr = client.handle.as_ptr();
-    let dyn_cb: Box<dyn Fn(String) + Send> = Box::new(callback);
-    start_stream(dyn_cb, |ctx, out| unsafe {
-        xmtp_sys::xmtp_stream_message_deletions(
-            client_ptr,
-            Some(deletion_trampoline),
-            None,
-            ctx,
-            out,
-        )
-    })
 }
 
 unsafe extern "C" fn deletion_trampoline(

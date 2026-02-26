@@ -43,7 +43,7 @@ pub use ledger::LedgerSigner;
 pub use resolve::{Recipient, Resolver};
 #[cfg(feature = "alloy")]
 pub use signer::AlloySigner;
-pub use stream::{ConsentUpdate, PreferenceUpdate, StreamHandle};
+pub use stream::{ConsentUpdate, MessageEvent, PreferenceUpdate, Subscription};
 pub use types::{
     AccountIdentifier, ApiStats, ConsentEntityType, ConsentState, ConversationDebugInfo,
     ConversationMetadata, ConversationOrderBy, ConversationType, CreateDmOptions,
