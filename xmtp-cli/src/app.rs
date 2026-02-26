@@ -651,8 +651,8 @@ impl App {
         if self.tab != tab {
             self.tab = tab;
             self.sidebar_idx = 0;
-            // Preserve active_id and messages — the chat area should keep
-            // showing the current conversation regardless of sidebar tab.
+            self.active_id = None;
+            self.messages.clear();
             self.refresh_hint();
         }
     }

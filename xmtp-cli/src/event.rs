@@ -152,6 +152,8 @@ pub enum Cmd {
     EnsResolved {
         address: String,
         name: Option<String>,
+        /// Diagnostic: error message if resolution failed.
+        error: Option<String>,
     },
 }
 

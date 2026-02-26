@@ -17,7 +17,7 @@ use crate::error::{Error, Result};
 use crate::resolve::Resolver;
 
 /// Per-call timeout for RPC operations (connect + execute).
-const RPC_TIMEOUT: Duration = Duration::from_secs(5);
+const RPC_TIMEOUT: Duration = Duration::from_secs(15);
 
 /// Default public Ethereum RPC endpoint for ENS resolution.
 const DEFAULT_RPC: &str = "https://eth.llamarpc.com";
@@ -100,11 +100,54 @@ impl Resolver for EnsResolver {
             .parse()
             .map_err(|e| Error::Resolution(format!("{address}: {e}")))?;
         let provider = ProviderBuilder::new().connect_http(self.rpc_url.clone());
-        Ok(self.rt.block_on(async {
-            tokio::time::timeout(RPC_TIMEOUT, provider.lookup_address(&addr))
-                .await
-                .ok()?
-                .ok()
-        }))
+        self.rt.block_on(async {
+            match tokio::time::timeout(RPC_TIMEOUT, provider.lookup_address(&addr)).await {
+                Ok(Ok(name)) => Ok(Some(name)),
+                Ok(Err(_)) => Ok(None),
+                Err(_) => Err(Error::Resolution(format!("{address}: timeout"))),
+            }
+        })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Probe multiple RPC endpoints. Requires network.
+    /// Run: `cargo test -p xmtp --all-features -- --ignored --nocapture probe`
+    #[test]
+    #[ignore = "requires network access to Ethereum RPC"]
+    fn probe_rpc_endpoints() {
+        let rpcs = [
+            ("cloudflare", "https://cloudflare-eth.com"),
+            ("llamarpc", "https://eth.llamarpc.com"),
+            ("publicnode", "https://ethereum-rpc.publicnode.com"),
+        ];
+        for (label, url) in rpcs {
+            let resolver = EnsResolver::new(url).expect("create resolver");
+            let t = std::time::Instant::now();
+            let r = resolver.resolve("vitalik.eth");
+            eprintln!("[{label}] resolve: {r:?} ({:.1?})", t.elapsed());
+            let t = std::time::Instant::now();
+            let r = resolver.reverse_resolve("0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045");
+            eprintln!("[{label}] reverse: {r:?} ({:.1?})", t.elapsed());
+        }
+    }
+
+    /// Smoke test: forward + reverse resolve via default RPC.
+    /// Run: `cargo test -p xmtp --all-features -- --ignored --nocapture smoke`
+    #[test]
+    #[ignore = "requires network access to Ethereum RPC"]
+    fn smoke_resolve() {
+        let resolver = EnsResolver::mainnet().expect("create resolver");
+        let fwd = resolver.resolve("vitalik.eth");
+        eprintln!("forward: {fwd:?}");
+        assert!(fwd.is_ok(), "forward failed: {fwd:?}");
+
+        let rev = resolver.reverse_resolve("0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045");
+        eprintln!("reverse: {rev:?}");
+        assert!(rev.is_ok(), "reverse failed: {rev:?}");
+        assert_eq!(rev.unwrap().as_deref(), Some("vitalik.eth"));
     }
 }

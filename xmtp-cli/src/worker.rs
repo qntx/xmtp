@@ -35,11 +35,8 @@ pub fn run(
     // Start streams in the worker thread — avoids blocking TUI startup.
     w.start_streams(&cmd_tx);
 
-    // Quick sync — show conversation list immediately.
+    // Initial sync — catch up on messages received while offline.
     let _ = w.client.sync_welcomes();
-    w.send_conversations();
-
-    // Full sync — download messages for all conversations (fixes group previews).
     let _ = w.client.sync_all(&[]);
     w.send_conversations();
 
@@ -71,6 +68,12 @@ impl Worker {
         // Queue own wallet address for background ENS resolution.
         if let Some(ref ens) = ens_tx {
             let _ = ens.send(address.clone());
+            let _ = tx.send(Event::Flash(format!(
+                "ENS resolver active ({})",
+                truncate_id(&address, 12)
+            )));
+        } else {
+            let _ = tx.send(Event::Flash("ENS resolver unavailable".into()));
         }
 
         Self {
@@ -89,18 +92,41 @@ impl Worker {
     }
 
     /// Spawn a background thread that resolves ENS names without blocking the worker.
+    ///
+    /// The thread stops automatically after 3 consecutive failures (e.g. RPC
+    /// unreachable), avoiding minutes of futile retries.
     fn start_ens_resolver(rpc_url: &str, cmd_tx: &CmdTx) -> Option<mpsc::Sender<String>> {
         let resolver = xmtp::EnsResolver::new(rpc_url).ok()?;
         let (tx, rx) = mpsc::channel::<String>();
         let cmd = cmd_tx.clone();
         std::thread::spawn(move || {
             use xmtp::Resolver;
+            let mut consecutive_failures: u8 = 0;
             while let Ok(addr) = rx.recv() {
-                let name = resolver.reverse_resolve(&addr).ok().flatten();
+                if consecutive_failures >= 3 {
+                    // RPC appears unreachable — drain remaining without resolving.
+                    let _ = cmd.send(Cmd::EnsResolved {
+                        address: addr,
+                        name: None,
+                        error: Some("ENS disabled (RPC unreachable)".into()),
+                    });
+                    continue;
+                }
+                let (name, error) = match resolver.reverse_resolve(&addr) {
+                    Ok(n) => {
+                        consecutive_failures = 0;
+                        (n, None)
+                    }
+                    Err(e) => {
+                        consecutive_failures += 1;
+                        (None, Some(e.to_string()))
+                    }
+                };
                 if cmd
                     .send(Cmd::EnsResolved {
                         address: addr,
                         name,
+                        error,
                     })
                     .is_err()
                 {
@@ -174,13 +200,25 @@ impl Worker {
                 let _ = self.client.sync_welcomes();
                 self.send_conversations();
             }
-            Cmd::EnsResolved { address, name } => self.on_ens_resolved(&address, name),
+            Cmd::EnsResolved {
+                address,
+                name,
+                error,
+            } => {
+                if let Some(ref e) = error {
+                    self.flash(&format!("ENS {}: {e}", truncate_id(&address, 8)));
+                }
+                self.on_ens_resolved(&address, name);
+            }
         }
     }
 
+    /// Open a conversation — pure local DB read, zero network calls.
+    ///
+    /// Startup `sync_all` handles catch-up; streams deliver real-time
+    /// updates; manual `r` does on-demand sync.  Keeping `open` non-blocking
+    /// ensures instant navigation between conversations.
     fn open(&mut self, id: &str) {
-        // Already active — re-send cached messages (the UI may have cleared
-        // its state after a tab switch) but skip the network sync.
         if self.active.as_ref().is_some_and(|(aid, _)| aid == id) {
             let (aid, conv) = self.active.take().expect("checked");
             self.send_msgs(id, &conv);
@@ -190,9 +228,6 @@ impl Worker {
         let Ok(Some(conv)) = self.client.conversation(id) else {
             return;
         };
-        // Show locally cached messages instantly, then sync from network.
-        self.send_msgs(id, &conv);
-        let _ = conv.sync();
         self.send_msgs(id, &conv);
         self.active = Some((id.to_owned(), conv));
     }
@@ -282,10 +317,9 @@ impl Worker {
     }
 
     fn sync(&mut self) {
-        let _ = self.client.sync_welcomes();
+        let _ = self.client.sync_all(&[]);
         self.send_conversations();
         if let Some((id, conv)) = self.active.take() {
-            let _ = conv.sync();
             self.send_msgs(&id, &conv);
             self.active = Some((id, conv));
         }
