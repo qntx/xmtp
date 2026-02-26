@@ -105,8 +105,10 @@ impl Conversation {
     }
 
     /// Hex-encoded group ID.
-    pub fn id(&self) -> Result<String> {
+    #[must_use]
+    pub fn id(&self) -> String {
         unsafe { take_c_string(xmtp_sys::xmtp_conversation_id(self.handle.as_ptr())) }
+            .unwrap_or_default()
     }
 
     /// Conversation type (DM, Group, etc.).

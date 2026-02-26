@@ -641,4 +641,29 @@ impl Conversation {
     pub fn send_remote_attachment(&self, ra: &RemoteAttachment) -> Result<String> {
         self.send(&encode_remote_attachment(ra))
     }
+
+    /// Optimistically send a plain text message (returns immediately).
+    pub fn send_text_optimistic(&self, text: &str) -> Result<String> {
+        self.send_optimistic(&encode_text(text))
+    }
+
+    /// Optimistically send a markdown message.
+    pub fn send_markdown_optimistic(&self, markdown: &str) -> Result<String> {
+        self.send_optimistic(&encode_markdown(markdown))
+    }
+
+    /// Optimistically send an emoji reaction.
+    pub fn send_reaction_optimistic(
+        &self,
+        message_id: &str,
+        emoji: &str,
+        action: ReactionAction,
+    ) -> Result<String> {
+        self.send_optimistic(&encode_reaction(message_id, emoji, action))
+    }
+
+    /// Optimistically send a text reply.
+    pub fn send_text_reply_optimistic(&self, reference_id: &str, text: &str) -> Result<String> {
+        self.send_optimistic(&encode_text_reply(reference_id, text))
+    }
 }

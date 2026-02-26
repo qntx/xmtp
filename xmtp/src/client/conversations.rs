@@ -96,6 +96,47 @@ impl Client {
         Ok(())
     }
 
+    /// Check which recipients can receive XMTP messages.
+    ///
+    /// Returns a parallel `Vec<bool>` — one entry per recipient.
+    /// Inbox-ID recipients are assumed reachable (always `true`).
+    pub fn can_message_recipients(&self, recipients: &[&Recipient]) -> Result<Vec<bool>> {
+        let mut results = vec![true; recipients.len()];
+        // Collect address-based recipients that need an on-network check.
+        let checks: Vec<(usize, AccountIdentifier)> = recipients
+            .iter()
+            .enumerate()
+            .filter_map(|(i, r)| match r {
+                Recipient::Address(a) => Some((
+                    i,
+                    AccountIdentifier {
+                        address: a.clone(),
+                        kind: IdentifierKind::Ethereum,
+                    },
+                )),
+                Recipient::Ens(name) => self.resolve_ens(name).ok().map(|addr| {
+                    (
+                        i,
+                        AccountIdentifier {
+                            address: addr,
+                            kind: IdentifierKind::Ethereum,
+                        },
+                    )
+                }),
+                Recipient::InboxId(_) => None,
+            })
+            .collect();
+        if checks.is_empty() {
+            return Ok(results);
+        }
+        let idents: Vec<AccountIdentifier> = checks.iter().map(|(_, id)| id.clone()).collect();
+        let flags = self.can_message(&idents)?;
+        for ((idx, _), reachable) in checks.into_iter().zip(flags) {
+            results[idx] = reachable;
+        }
+        Ok(results)
+    }
+
     /// Resolve an ENS name to an Ethereum address.
     fn resolve_ens(&self, name: &str) -> Result<String> {
         self.resolver

@@ -6,9 +6,9 @@
 use std::sync::mpsc;
 
 use xmtp::{
-    AccountIdentifier, Client, ConsentState, ConversationOrderBy, ConversationType,
-    CreateGroupOptions, DeliveryStatus, IdentifierKind, ListConversationsOptions,
-    ListMessagesOptions, Message, Recipient, SortDirection, stream,
+    Client, ConsentState, ConversationOrderBy, ConversationType, CreateGroupOptions,
+    DeliveryStatus, ListConversationsOptions, ListMessagesOptions, Message, Recipient,
+    SortDirection, stream,
 };
 
 use crate::app::{decode_preview, truncate_id};
@@ -143,7 +143,7 @@ impl Worker {
 
     /// Shared post-creation setup for DM and group conversations.
     fn activate(&mut self, conv: xmtp::Conversation, label: &str) {
-        let id = conv.id().unwrap_or_default();
+        let id = conv.id();
         let _ = conv.set_consent(ConsentState::Allowed);
         let _ = self.tx.send(Event::Created {
             conv_id: id.clone(),
@@ -199,8 +199,7 @@ impl Worker {
         let Some((ref id, ref conv)) = self.active else {
             return;
         };
-        let encoded = xmtp::content::encode_text(text);
-        match conv.send_optimistic(&encoded) {
+        match conv.send_text_optimistic(text) {
             Ok(_) => {
                 self.send_msgs(id, conv);
                 if let Err(e) = conv.publish_messages() {
@@ -466,7 +465,7 @@ impl Worker {
             .unwrap_or_default()
             .iter()
             .map(|conv| {
-                let id = conv.id().unwrap_or_default();
+                let id = conv.id();
                 let is_group = conv.conversation_type() == Some(ConversationType::Group);
                 let label = if is_group {
                     conv.name()
@@ -489,28 +488,15 @@ impl Worker {
             .collect()
     }
 
-    /// Pre-check reachability for address recipients.
+    /// Pre-check reachability for recipients.
     fn check_reachable(&self, recipients: &[&Recipient]) -> bool {
-        let idents: Vec<AccountIdentifier> = recipients
-            .iter()
-            .filter_map(|r| match r {
-                Recipient::Address(a) => Some(AccountIdentifier {
-                    address: a.clone(),
-                    kind: IdentifierKind::Ethereum,
-                }),
-                _ => None,
-            })
-            .collect();
-        if idents.is_empty() {
-            return true;
-        }
-        match self.client.can_message(&idents) {
+        match self.client.can_message_recipients(recipients) {
             Ok(results) => {
-                let bad: Vec<_> = idents
+                let bad: Vec<_> = recipients
                     .iter()
                     .zip(&results)
                     .filter(|&(_, ok)| !*ok)
-                    .map(|(a, _)| truncate_id(&a.address, 12))
+                    .map(|(r, _)| truncate_id(&r.to_string(), 12))
                     .collect();
                 if bad.is_empty() {
                     true
