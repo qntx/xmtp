@@ -1,5 +1,6 @@
 //! CLI argument definitions and subcommand routing.
 
+pub mod agent;
 pub mod config;
 pub mod inspect;
 pub mod profile;
@@ -23,6 +24,14 @@ pub struct Cli {
     pub command: Option<Command>,
 }
 
+/// Shared output-format options for commands that support `--json`.
+#[derive(clap::Args, Debug, Clone, Copy)]
+pub struct OutputArgs {
+    /// Output in JSON format for agent/script consumption.
+    #[arg(long)]
+    pub json: bool,
+}
+
 /// One-shot operations (run and exit).
 #[derive(Subcommand)]
 pub enum Command {
@@ -30,7 +39,10 @@ pub enum Command {
     New(NewArgs),
     /// List all saved profiles.
     #[command(alias = "ls")]
-    List,
+    List {
+        #[command(flatten)]
+        output: OutputArgs,
+    },
     /// Remove a profile and its data.
     #[command(alias = "rm")]
     Remove {
@@ -39,21 +51,153 @@ pub enum Command {
     },
     /// Remove ALL profiles and data (requires confirmation).
     Clear,
+    /// Show or set the default profile.
+    Default {
+        /// Profile name to set as default. Omit to show current.
+        name: Option<String>,
+        #[command(flatten)]
+        output: OutputArgs,
+    },
     /// Show profile information and installations.
     Info {
         /// Profile name (uses default if omitted).
         name: Option<String>,
+        #[command(flatten)]
+        output: OutputArgs,
     },
     /// Revoke all installations except the current one.
     Revoke {
         /// Profile name (uses default if omitted).
         name: Option<String>,
     },
-    /// Show or set the default profile.
-    Default {
-        /// Profile name to set as default. Omit to show current.
-        name: Option<String>,
+
+    /// List conversations (alias: convs).
+    #[command(alias = "convs")]
+    Conversations {
+        /// Filter by consent state (allowed, denied, unknown).
+        #[arg(long)]
+        consent: Option<String>,
+        /// Profile name (uses default if omitted).
+        #[arg(long)]
+        profile: Option<String>,
+        #[command(flatten)]
+        output: OutputArgs,
     },
+    /// List messages in a conversation (alias: msgs).
+    #[command(alias = "msgs")]
+    Messages {
+        /// Conversation ID.
+        conv: String,
+        /// Maximum number of messages to return.
+        #[arg(long)]
+        limit: Option<usize>,
+        /// Profile name (uses default if omitted).
+        #[arg(long)]
+        profile: Option<String>,
+        #[command(flatten)]
+        output: OutputArgs,
+    },
+    /// Send a text message to a conversation.
+    Send {
+        /// Conversation ID.
+        conv: String,
+        /// Message text.
+        text: String,
+        /// Profile name (uses default if omitted).
+        #[arg(long)]
+        profile: Option<String>,
+        #[command(flatten)]
+        output: OutputArgs,
+    },
+    /// Create or open a DM conversation.
+    Dm {
+        /// Recipient address, ENS name, or inbox ID.
+        address: String,
+        /// Profile name (uses default if omitted).
+        #[arg(long)]
+        profile: Option<String>,
+        #[command(flatten)]
+        output: OutputArgs,
+    },
+    /// Create a group conversation.
+    #[command(name = "group")]
+    CreateGroup {
+        /// Member addresses, ENS names, or inbox IDs.
+        #[arg(required = true)]
+        members: Vec<String>,
+        /// Group name.
+        #[arg(long)]
+        name: Option<String>,
+        /// Profile name (uses default if omitted).
+        #[arg(long)]
+        profile: Option<String>,
+        #[command(flatten)]
+        output: OutputArgs,
+    },
+    /// List members of a conversation.
+    #[command(alias = "who")]
+    Members {
+        /// Conversation ID.
+        conv: String,
+        /// Profile name (uses default if omitted).
+        #[arg(long)]
+        profile: Option<String>,
+        #[command(flatten)]
+        output: OutputArgs,
+    },
+    /// Check if addresses can receive XMTP messages.
+    CanMessage {
+        /// Addresses, ENS names, or inbox IDs to check.
+        #[arg(required = true)]
+        addresses: Vec<String>,
+        /// Profile name (uses default if omitted).
+        #[arg(long)]
+        profile: Option<String>,
+        #[command(flatten)]
+        output: OutputArgs,
+    },
+    /// Accept or deny a conversation request.
+    Request {
+        /// Conversation ID.
+        conv: String,
+        /// Action: accept or deny.
+        action: String,
+        /// Profile name (uses default if omitted).
+        #[arg(long)]
+        profile: Option<String>,
+        #[command(flatten)]
+        output: OutputArgs,
+    },
+    /// Stream real-time events as NDJSON (newline-delimited JSON).
+    Stream {
+        /// What to stream: messages, conversations, or all.
+        #[arg(default_value = "all")]
+        kind: String,
+        /// Profile name (uses default if omitted).
+        #[arg(long)]
+        profile: Option<String>,
+    },
+}
+
+impl Command {
+    /// Whether this command was invoked with `--json`.
+    pub const fn is_json(&self) -> bool {
+        match self {
+            Self::List { output, .. }
+            | Self::Default { output, .. }
+            | Self::Info { output, .. }
+            | Self::Conversations { output, .. }
+            | Self::Messages { output, .. }
+            | Self::Send { output, .. }
+            | Self::Dm { output, .. }
+            | Self::CreateGroup { output, .. }
+            | Self::Members { output, .. }
+            | Self::CanMessage { output, .. }
+            | Self::Request { output, .. } => output.json,
+            Self::Stream { .. } => true,
+            Self::New(_) | Self::Remove { .. } | Self::Clear | Self::Revoke { .. } => false,
+        }
+    }
 }
 
 /// Arguments for the `new` subcommand.

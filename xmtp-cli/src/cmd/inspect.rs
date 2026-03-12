@@ -7,9 +7,40 @@ use crate::app::truncate_id;
 ///
 /// Uses `open_client()` — no signer needed, Ledger users don't need
 /// their device connected just to view info.
-pub fn info(profile: &str) -> xmtp::Result<()> {
+pub fn info(profile: &str, json: bool) -> xmtp::Result<()> {
     let (cfg, client) = config::open_client(profile)?;
     let inbox_id = client.inbox_id()?;
+
+    let current = client.installation_id()?;
+    let states = client.inbox_state(true)?;
+    let ids: Vec<&str> = states
+        .iter()
+        .flat_map(|s| s.installation_ids.iter().map(String::as_str))
+        .collect();
+
+    if json {
+        let installations: Vec<serde_json::Value> = ids
+            .iter()
+            .map(|id| {
+                serde_json::json!({
+                    "id": id,
+                    "is_current": *id == current,
+                })
+            })
+            .collect();
+        println!(
+            "{}",
+            serde_json::json!({
+                "profile": profile,
+                "env": env_name(cfg.env),
+                "address": cfg.address,
+                "inbox_id": inbox_id,
+                "signer": cfg.signer.to_string(),
+                "installations": installations,
+            })
+        );
+        return Ok(());
+    }
 
     // Profile info.
     println!("Profile:       {profile}");
@@ -29,14 +60,6 @@ pub fn info(profile: &str) -> xmtp::Result<()> {
         "Database:      {}",
         config::profile_dir(profile).join("messages.db3").display()
     );
-
-    // Installations.
-    let current = client.installation_id()?;
-    let states = client.inbox_state(true)?;
-    let ids: Vec<&str> = states
-        .iter()
-        .flat_map(|s| s.installation_ids.iter().map(String::as_str))
-        .collect();
 
     println!("\nInstallations ({} / 10):\n", ids.len());
     for (i, id) in ids.iter().enumerate() {

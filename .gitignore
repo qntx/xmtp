@@ -26,4 +26,4 @@ target
 *.key
 
 /contracts
-# /3rdparty
+/3rdparty

@@ -73,10 +73,14 @@ pub fn create(args: &NewArgs) -> xmtp::Result<(ProfileConfig, Client)> {
 }
 
 /// List all saved profiles.
-pub fn list() -> xmtp::Result<()> {
+pub fn list(json: bool) -> xmtp::Result<()> {
     let base = config::data_dir();
     if !base.exists() {
-        println!("No profiles found.");
+        if json {
+            println!("{}", serde_json::json!({"profiles": []}));
+        } else {
+            println!("No profiles found.");
+        }
         return Ok(());
     }
 
@@ -88,6 +92,32 @@ pub fn list() -> xmtp::Result<()> {
         .filter(|e| e.path().is_dir())
         .collect();
     entries.sort_by_key(fs::DirEntry::file_name);
+
+    if json {
+        let items: Vec<serde_json::Value> = entries
+            .iter()
+            .map(|entry| {
+                let name = entry.file_name();
+                let name = name.to_string_lossy();
+                if let Ok(cfg) = ProfileConfig::load(&name) {
+                    serde_json::json!({
+                        "name": name,
+                        "address": cfg.address,
+                        "signer": cfg.signer.to_string(),
+                        "env": config::env_name(cfg.env),
+                        "is_default": *name == default,
+                    })
+                } else {
+                    serde_json::json!({
+                        "name": name,
+                        "is_default": *name == default,
+                    })
+                }
+            })
+            .collect();
+        println!("{}", serde_json::json!({"profiles": items}));
+        return Ok(());
+    }
 
     if entries.is_empty() {
         println!("No profiles found.");
@@ -158,18 +188,26 @@ pub fn clear() -> xmtp::Result<()> {
 }
 
 /// Show or set the default profile.
-pub fn default(name: Option<&str>) -> xmtp::Result<()> {
-    match name {
-        Some(name) => {
-            if !config::profile_dir(name).exists() {
-                return Err(xmtp::Error::InvalidArgument(format!(
-                    "profile '{name}' does not exist"
-                )));
-            }
-            config::set_default(name)?;
+pub fn default(name: Option<&str>, json: bool) -> xmtp::Result<()> {
+    if let Some(name) = name {
+        if !config::profile_dir(name).exists() {
+            return Err(xmtp::Error::InvalidArgument(format!(
+                "profile '{name}' does not exist"
+            )));
+        }
+        config::set_default(name)?;
+        if json {
+            println!("{}", serde_json::json!({"default": name}));
+        } else {
             println!("Default profile set to '{name}'.");
         }
-        None => println!("{}", config::default_profile()),
+    } else {
+        let d = config::default_profile();
+        if json {
+            println!("{}", serde_json::json!({"default": d}));
+        } else {
+            println!("{d}");
+        }
     }
     Ok(())
 }

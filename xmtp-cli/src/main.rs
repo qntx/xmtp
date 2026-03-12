@@ -32,16 +32,21 @@ fn main() {
     let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
     let _guard = rt.enter();
 
-    if let Err(e) = run() {
+    let cli = Cli::parse();
+    let json_mode = cli.command.as_ref().is_some_and(Command::is_json);
+
+    if let Err(e) = run(cli) {
         let _ = tui::restore();
-        eprintln!("fatal: {e}");
+        if json_mode {
+            println!("{}", serde_json::json!({"error": e.to_string()}));
+        } else {
+            eprintln!("fatal: {e}");
+        }
         process::exit(1);
     }
 }
 
-fn run() -> xmtp::Result<()> {
-    let cli = Cli::parse();
-
+fn run(cli: Cli) -> xmtp::Result<()> {
     // Dispatch subcommands.
     if let Some(ref command) = cli.command {
         return dispatch(command);
@@ -101,12 +106,71 @@ fn dispatch(command: &Command) -> xmtp::Result<()> {
             cmd::profile::create(args)?;
             Ok(())
         }
-        Command::List => cmd::profile::list(),
+        Command::List { output } => cmd::profile::list(output.json),
         Command::Remove { name } => cmd::profile::remove(name),
         Command::Clear => cmd::profile::clear(),
-        Command::Default { name } => cmd::profile::default(name.as_deref()),
-        Command::Info { name } => cmd::inspect::info(&resolve_profile(name.clone())),
+        Command::Default { name, output } => cmd::profile::default(name.as_deref(), output.json),
+        Command::Info { name, output } => {
+            cmd::inspect::info(&resolve_profile(name.clone()), output.json)
+        }
         Command::Revoke { name } => cmd::inspect::revoke(&resolve_profile(name.clone())),
+
+        Command::Conversations {
+            consent,
+            profile,
+            output,
+        } => cmd::agent::conversations(
+            &resolve_profile(profile.clone()),
+            consent.as_deref(),
+            output.json,
+        ),
+        Command::Messages {
+            conv,
+            limit,
+            profile,
+            output,
+        } => cmd::agent::messages(&resolve_profile(profile.clone()), conv, *limit, output.json),
+        Command::Send {
+            conv,
+            text,
+            profile,
+            output,
+        } => cmd::agent::send(&resolve_profile(profile.clone()), conv, text, output.json),
+        Command::Dm {
+            address,
+            profile,
+            output,
+        } => cmd::agent::dm(&resolve_profile(profile.clone()), address, output.json),
+        Command::CreateGroup {
+            members,
+            name,
+            profile,
+            output,
+        } => cmd::agent::create_group(
+            &resolve_profile(profile.clone()),
+            members,
+            name.as_deref(),
+            output.json,
+        ),
+        Command::Members {
+            conv,
+            profile,
+            output,
+        } => cmd::agent::members(&resolve_profile(profile.clone()), conv, output.json),
+        Command::CanMessage {
+            addresses,
+            profile,
+            output,
+        } => cmd::agent::can_message(&resolve_profile(profile.clone()), addresses, output.json),
+        Command::Request {
+            conv,
+            action,
+            profile,
+            output,
+        } => cmd::agent::request(&resolve_profile(profile.clone()), conv, action, output.json),
+        Command::Stream { kind, profile } => {
+            cmd::agent::stream_events(&resolve_profile(profile.clone()), kind)
+        }
     }
 }
 
