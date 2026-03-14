@@ -7,8 +7,8 @@ use std::ptr;
 
 use crate::error::{self, Result};
 use crate::ffi::{
-    OwnedHandle, identifiers_to_ffi, read_borrowed_strings, take_c_string, take_nullable_string,
-    to_c_string, to_c_string_array,
+    FfiList, OwnedHandle, ffi_usize, identifiers_to_ffi, read_borrowed_strings, take_c_string,
+    take_nullable_string, to_c_string, to_c_string_array, to_ffi_len,
 };
 use crate::types::{
     AccountIdentifier, ConsentState, ConversationDebugInfo, ConversationMetadata, ConversationType,
@@ -259,12 +259,13 @@ impl Conversation {
             *mut *mut c_char,
         ) -> i32,
     ) -> Result<String> {
+        let len = to_ffi_len(content.len())?;
         let mut out: *mut c_char = ptr::null_mut();
         let rc = unsafe {
             ffi_fn(
                 self.handle.as_ptr(),
                 content.as_ptr(),
-                content.len() as i32,
+                len,
                 opts,
                 &raw mut out,
             )
@@ -295,12 +296,7 @@ impl Conversation {
             )
         };
         error::check(rc)?;
-        if list.is_null() {
-            return Ok(vec![]);
-        }
-        let result = read_enriched_message_list(list);
-        unsafe { xmtp_sys::xmtp_enriched_message_list_free(list) };
-        Ok(result)
+        Ok(read_enriched_message_list(list))
     }
 
     /// Count messages matching filter options.
@@ -319,47 +315,37 @@ impl Conversation {
             xmtp_sys::xmtp_conversation_list_members(self.handle.as_ptr(), &raw mut list)
         };
         error::check(rc)?;
-        if list.is_null() {
-            return Ok(vec![]);
-        }
-        let result = read_member_list(list);
-        unsafe { xmtp_sys::xmtp_group_member_list_free(list) };
-        result
+        read_member_list(list)
     }
 
     /// Add members by inbox IDs.
     pub fn add_members_by_inbox_id(&self, inbox_ids: &[&str]) -> Result<()> {
         let (_owned, ptrs) = to_c_string_array(inbox_ids)?;
+        let len = to_ffi_len(ptrs.len())?;
         error::check(unsafe {
-            xmtp_sys::xmtp_conversation_add_members(
-                self.handle.as_ptr(),
-                ptrs.as_ptr(),
-                ptrs.len() as i32,
-            )
+            xmtp_sys::xmtp_conversation_add_members(self.handle.as_ptr(), ptrs.as_ptr(), len)
         })
     }
 
     /// Remove members by inbox IDs.
     pub fn remove_members_by_inbox_id(&self, inbox_ids: &[&str]) -> Result<()> {
         let (_owned, ptrs) = to_c_string_array(inbox_ids)?;
+        let len = to_ffi_len(ptrs.len())?;
         error::check(unsafe {
-            xmtp_sys::xmtp_conversation_remove_members(
-                self.handle.as_ptr(),
-                ptrs.as_ptr(),
-                ptrs.len() as i32,
-            )
+            xmtp_sys::xmtp_conversation_remove_members(self.handle.as_ptr(), ptrs.as_ptr(), len)
         })
     }
 
     /// Add members by external identifiers (address + kind).
     pub fn add_members_by_identity(&self, identifiers: &[AccountIdentifier]) -> Result<()> {
         let (_owned, ptrs, kinds) = identifiers_to_ffi(identifiers)?;
+        let len = to_ffi_len(ptrs.len())?;
         error::check(unsafe {
             xmtp_sys::xmtp_conversation_add_members_by_identity(
                 self.handle.as_ptr(),
                 ptrs.as_ptr(),
                 kinds.as_ptr(),
-                ptrs.len() as i32,
+                len,
             )
         })
     }
@@ -367,12 +353,13 @@ impl Conversation {
     /// Remove members by external identifiers (address + kind).
     pub fn remove_members_by_identity(&self, identifiers: &[AccountIdentifier]) -> Result<()> {
         let (_owned, ptrs, kinds) = identifiers_to_ffi(identifiers)?;
+        let len = to_ffi_len(ptrs.len())?;
         error::check(unsafe {
             xmtp_sys::xmtp_conversation_remove_members_by_identity(
                 self.handle.as_ptr(),
                 ptrs.as_ptr(),
                 kinds.as_ptr(),
-                ptrs.len() as i32,
+                len,
             )
         })
     }
@@ -569,12 +556,7 @@ impl Conversation {
             xmtp_sys::xmtp_conversation_last_read_times(self.handle.as_ptr(), &raw mut list)
         };
         error::check(rc)?;
-        if list.is_null() {
-            return Ok(vec![]);
-        }
-        let result = read_last_read_times(list);
-        unsafe { xmtp_sys::xmtp_last_read_time_list_free(list) };
-        Ok(result)
+        Ok(read_last_read_times(list))
     }
 
     /// Get HMAC keys for this conversation (including duplicate DMs).
@@ -583,12 +565,7 @@ impl Conversation {
         let rc =
             unsafe { xmtp_sys::xmtp_conversation_hmac_keys(self.handle.as_ptr(), &raw mut map) };
         error::check(rc)?;
-        if map.is_null() {
-            return Ok(vec![]);
-        }
-        let result = read_hmac_key_map(map);
-        unsafe { xmtp_sys::xmtp_hmac_key_map_free(map) };
-        Ok(result)
+        Ok(read_hmac_key_map(map))
     }
 }
 
@@ -614,26 +591,27 @@ pub(crate) fn msg_opts_to_ffi(
     }
 }
 
-/// Read enriched messages from an FFI list. Caller must free the list.
+/// Read enriched messages from an FFI list into a `Vec<Message>`.
 pub(crate) fn read_enriched_message_list(
-    list: *const xmtp_sys::XmtpFfiEnrichedMessageList,
+    ptr: *mut xmtp_sys::XmtpFfiEnrichedMessageList,
 ) -> Vec<Message> {
-    let len = unsafe { xmtp_sys::xmtp_enriched_message_list_len(list) };
-    let mut msgs = Vec::with_capacity(len as usize);
-    for i in 0..len {
-        let ptr = unsafe { xmtp_sys::xmtp_enriched_message_list_get(list, i) };
-        if ptr.is_null() {
+    let list = FfiList::new(
+        ptr,
+        xmtp_sys::xmtp_enriched_message_list_len,
+        xmtp_sys::xmtp_enriched_message_list_free,
+    );
+    let mut msgs = Vec::with_capacity(ffi_usize(list.len()));
+    for i in 0..list.len() {
+        let p = unsafe { xmtp_sys::xmtp_enriched_message_list_get(list.as_ptr(), i) };
+        if p.is_null() {
             continue;
         }
-        let m = unsafe { &*ptr };
+        let m = unsafe { &*p };
         let content = if m.content_bytes.is_null() || m.content_bytes_len <= 0 {
             Vec::new()
         } else {
             unsafe {
-                std::slice::from_raw_parts(
-                    m.content_bytes,
-                    m.content_bytes_len.unsigned_abs() as usize,
-                )
+                std::slice::from_raw_parts(m.content_bytes, ffi_usize(m.content_bytes_len))
             }
             .to_vec()
         };
@@ -658,29 +636,34 @@ pub(crate) fn read_enriched_message_list(
     msgs
 }
 
-/// Read all members from an FFI group member list. Caller must free the list.
-fn read_member_list(list: *const xmtp_sys::XmtpFfiGroupMemberList) -> Result<Vec<GroupMember>> {
-    let len = unsafe { xmtp_sys::xmtp_group_member_list_len(list) };
-    let mut members = Vec::with_capacity(len as usize);
-    for i in 0..len {
-        let inbox_id = unsafe { take_c_string(xmtp_sys::xmtp_group_member_inbox_id(list, i)) }?;
+/// Read all members from an FFI group member list.
+fn read_member_list(ptr: *mut xmtp_sys::XmtpFfiGroupMemberList) -> Result<Vec<GroupMember>> {
+    let list = FfiList::new(
+        ptr,
+        xmtp_sys::xmtp_group_member_list_len,
+        xmtp_sys::xmtp_group_member_list_free,
+    );
+    let mut members = Vec::with_capacity(ffi_usize(list.len()));
+    for i in 0..list.len() {
+        let lp = list.as_ptr();
+        let inbox_id = unsafe { take_c_string(xmtp_sys::xmtp_group_member_inbox_id(lp, i)) }?;
         let permission_level = PermissionLevel::from_ffi(unsafe {
-            xmtp_sys::xmtp_group_member_permission_level(list, i)
+            xmtp_sys::xmtp_group_member_permission_level(lp, i)
         })
         .unwrap_or(PermissionLevel::Member);
         let consent_state =
-            ConsentState::from_ffi(unsafe { xmtp_sys::xmtp_group_member_consent_state(list, i) })
+            ConsentState::from_ffi(unsafe { xmtp_sys::xmtp_group_member_consent_state(lp, i) })
                 .unwrap_or(ConsentState::Unknown);
 
         let mut acct_count = 0i32;
         let acct_ptr = unsafe {
-            xmtp_sys::xmtp_group_member_account_identifiers(list, i, &raw mut acct_count)
+            xmtp_sys::xmtp_group_member_account_identifiers(lp, i, &raw mut acct_count)
         };
         let account_identifiers = unsafe { read_borrowed_strings(acct_ptr, acct_count) };
 
         let mut inst_count = 0i32;
         let inst_ptr =
-            unsafe { xmtp_sys::xmtp_group_member_installation_ids(list, i, &raw mut inst_count) };
+            unsafe { xmtp_sys::xmtp_group_member_installation_ids(lp, i, &raw mut inst_count) };
         let installation_ids = unsafe { read_borrowed_strings(inst_ptr, inst_count) };
 
         members.push(GroupMember {
@@ -694,23 +677,23 @@ fn read_member_list(list: *const xmtp_sys::XmtpFfiGroupMemberList) -> Result<Vec
     Ok(members)
 }
 
-/// Read a conversation list into a `Vec<Conversation>`. Handles null.
+/// Read a conversation list into a `Vec<Conversation>`.
 pub(crate) fn read_conversation_list_inner(
-    list: *mut xmtp_sys::XmtpFfiConversationList,
+    ptr: *mut xmtp_sys::XmtpFfiConversationList,
 ) -> Result<Vec<Conversation>> {
-    if list.is_null() {
-        return Ok(vec![]);
-    }
-    let len = unsafe { xmtp_sys::xmtp_conversation_list_len(list) };
-    let mut convs = Vec::with_capacity(len as usize);
-    for i in 0..len {
+    let list = FfiList::new(
+        ptr,
+        xmtp_sys::xmtp_conversation_list_len,
+        xmtp_sys::xmtp_conversation_list_free,
+    );
+    let mut convs = Vec::with_capacity(ffi_usize(list.len()));
+    for i in 0..list.len() {
         let mut conv: *mut xmtp_sys::XmtpFfiConversation = ptr::null_mut();
-        let rc = unsafe { xmtp_sys::xmtp_conversation_list_get(list, i, &raw mut conv) };
+        let rc = unsafe { xmtp_sys::xmtp_conversation_list_get(list.as_ptr(), i, &raw mut conv) };
         if rc == 0 && !conv.is_null() {
             convs.push(Conversation::from_raw(conv)?);
         }
     }
-    unsafe { xmtp_sys::xmtp_conversation_list_free(list) };
     Ok(convs)
 }
 
@@ -768,16 +751,20 @@ fn read_debug_info(d: &xmtp_sys::XmtpFfiConversationDebugInfo) -> ConversationDe
     }
 }
 
-/// Read last-read timestamps from an FFI list. Caller must free the list.
-fn read_last_read_times(list: *const xmtp_sys::XmtpFfiLastReadTimeList) -> Vec<LastReadTime> {
-    let len = unsafe { xmtp_sys::xmtp_last_read_time_list_len(list) };
-    let mut result = Vec::with_capacity(len as usize);
-    for i in 0..len {
-        let ptr = unsafe { xmtp_sys::xmtp_last_read_time_list_get(list, i) };
-        if ptr.is_null() {
+/// Read last-read timestamps from an FFI list.
+fn read_last_read_times(ptr: *mut xmtp_sys::XmtpFfiLastReadTimeList) -> Vec<LastReadTime> {
+    let list = FfiList::new(
+        ptr,
+        xmtp_sys::xmtp_last_read_time_list_len,
+        xmtp_sys::xmtp_last_read_time_list_free,
+    );
+    let mut result = Vec::with_capacity(ffi_usize(list.len()));
+    for i in 0..list.len() {
+        let p = unsafe { xmtp_sys::xmtp_last_read_time_list_get(list.as_ptr(), i) };
+        if p.is_null() {
             continue;
         }
-        let entry = unsafe { &*ptr };
+        let entry = unsafe { &*p };
         result.push(LastReadTime {
             inbox_id: unsafe { c_str_to_string(entry.inbox_id) },
             timestamp_ns: entry.timestamp_ns,
@@ -786,12 +773,17 @@ fn read_last_read_times(list: *const xmtp_sys::XmtpFfiLastReadTimeList) -> Vec<L
     result
 }
 
-/// Read HMAC key map from an FFI handle. Caller must free the map.
-pub(crate) fn read_hmac_key_map(map: *const xmtp_sys::XmtpFfiHmacKeyMap) -> Vec<HmacKeyEntry> {
-    let len = unsafe { xmtp_sys::xmtp_hmac_key_map_len(map) };
-    let mut entries = Vec::with_capacity(len as usize);
-    for i in 0..len {
-        let gid_ptr = unsafe { xmtp_sys::xmtp_hmac_key_map_group_id(map, i) };
+/// Read HMAC key map from an FFI handle.
+pub(crate) fn read_hmac_key_map(ptr: *mut xmtp_sys::XmtpFfiHmacKeyMap) -> Vec<HmacKeyEntry> {
+    let map = FfiList::new(
+        ptr,
+        xmtp_sys::xmtp_hmac_key_map_len,
+        xmtp_sys::xmtp_hmac_key_map_free,
+    );
+    let mut entries = Vec::with_capacity(ffi_usize(map.len()));
+    for i in 0..map.len() {
+        let mp = map.as_ptr();
+        let gid_ptr = unsafe { xmtp_sys::xmtp_hmac_key_map_group_id(mp, i) };
         let group_id = if gid_ptr.is_null() {
             String::new()
         } else {
@@ -801,12 +793,12 @@ pub(crate) fn read_hmac_key_map(map: *const xmtp_sys::XmtpFfiHmacKeyMap) -> Vec<
                 .to_owned()
         };
         let mut key_count = 0i32;
-        let keys_ptr = unsafe { xmtp_sys::xmtp_hmac_key_map_keys(map, i, &raw mut key_count) };
+        let keys_ptr = unsafe { xmtp_sys::xmtp_hmac_key_map_keys(mp, i, &raw mut key_count) };
         let keys = if keys_ptr.is_null() || key_count <= 0 {
             vec![]
         } else {
             let slice =
-                unsafe { std::slice::from_raw_parts(keys_ptr, key_count.unsigned_abs() as usize) };
+                unsafe { std::slice::from_raw_parts(keys_ptr, ffi_usize(key_count)) };
             slice
                 .iter()
                 .map(|k| {
@@ -814,7 +806,7 @@ pub(crate) fn read_hmac_key_map(map: *const xmtp_sys::XmtpFfiHmacKeyMap) -> Vec<
                         vec![]
                     } else {
                         unsafe {
-                            std::slice::from_raw_parts(k.key, k.key_len.unsigned_abs() as usize)
+                            std::slice::from_raw_parts(k.key, ffi_usize(k.key_len))
                         }
                         .to_vec()
                     };

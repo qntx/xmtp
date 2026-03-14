@@ -12,7 +12,7 @@ use std::{fmt, ptr};
 use crate::client::Client;
 use crate::conversation::Conversation;
 use crate::error::{self, Result};
-use crate::ffi::OwnedHandle;
+use crate::ffi::{OwnedHandle, to_ffi_len};
 use crate::types::{ConsentEntityType, ConsentState, ConversationType};
 
 /// A real-time event subscription backed by an internal channel.
@@ -172,7 +172,7 @@ pub fn messages(
     } else {
         cs.as_ptr()
     };
-    let cs_len = cs.len() as i32;
+    let cs_len = to_ffi_len(cs.len())?;
     let cb: Box<dyn Fn(String, String) + Send> = Box::new(move |mid, cid| {
         let _ = tx.send(MessageEvent {
             message_id: mid,

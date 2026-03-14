@@ -5,7 +5,7 @@ use std::ptr;
 
 use super::{Client, apply_signature_request, sign_request};
 use crate::error::{self, Result};
-use crate::ffi::{OwnedHandle, to_c_string};
+use crate::ffi::{OwnedHandle, to_c_string, to_ffi_len};
 use crate::types::{AccountIdentifier, Signer};
 
 impl Client {
@@ -55,13 +55,17 @@ impl Client {
         installation_ids: &[&[u8]],
     ) -> Result<()> {
         let ptrs: Vec<*const u8> = installation_ids.iter().map(|id| id.as_ptr()).collect();
-        let lens: Vec<i32> = installation_ids.iter().map(|id| id.len() as i32).collect();
+        let lens: Vec<i32> = installation_ids
+            .iter()
+            .map(|id| to_ffi_len(id.len()))
+            .collect::<Result<_>>()?;
+        let count = to_ffi_len(ptrs.len())?;
         create_sign_apply(self, &[signer], |out| unsafe {
             xmtp_sys::xmtp_client_revoke_installations_signature_request(
                 self.handle.as_ptr(),
                 ptrs.as_ptr(),
                 lens.as_ptr(),
-                ptrs.len() as i32,
+                count,
                 out,
             )
         })

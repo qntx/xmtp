@@ -97,9 +97,26 @@ It emits an opaque forward declaration instead of a nullable function pointer.
 
 ### Prerequisites
 
-- Rust stable toolchain (see `rust-toolchain.toml`)
-- Rust nightly toolchain (for `clippy`, `fmt`, and `xmtp-ffi` builds)
-- `libclang` (for `bindgen` — only needed when regenerating bindings)
+| Dependency | Required by | Install (Windows) | Install (macOS) | Install (Linux) |
+| --- | --- | --- | --- | --- |
+| Rust stable | workspace | `rustup default stable` | same | same |
+| Rust nightly | `xmtp-ffi`, `clippy`, `fmt` | `rustup toolchain install nightly` | same | same |
+| Strawberry Perl | `xmtp-ffi` (OpenSSL build) | `choco install strawberryperl` | pre-installed | `apt install perl` |
+| LLVM / libclang | `bindgen` (regenerate bindings) | `choco install llvm` | `brew install llvm` | `apt install libclang-dev` |
+| sccache | `xmtp-ffi` (build cache, optional) | `choco install sccache` | `brew install sccache` | `cargo install sccache` |
+| NASM | `xmtp-ffi` (OpenSSL asm, optional) | `choco install nasm` | `brew install nasm` | `apt install nasm` |
+
+> **Windows notes**:
+>
+> - After installing via `choco`, **restart your terminal** so PATH changes take effect.
+> - **Strawberry Perl** is mandatory for building `xmtp-ffi` on Windows. The Perl bundled with Git for Windows (MSYS2) is insufficient — it lacks modules required by OpenSSL's `Configure` script.
+> - **LLVM** is only needed when running `make regenerate-bindings`. Normal `cargo build` of `xmtp-sys` uses pre-committed bindings.
+> - **sccache** is configured in `xmtp-ffi/.cargo/config.toml`. If you don't have it installed, comment out the `rustc-wrapper = "sccache"` line or install it.
+> - A quick way to refresh PATH in the current PowerShell session without restarting:
+>
+>   ```powershell
+>   $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
+>   ```
 
 ### Environment Variables
 

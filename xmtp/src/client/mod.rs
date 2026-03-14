@@ -8,7 +8,9 @@ use std::ffi::c_char;
 use std::ptr;
 
 use crate::error::{self, Result};
-use crate::ffi::{OwnedHandle, read_borrowed_strings, take_c_string, to_c_string};
+use crate::ffi::{
+    FfiList, OwnedHandle, ffi_usize, read_borrowed_strings, take_c_string, to_c_string, to_ffi_len,
+};
 use crate::types::{
     AccountIdentifier, ApiStats, ConsentEntityType, ConsentState, Env, IdentifierKind,
     IdentityStats, InboxState, KeyPackageStatus, Signer,
@@ -131,13 +133,14 @@ impl Client {
             return Ok(vec![]);
         }
         let (_owned, ptrs, kinds) = crate::ffi::identifiers_to_ffi(identifiers)?;
+        let len = to_ffi_len(ptrs.len())?;
         let mut results = vec![0i32; identifiers.len()];
         let rc = unsafe {
             xmtp_sys::xmtp_client_can_message(
                 self.handle.as_ptr(),
                 ptrs.as_ptr(),
                 kinds.as_ptr(),
-                ptrs.len() as i32,
+                len,
                 results.as_mut_ptr(),
             )
         };
@@ -190,11 +193,7 @@ impl Client {
             )
         };
         error::check(rc)?;
-        let result = read_inbox_state_list(out);
-        if !out.is_null() {
-            unsafe { xmtp_sys::xmtp_inbox_state_list_free(out) };
-        }
-        result
+        read_inbox_state_list(out)
     }
 
     /// Fetch inbox states for multiple inbox IDs.
@@ -204,22 +203,19 @@ impl Client {
             .map(|s| to_c_string(s))
             .collect::<Result<_>>()?;
         let c_ptrs: Vec<*const c_char> = c_ids.iter().map(|c| c.as_ptr()).collect();
+        let len = to_ffi_len(c_ptrs.len())?;
         let mut out: *mut xmtp_sys::XmtpFfiInboxStateList = ptr::null_mut();
         let rc = unsafe {
             xmtp_sys::xmtp_client_fetch_inbox_states(
                 self.handle.as_ptr(),
                 c_ptrs.as_ptr(),
-                c_ptrs.len() as i32,
+                len,
                 i32::from(refresh),
                 &raw mut out,
             )
         };
         error::check(rc)?;
-        let result = read_inbox_state_list(out);
-        if !out.is_null() {
-            unsafe { xmtp_sys::xmtp_inbox_state_list_free(out) };
-        }
-        result
+        read_inbox_state_list(out)
     }
 
     /// Sign text with the client's installation key. Returns signature bytes.
@@ -252,7 +248,7 @@ impl Client {
                 self.handle.as_ptr(),
                 c.as_ptr(),
                 signature.as_ptr(),
-                signature.len() as i32,
+                to_ffi_len(signature.len())?,
             )
         };
         Ok(rc == 0)
@@ -270,13 +266,14 @@ impl Client {
         let c_ptrs: Vec<*const c_char> = c_strs.iter().map(|c| c.as_ptr()).collect();
         let types: Vec<i32> = entries.iter().map(|(t, _, _)| *t as i32).collect();
         let states: Vec<i32> = entries.iter().map(|(_, s, _)| *s as i32).collect();
+        let len = to_ffi_len(entries.len())?;
         error::check(unsafe {
             xmtp_sys::xmtp_client_set_consent_states(
                 self.handle.as_ptr(),
                 types.as_ptr(),
                 states.as_ptr(),
                 c_ptrs.as_ptr(),
-                entries.len() as i32,
+                len,
             )
         })
     }
@@ -354,22 +351,18 @@ impl Client {
     /// Fetch key package statuses for a list of installation IDs (hex).
     pub fn key_package_statuses(&self, installation_ids: &[&str]) -> Result<Vec<KeyPackageStatus>> {
         let (_owned, ptrs) = crate::ffi::to_c_string_array(installation_ids)?;
+        let len = to_ffi_len(ptrs.len())?;
         let mut out: *mut xmtp_sys::XmtpFfiKeyPackageStatusList = ptr::null_mut();
         let rc = unsafe {
             xmtp_sys::xmtp_client_fetch_key_package_statuses(
                 self.handle.as_ptr(),
                 ptrs.as_ptr(),
-                ptrs.len() as i32,
+                len,
                 &raw mut out,
             )
         };
         error::check(rc)?;
-        if out.is_null() {
-            return Ok(vec![]);
-        }
-        let result = read_key_package_status_list(out);
-        unsafe { xmtp_sys::xmtp_key_package_status_list_free(out) };
-        Ok(result)
+        Ok(read_key_package_status_list(out))
     }
 
     /// Send a device sync request to retrieve records from another installation.
@@ -567,22 +560,24 @@ pub(crate) fn sign_request(
     if signer.is_smart_wallet() {
         let ident = signer.identifier();
         let c_addr = to_c_string(&ident.address)?;
+        let sig_len = to_ffi_len(signature.len())?;
         error::check(unsafe {
             xmtp_sys::xmtp_signature_request_add_scw(
                 sig_req.as_ptr(),
                 c_addr.as_ptr(),
                 signature.as_ptr(),
-                signature.len() as i32,
+                sig_len,
                 signer.chain_id(),
                 signer.block_number(),
             )
         })
     } else {
+        let sig_len = to_ffi_len(signature.len())?;
         error::check(unsafe {
             xmtp_sys::xmtp_signature_request_add_ecdsa(
                 sig_req.as_ptr(),
                 signature.as_ptr(),
-                signature.len() as i32,
+                sig_len,
             )
         })
     }
@@ -624,13 +619,15 @@ pub fn verify_signed_with_public_key(
     public_key: &[u8],
 ) -> Result<bool> {
     let c = to_c_string(text)?;
+    let sig_len = to_ffi_len(signature.len())?;
+    let key_len = to_ffi_len(public_key.len())?;
     let rc = unsafe {
         xmtp_sys::xmtp_verify_signed_with_public_key(
             c.as_ptr(),
             signature.as_ptr(),
-            signature.len() as i32,
+            sig_len,
             public_key.as_ptr(),
-            public_key.len() as i32,
+            key_len,
         )
     };
     Ok(rc == 0)
@@ -670,7 +667,7 @@ pub fn is_installation_authorized(
             i32::from(env.is_secure()),
             c_inbox.as_ptr(),
             installation_id.as_ptr(),
-            installation_id.len() as i32,
+            to_ffi_len(installation_id.len())?,
             &raw mut out,
         )
     };
@@ -678,21 +675,22 @@ pub fn is_installation_authorized(
     Ok(out == 1)
 }
 
-/// Read an FFI key package status list. Does NOT free the list.
+/// Read an FFI key package status list.
 fn read_key_package_status_list(
-    list: *const xmtp_sys::XmtpFfiKeyPackageStatusList,
+    ptr: *mut xmtp_sys::XmtpFfiKeyPackageStatusList,
 ) -> Vec<KeyPackageStatus> {
-    if list.is_null() {
-        return vec![];
-    }
-    let len = unsafe { xmtp_sys::xmtp_key_package_status_list_len(list) };
-    let mut statuses = Vec::with_capacity(len.max(0) as usize);
-    for i in 0..len {
-        let ptr = unsafe { xmtp_sys::xmtp_key_package_status_list_get(list, i) };
-        if ptr.is_null() {
+    let list = FfiList::new(
+        ptr,
+        xmtp_sys::xmtp_key_package_status_list_len,
+        xmtp_sys::xmtp_key_package_status_list_free,
+    );
+    let mut statuses = Vec::with_capacity(ffi_usize(list.len()));
+    for i in 0..list.len() {
+        let p = unsafe { xmtp_sys::xmtp_key_package_status_list_get(list.as_ptr(), i) };
+        if p.is_null() {
             continue;
         }
-        let s = unsafe { &*ptr };
+        let s = unsafe { &*p };
         let installation_id = unsafe { take_c_string(s.installation_id) }.unwrap_or_default();
         let validation_error = if s.validation_error.is_null() {
             None
@@ -710,24 +708,28 @@ fn read_key_package_status_list(
     statuses
 }
 
-/// Read an FFI inbox state list into `Vec<InboxState>`. Does NOT free the list.
-fn read_inbox_state_list(list: *const xmtp_sys::XmtpFfiInboxStateList) -> Result<Vec<InboxState>> {
-    if list.is_null() {
-        return Ok(vec![]);
-    }
-    let len = unsafe { xmtp_sys::xmtp_inbox_state_list_len(list) };
-    let mut states = Vec::with_capacity(len.max(0) as usize);
-    for i in 0..len {
-        let inbox_id = unsafe { take_c_string(xmtp_sys::xmtp_inbox_state_inbox_id(list, i)) }?;
+/// Read an FFI inbox state list into `Vec<InboxState>`.
+fn read_inbox_state_list(
+    ptr: *mut xmtp_sys::XmtpFfiInboxStateList,
+) -> Result<Vec<InboxState>> {
+    let list = FfiList::new(
+        ptr,
+        xmtp_sys::xmtp_inbox_state_list_len,
+        xmtp_sys::xmtp_inbox_state_list_free,
+    );
+    let mut states = Vec::with_capacity(ffi_usize(list.len()));
+    for i in 0..list.len() {
+        let lp = list.as_ptr();
+        let inbox_id = unsafe { take_c_string(xmtp_sys::xmtp_inbox_state_inbox_id(lp, i)) }?;
         let recovery_identifier =
-            unsafe { take_c_string(xmtp_sys::xmtp_inbox_state_recovery_identifier(list, i)) }?;
+            unsafe { take_c_string(xmtp_sys::xmtp_inbox_state_recovery_identifier(lp, i)) }?;
         let mut ident_count = 0i32;
         let ident_ptr =
-            unsafe { xmtp_sys::xmtp_inbox_state_identifiers(list, i, &raw mut ident_count) };
+            unsafe { xmtp_sys::xmtp_inbox_state_identifiers(lp, i, &raw mut ident_count) };
         let identifiers = unsafe { read_borrowed_strings(ident_ptr, ident_count) };
         let mut inst_count = 0i32;
         let inst_ptr =
-            unsafe { xmtp_sys::xmtp_inbox_state_installation_ids(list, i, &raw mut inst_count) };
+            unsafe { xmtp_sys::xmtp_inbox_state_installation_ids(lp, i, &raw mut inst_count) };
         let installation_ids = unsafe { read_borrowed_strings(inst_ptr, inst_count) };
         states.push(InboxState {
             inbox_id,

@@ -10,7 +10,7 @@ use crate::conversation::{
 };
 use crate::error::{self, Result};
 use crate::ffi::{
-    c_str_ptr, identifiers_to_ffi, optional_c_string, to_c_string, to_c_string_array,
+    c_str_ptr, identifiers_to_ffi, optional_c_string, to_c_string, to_c_string_array, to_ffi_len,
 };
 use crate::resolve::Recipient;
 use crate::types::{
@@ -211,7 +211,7 @@ impl Client {
                     self.handle.as_ptr(),
                     ffi_opts,
                     ids_ptr,
-                    ptrs.len() as i32,
+                    to_ffi_len(ptrs.len())?,
                     &raw mut out,
                 )
             };
@@ -234,7 +234,7 @@ impl Client {
                     ffi_opts,
                     ptrs.as_ptr(),
                     kinds.as_ptr(),
-                    ptrs.len() as i32,
+                    to_ffi_len(ptrs.len())?,
                     &raw mut out,
                 )
             };
@@ -386,7 +386,7 @@ impl Client {
             } else {
                 consent_i32.as_ptr()
             },
-            consent_states_count: consent_i32.len() as i32,
+            consent_states_count: to_ffi_len(consent_i32.len()).unwrap_or(0),
             order_by: options.order_by as i32,
             include_duplicate_dms: i32::from(options.include_duplicate_dms),
         };
@@ -419,7 +419,7 @@ impl Client {
                 } else {
                     cs.as_ptr()
                 },
-                cs.len() as i32,
+                to_ffi_len(cs.len()).unwrap_or(0),
                 &raw mut synced,
                 &raw mut eligible,
             )
@@ -455,12 +455,7 @@ impl Client {
             )
         };
         error::check(rc)?;
-        if out.is_null() {
-            return Ok(None);
-        }
-        let msgs = read_enriched_message_list(out);
-        unsafe { xmtp_sys::xmtp_enriched_message_list_free(out) };
-        Ok(msgs.into_iter().next())
+        Ok(read_enriched_message_list(out).into_iter().next())
     }
 
     /// Sync preferences (device sync groups only).
@@ -485,12 +480,7 @@ impl Client {
         let mut map: *mut xmtp_sys::XmtpFfiHmacKeyMap = ptr::null_mut();
         let rc = unsafe { xmtp_sys::xmtp_client_hmac_keys(self.handle.as_ptr(), &raw mut map) };
         error::check(rc)?;
-        if map.is_null() {
-            return Ok(vec![]);
-        }
-        let result = read_hmac_key_map(map);
-        unsafe { xmtp_sys::xmtp_hmac_key_map_free(map) };
-        Ok(result)
+        Ok(read_hmac_key_map(map))
     }
 }
 

@@ -2,7 +2,6 @@
 //! Internal FFI utilities: RAII handle wrapper + C string helpers.
 
 use std::ffi::{CStr, CString, c_char};
-use std::ptr;
 use std::ptr::NonNull;
 
 use crate::error::{Error, Result};
@@ -113,10 +112,66 @@ pub unsafe fn take_nullable_string(ptr: *mut c_char) -> Option<String> {
 
 /// Get pointer from an optional `CString` (null if `None`).
 pub fn c_str_ptr(opt: Option<&CString>) -> *const c_char {
-    opt.map_or(ptr::null(), |c| c.as_ptr())
+    opt.map_or(std::ptr::null(), |c| c.as_ptr())
 }
 
 /// Convert optional `&str` to optional `CString`.
 pub fn optional_c_string(s: Option<&str>) -> Result<Option<CString>> {
     s.map(to_c_string).transpose()
+}
+
+/// RAII guard for an opaque FFI list pointer. Calls `free` on drop.
+///
+/// Guarantees the list is freed on all exit paths (including panics),
+/// and normalises a null pointer or negative length to an empty iteration.
+pub struct FfiList<T> {
+    ptr: *mut T,
+    len: i32,
+    free: unsafe extern "C" fn(*mut T),
+}
+
+impl<T> FfiList<T> {
+    /// Wrap a nullable FFI list pointer.
+    ///
+    /// `len_fn` takes `*const T` (read-only), `free` takes `*mut T` (ownership).
+    pub fn new(
+        ptr: *mut T,
+        len_fn: unsafe extern "C" fn(*const T) -> i32,
+        free: unsafe extern "C" fn(*mut T),
+    ) -> Self {
+        if ptr.is_null() {
+            return Self { ptr, len: 0, free };
+        }
+        let len = unsafe { len_fn(ptr.cast_const()) }.max(0);
+        Self { ptr, len, free }
+    }
+
+    #[inline]
+    pub const fn len(&self) -> i32 {
+        self.len
+    }
+
+    #[inline]
+    pub const fn as_ptr(&self) -> *mut T {
+        self.ptr
+    }
+}
+
+impl<T> Drop for FfiList<T> {
+    fn drop(&mut self) {
+        if !self.ptr.is_null() {
+            unsafe { (self.free)(self.ptr) };
+        }
+    }
+}
+
+/// Convert an FFI `i32` length to `usize`, clamping negatives to zero.
+#[inline]
+pub fn ffi_usize(raw: i32) -> usize {
+    raw.max(0) as usize
+}
+
+/// Convert a Rust `usize` length to FFI `i32`, returning an error on overflow.
+pub fn to_ffi_len(len: usize) -> Result<i32> {
+    i32::try_from(len).map_err(|_| Error::InvalidArgument("length exceeds i32::MAX".into()))
 }
