@@ -275,11 +275,10 @@ impl App {
             KeyCode::Right => self.switch_tab(self.next_tab()),
             KeyCode::Char('j') | KeyCode::Down => self.nav(1),
             KeyCode::Char('k') | KeyCode::Up => self.nav(-1),
-            KeyCode::Char('g') | KeyCode::Home
-                if !self.sidebar().is_empty() => {
-                    self.sidebar_idx = 0;
-                    self.open_selected();
-                }
+            KeyCode::Char('g') | KeyCode::Home if !self.sidebar().is_empty() => {
+                self.sidebar_idx = 0;
+                self.open_selected();
+            }
             KeyCode::Char('G') | KeyCode::End => {
                 let len = self.sidebar().len();
                 if len > 0 {
@@ -338,12 +337,11 @@ impl App {
                 self.cmd(Cmd::Sync);
                 self.flash("Syncing…");
             }
-            KeyCode::Char('m')
-                if self.active_id.is_some() => {
-                    self.mode = Mode::Members;
-                    self.refresh_hint();
-                    self.cmd(Cmd::LoadMembers);
-                }
+            KeyCode::Char('m') if self.active_id.is_some() => {
+                self.mode = Mode::Members;
+                self.refresh_hint();
+                self.cmd(Cmd::LoadMembers);
+            }
             _ => {}
         }
     }
@@ -450,10 +448,9 @@ impl App {
                 self.input.remove(idx);
             }
             KeyCode::Left => self.cursor = self.cursor.saturating_sub(1),
-            KeyCode::Right
-                if self.cursor < self.input.chars().count() => {
-                    self.cursor += 1;
-                }
+            KeyCode::Right if self.cursor < self.input.chars().count() => {
+                self.cursor += 1;
+            }
             KeyCode::Home => self.cursor = 0,
             KeyCode::End => self.cursor = self.input.chars().count(),
             KeyCode::Char(c) => {
@@ -473,10 +470,9 @@ impl App {
                 self.member_idx = 0;
                 self.refresh_hint();
             }
-            KeyCode::Down | KeyCode::Char('j')
-                if !self.members.is_empty() => {
-                    self.member_idx = (self.member_idx + 1) % self.members.len();
-                }
+            KeyCode::Down | KeyCode::Char('j') if !self.members.is_empty() => {
+                self.member_idx = (self.member_idx + 1) % self.members.len();
+            }
             KeyCode::Up | KeyCode::Char('k') => {
                 let len = self.members.len();
                 if len > 0 {
@@ -528,10 +524,9 @@ impl App {
                 self.perm_idx = 0;
                 self.refresh_hint();
             }
-            KeyCode::Down | KeyCode::Char('j')
-                if !self.permissions.is_empty() => {
-                    self.perm_idx = (self.perm_idx + 1) % self.permissions.len();
-                }
+            KeyCode::Down | KeyCode::Char('j') if !self.permissions.is_empty() => {
+                self.perm_idx = (self.perm_idx + 1) % self.permissions.len();
+            }
             KeyCode::Up | KeyCode::Char('k') => {
                 let len = self.permissions.len();
                 if len > 0 {
