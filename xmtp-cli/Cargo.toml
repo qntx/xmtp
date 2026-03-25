@@ -19,6 +19,7 @@ unicode-width.workspace = true
 ratatui.workspace = true
 getrandom.workspace = true
 serde_json.workspace = true
+tui-checkbox = "0.4.3"
 
 [package.metadata.binstall]
 pkg-url = "{ repo }/releases/download/v{ version }/xmtp-{ version }-{ target }{ archive-suffix }"

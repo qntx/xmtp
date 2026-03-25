@@ -114,7 +114,7 @@ pub enum Cmd {
     /// Open conversation by ID, load its messages.
     Open(String),
     /// Send text in the active conversation.
-    Send(String),
+    Send((String, bool)),
     /// Create DM with a recipient (address, ENS name, or inbox ID).
     CreateDm(String),
     /// Create group with optional name and member recipients.

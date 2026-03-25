@@ -9,6 +9,7 @@ use serde_json::{Value, json};
 use xmtp::{
     ConsentState, ConversationOrderBy, ConversationType, CreateGroupOptions, DeliveryStatus,
     ListConversationsOptions, ListMessagesOptions, MessageKind, Recipient, SortDirection, stream,
+    content, types::SendOptions,
 };
 
 use super::config;
@@ -180,14 +181,16 @@ pub fn messages(
 }
 
 /// `xmtp send <conv_id> <text> [--json]`
-pub fn send(profile: &str, conv_id: &str, text: &str, json: bool) -> xmtp::Result<()> {
+pub fn send(profile: &str, conv_id: &str, text: &str, with_push: &bool, json: bool) -> xmtp::Result<()> {
     let (_, client) = config::open_client(profile)?;
 
     let conv = client.conversation(conv_id)?.ok_or_else(|| {
         xmtp::Error::InvalidArgument(format!("conversation not found: {conv_id}"))
     })?;
-
-    let msg_id = conv.send_text(text)?;
+    let send_options = SendOptions {
+        should_push: *with_push,
+    };
+    let msg_id = conv.send_with(&content::encode_text(text), &send_options)?;
 
     if json {
         emit(&json!({"ok": true, "message_id": msg_id, "conversation_id": conv_id}));

@@ -9,7 +9,7 @@ use std::sync::mpsc;
 use xmtp::{
     Client, ConsentState, ConversationOrderBy, ConversationType, CreateGroupOptions,
     DeliveryStatus, EnsResolver, ListConversationsOptions, ListMessagesOptions, Message, Recipient,
-    SortDirection, stream,
+    SortDirection, stream, content, types::SendOptions,
 };
 
 use crate::cmd::config;
@@ -170,7 +170,7 @@ impl Worker {
     fn dispatch(&mut self, cmd: Cmd) {
         match cmd {
             Cmd::Open(id) => self.open(&id),
-            Cmd::Send(text) => self.send_text(&text),
+            Cmd::Send((text, with_push)) => self.send_text(&text, with_push),
             Cmd::CreateDm(input) => self.create_dm(&input),
             Cmd::CreateGroup { name, addrs } => self.create_group(name, addrs),
             Cmd::SetConsent { id, state } => self.set_consent(&id, state),
@@ -268,11 +268,14 @@ impl Worker {
         }
     }
 
-    fn send_text(&mut self, text: &str) {
+    fn send_text(&mut self, text: &str, with_push: bool) {
         let Some((id, conv)) = self.active.take() else {
             return;
         };
-        match conv.send_text_optimistic(text) {
+        let send_options = SendOptions {
+            should_push: with_push,
+        };
+        match conv.send_optimistic_with(&content::encode_text(text), &send_options) {
             Ok(_) => {
                 self.send_msgs(&id, &conv);
                 if let Err(e) = conv.publish_messages() {
