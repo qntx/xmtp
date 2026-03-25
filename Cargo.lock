@@ -5377,7 +5377,6 @@ dependencies = [
  "ratatui",
  "serde_json",
  "tokio",
- "tui-checkbox",
  "unicode-width",
  "xmtp",
 ]
