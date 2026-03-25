@@ -103,8 +103,9 @@ pub enum Command {
         conv: String,
         /// Message text.
         text: String,
-        /// Ppush notification switch
-        with_push: bool,
+        /// Set push notification option
+        #[arg(long)]
+        push: Option<Option<bool>>,
         /// Profile name (uses default if omitted).
         #[arg(long)]
         profile: Option<String>,

@@ -112,10 +112,16 @@ fn dispatch(command: &Command) -> xmtp::Result<()> {
         Command::Send {
             conv,
             text,
-            with_push,
+            push,
             profile,
             output,
-        } => cmd::agent::send(&resolve_profile(profile.clone()), conv, text, with_push, output.json),
+        } => cmd::agent::send(
+            &resolve_profile(profile.clone()),
+            conv,
+            text,
+            push,
+            output.json,
+        ),
         Command::Dm {
             address,
             profile,

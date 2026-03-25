@@ -5,11 +5,11 @@
 
 use std::io::{self, Write};
 
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use xmtp::{
-    ConsentState, ConversationOrderBy, ConversationType, CreateGroupOptions, DeliveryStatus,
-    ListConversationsOptions, ListMessagesOptions, MessageKind, Recipient, SortDirection, stream,
-    content, types::SendOptions,
+    content, stream, types::SendOptions, ConsentState, ConversationOrderBy, ConversationType,
+    CreateGroupOptions, DeliveryStatus, ListConversationsOptions, ListMessagesOptions, MessageKind,
+    Recipient, SortDirection,
 };
 
 use super::config;
@@ -181,15 +181,27 @@ pub fn messages(
 }
 
 /// `xmtp send <conv_id> <text> [--json]`
-pub fn send(profile: &str, conv_id: &str, text: &str, with_push: &bool, json: bool) -> xmtp::Result<()> {
+pub fn send(
+    profile: &str,
+    conv_id: &str,
+    text: &str,
+    with_push: &Option<Option<bool>>,
+    json: bool,
+) -> xmtp::Result<()> {
     let (_, client) = config::open_client(profile)?;
 
     let conv = client.conversation(conv_id)?.ok_or_else(|| {
         xmtp::Error::InvalidArgument(format!("conversation not found: {conv_id}"))
     })?;
-    let send_options = SendOptions {
-        should_push: *with_push,
+    let send_options = if let Some(push) = with_push {
+        match &*push {
+            Some(true) | None => SendOptions { should_push: true },
+            Some(false) => SendOptions { should_push: false },
+        }
+    } else {
+        SendOptions { should_push: false }
     };
+
     let msg_id = conv.send_with(&content::encode_text(text), &send_options)?;
 
     if json {

@@ -2,11 +2,11 @@
 
 use std::time::SystemTime;
 
-use ratatui::Frame;
 use ratatui::layout::{Alignment, Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph, Wrap};
+use ratatui::Frame;
 use tui_checkbox::Checkbox;
 use unicode_width::UnicodeWidthStr;
 use xmtp::PermissionPolicy;
@@ -431,8 +431,8 @@ fn draw_input(app: &App, frame: &mut Frame<'_>, area: Rect) {
     frame.render_widget(Paragraph::new(content).block(block), area);
     let push_notification_checkbox = Checkbox::new("Send Push Notification", true)
         .style(Style::default().fg(DIM))
-        .checked_symbol("🗹")
-        .unchecked_symbol("☐");
+        .checked_symbol("✅")
+        .unchecked_symbol("❌");
     frame.render_widget(push_notification_checkbox, area);
 }
 
