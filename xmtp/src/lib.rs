@@ -1,3 +1,4 @@
+#![cfg_attr(docsrs, feature(doc_auto_cfg))]
 #![doc = include_str!("../README.md")]
 #![allow(unsafe_code)]
 // FFI wrapper crate: i32 ↔ usize casts at the C boundary are systematic and
