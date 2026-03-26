@@ -185,7 +185,7 @@ pub fn send(
     profile: &str,
     conv_id: &str,
     text: &str,
-    with_push: &Option<Option<bool>>,
+    send_push_notification: &Option<Option<bool>>,
     json: bool,
 ) -> xmtp::Result<()> {
     let (_, client) = config::open_client(profile)?;
@@ -193,7 +193,7 @@ pub fn send(
     let conv = client.conversation(conv_id)?.ok_or_else(|| {
         xmtp::Error::InvalidArgument(format!("conversation not found: {conv_id}"))
     })?;
-    let send_options = if let Some(push) = with_push {
+    let send_options = if let Some(push) = send_push_notification {
         match &*push {
             Some(true) | None => SendOptions { should_push: true },
             Some(false) => SendOptions { should_push: false },

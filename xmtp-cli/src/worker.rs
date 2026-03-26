@@ -170,7 +170,7 @@ impl Worker {
     fn dispatch(&mut self, cmd: Cmd) {
         match cmd {
             Cmd::Open(id) => self.open(&id),
-            Cmd::Send((text, with_push)) => self.send_text(&text, with_push),
+            Cmd::Send((text, send_push_notification)) => self.send_text(&text, send_push_notification),
             Cmd::CreateDm(input) => self.create_dm(&input),
             Cmd::CreateGroup { name, addrs } => self.create_group(name, addrs),
             Cmd::SetConsent { id, state } => self.set_consent(&id, state),
@@ -268,12 +268,12 @@ impl Worker {
         }
     }
 
-    fn send_text(&mut self, text: &str, with_push: bool) {
+    fn send_text(&mut self, text: &str, send_push_notification: bool) {
         let Some((id, conv)) = self.active.take() else {
             return;
         };
         let send_options = SendOptions {
-            should_push: with_push,
+            should_push: send_push_notification,
         };
         match conv.send_optimistic_with(&content::encode_text(text), &send_options) {
             Ok(_) => {
