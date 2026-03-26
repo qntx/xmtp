@@ -74,6 +74,7 @@ pub struct App {
     pub perm_idx: usize,
 
     pub input: String,
+    pub push: bool,
     pub cursor: usize,
 
     /// Pending group creation state.
@@ -111,6 +112,7 @@ impl App {
             permissions: Vec::new(),
             perm_idx: 0,
             input: String::new(),
+            push: true,
             cursor: 0,
             group_name: None,
             group_members: Vec::new(),
@@ -364,11 +366,18 @@ impl App {
                 if !text.is_empty() && self.active_id.is_some() {
                     self.input.clear();
                     self.cursor = 0;
-                    self.cmd(Cmd::Send(text));
+                    self.cmd(Cmd::Send {
+                        text,
+                        push: self.push,
+                    });
                 }
             }
             KeyCode::Up => self.scroll_up(3),
             KeyCode::Down => self.scroll_down(3),
+            KeyCode::Char('p') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                self.push = !self.push;
+                self.refresh_hint();
+            }
             _ => self.edit_input(key.code),
         }
     }
@@ -676,7 +685,13 @@ impl App {
                     Tab::Requests => " ↑↓:nav  a:accept  x:reject  ←→:tab  ?:help  q:quit",
                     Tab::Hidden => " ↑↓:nav  a:allow  u:undo  ←→:tab  r:sync  ?:help  q:quit",
                 },
-                Focus::Input => " Enter:send  Esc:back  ↑↓:scroll  Tab:members",
+                Focus::Input => {
+                    if self.push {
+                        " Enter:send  Esc:back  ↑↓:scroll  Tab:members  C-p:push[on]"
+                    } else {
+                        " Enter:send  Esc:back  ↑↓:scroll  Tab:members  C-p:push[off]"
+                    }
+                }
             },
             Mode::Prompt(Prompt::GroupMembers) => {
                 let n = self.group_members.len();

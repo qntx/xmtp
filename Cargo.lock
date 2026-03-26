@@ -4633,6 +4633,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e421abadd41a4225275504ea4d6566923418b7f05506fbc9c0fe86ba7396114b"
 
 [[package]]
+name = "tui-checkbox"
+version = "0.4.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dae4cda3b483816dde955a94f54e7f5893ed44a8b41f0003101475e433102b65"
+dependencies = [
+ "ratatui",
+]
+
+[[package]]
 name = "typed-path"
 version = "0.12.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5353,6 +5362,7 @@ dependencies = [
  "prost",
  "thiserror 2.0.18",
  "tokio",
+ "tui-checkbox",
  "url",
  "xmtp-sys",
 ]
