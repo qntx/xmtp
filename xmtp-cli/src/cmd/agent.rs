@@ -193,12 +193,11 @@ pub fn send(
     let conv = client.conversation(conv_id)?.ok_or_else(|| {
         xmtp::Error::InvalidArgument(format!("conversation not found: {conv_id}"))
     })?;
-    let send_options = send_push_notification.map_or(SendOptions { should_push: false }, |push| {
-        match push {
+    let send_options =
+        send_push_notification.map_or(SendOptions { should_push: false }, |push| match push {
             Some(true) | None => SendOptions { should_push: true },
             Some(false) => SendOptions { should_push: false },
-        }
-    });
+        });
     let msg_id = conv.send_with(&content::encode_text(text), &send_options)?;
 
     if json {
