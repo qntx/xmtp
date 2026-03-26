@@ -10,6 +10,7 @@ use prost::Message as ProstMessage;
 
 use crate::conversation::{Conversation, Message};
 use crate::error::Result;
+use crate::types::SendOptions;
 
 /// Content type identifier on the XMTP network.
 #[derive(Clone, PartialEq, Eq, Hash, ProstMessage)]
@@ -601,7 +602,10 @@ impl Conversation {
     pub fn send_text(&self, text: &str) -> Result<String> {
         self.send(&encode_text(text))
     }
-
+    /// Send plan test message with options.
+    pub fn send_text_with(&self, text: &str, opts: &SendOptions) -> Result<String> {
+        self.send_with(&encode_text(text), opts)
+    }
     /// Send a markdown message.
     pub fn send_markdown(&self, markdown: &str) -> Result<String> {
         self.send(&encode_markdown(markdown))
@@ -645,6 +649,11 @@ impl Conversation {
     /// Optimistically send a plain text message (returns immediately).
     pub fn send_text_optimistic(&self, text: &str) -> Result<String> {
         self.send_optimistic(&encode_text(text))
+    }
+
+    /// Optimistically send a plain text message with options.
+    pub fn send_text_optimistic_with(&self, text: &str, opts: &SendOptions) -> Result<String> {
+        self.send_optimistic_with(&encode_text(text), opts)
     }
 
     /// Optimistically send a markdown message.

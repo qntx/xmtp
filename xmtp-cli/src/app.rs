@@ -74,7 +74,7 @@ pub struct App {
     pub perm_idx: usize,
 
     pub input: String,
-    pub send_push_notifications: bool,
+    pub push: bool,
     pub cursor: usize,
 
     /// Pending group creation state.
@@ -112,7 +112,7 @@ impl App {
             permissions: Vec::new(),
             perm_idx: 0,
             input: String::new(),
-            send_push_notifications: true,
+            push: true,
             cursor: 0,
             group_name: None,
             group_members: Vec::new(),
@@ -366,13 +366,16 @@ impl App {
                 if !text.is_empty() && self.active_id.is_some() {
                     self.input.clear();
                     self.cursor = 0;
-                    self.cmd(Cmd::Send((text, self.send_push_notifications)));
+                    self.cmd(Cmd::Send {
+                        text,
+                        push: self.push,
+                    });
                 }
             }
             KeyCode::Up => self.scroll_up(3),
             KeyCode::Down => self.scroll_down(3),
             KeyCode::Char('p') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                self.send_push_notifications = !self.send_push_notifications;
+                self.push = !self.push;
                 self.refresh_hint();
             }
             _ => self.edit_input(key.code),
@@ -683,12 +686,12 @@ impl App {
                     Tab::Hidden => " ↑↓:nav  a:allow  u:undo  ←→:tab  r:sync  ?:help  q:quit",
                 },
                 Focus::Input => {
-                    if self.send_push_notifications {
-                        " Enter:send  Esc:back  ↑↓:scroll  Tab:members                       🔔 PUSH NOTIFICATION SENDING ENABLED 🔔 (Ctrl+p:disable)"
+                    if self.push {
+                        " Enter:send  Esc:back  ↑↓:scroll  Tab:members  C-p:push[on]"
                     } else {
-                        " Enter:send  Esc:back  ↑↓:scroll  Tab:members                          push notification sending disabled (Ctrl+p:enable)"
+                        " Enter:send  Esc:back  ↑↓:scroll  Tab:members  C-p:push[off]"
                     }
-                },
+                }
             },
             Mode::Prompt(Prompt::GroupMembers) => {
                 let n = self.group_members.len();

@@ -8,8 +8,8 @@ use std::io::{self, Write};
 use serde_json::{Value, json};
 use xmtp::{
     ConsentState, ConversationOrderBy, ConversationType, CreateGroupOptions, DeliveryStatus,
-    ListConversationsOptions, ListMessagesOptions, MessageKind, Recipient, SortDirection, content,
-    stream, types::SendOptions,
+    ListConversationsOptions, ListMessagesOptions, MessageKind, Recipient, SendOptions,
+    SortDirection, stream,
 };
 
 use super::config;
@@ -181,24 +181,15 @@ pub fn messages(
 }
 
 /// `xmtp send <conv_id> <text> [--json]`
-pub fn send(
-    profile: &str,
-    conv_id: &str,
-    text: &str,
-    send_push_notification: bool,
-    json: bool,
-) -> xmtp::Result<()> {
+pub fn send(profile: &str, conv_id: &str, text: &str, push: bool, json: bool) -> xmtp::Result<()> {
     let (_, client) = config::open_client(profile)?;
 
     let conv = client.conversation(conv_id)?.ok_or_else(|| {
         xmtp::Error::InvalidArgument(format!("conversation not found: {conv_id}"))
     })?;
 
-    let send_options = SendOptions {
-        should_push: send_push_notification,
-    };
-
-    let msg_id = conv.send_with(&content::encode_text(text), &send_options)?;
+    let opts = SendOptions { should_push: push };
+    let msg_id = conv.send_text_with(text, &opts)?;
 
     if json {
         emit(&json!({"ok": true, "message_id": msg_id, "conversation_id": conv_id}));

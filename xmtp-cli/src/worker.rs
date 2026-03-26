@@ -9,7 +9,7 @@ use std::sync::mpsc;
 use xmtp::{
     Client, ConsentState, ConversationOrderBy, ConversationType, CreateGroupOptions,
     DeliveryStatus, EnsResolver, ListConversationsOptions, ListMessagesOptions, Message, Recipient,
-    SortDirection, content, stream, types::SendOptions,
+    SortDirection, stream, types::SendOptions,
 };
 
 use crate::cmd::config;
@@ -170,8 +170,8 @@ impl Worker {
     fn dispatch(&mut self, cmd: Cmd) {
         match cmd {
             Cmd::Open(id) => self.open(&id),
-            Cmd::Send((text, send_push_notification)) => {
-                self.send_text(&text, send_push_notification);
+            Cmd::Send { text, push } => {
+                self.send_text(&text, push);
             }
             Cmd::CreateDm(input) => self.create_dm(&input),
             Cmd::CreateGroup { name, addrs } => self.create_group(name, addrs),
@@ -270,14 +270,12 @@ impl Worker {
         }
     }
 
-    fn send_text(&mut self, text: &str, send_push_notification: bool) {
+    fn send_text(&mut self, text: &str, push: bool) {
         let Some((id, conv)) = self.active.take() else {
             return;
         };
-        let send_options = SendOptions {
-            should_push: send_push_notification,
-        };
-        match conv.send_optimistic_with(&content::encode_text(text), &send_options) {
+        let opts = SendOptions { should_push: push };
+        match conv.send_text_optimistic_with(text, &opts) {
             Ok(_) => {
                 self.send_msgs(&id, &conv);
                 if let Err(e) = conv.publish_messages() {
