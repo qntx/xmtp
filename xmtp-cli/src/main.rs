@@ -119,7 +119,7 @@ fn dispatch(command: &Command) -> xmtp::Result<()> {
             &resolve_profile(profile.clone()),
             conv,
             text,
-            push,
+            *push,
             output.json,
         ),
         Command::Dm {

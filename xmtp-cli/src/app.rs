@@ -683,9 +683,10 @@ impl App {
                     Tab::Hidden => " ↑↓:nav  a:allow  u:undo  ←→:tab  r:sync  ?:help  q:quit",
                 },
                 Focus::Input => {
-                    match self.send_push_notifications {
-                    true => " Enter:send  Esc:back  ↑↓:scroll  Tab:members                       🔔 PUSH NOTIFICATION SENDING ENABLED 🔔 (Ctrl+p:disable)",
-                        false => " Enter:send  Esc:back  ↑↓:scroll  Tab:members                          push notification sending disabled (Ctrl+p:enable)",
+                    if self.send_push_notifications {
+                        " Enter:send  Esc:back  ↑↓:scroll  Tab:members                       🔔 PUSH NOTIFICATION SENDING ENABLED 🔔 (Ctrl+p:disable)"
+                    } else {
+                        " Enter:send  Esc:back  ↑↓:scroll  Tab:members                          push notification sending disabled (Ctrl+p:enable)"
                     }
                 },
             },
