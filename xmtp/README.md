@@ -15,6 +15,40 @@ Safe, ergonomic Rust SDK for the [XMTP](https://xmtp.org) messaging protocol.
 
 Wraps the [`xmtp-sys`](https://crates.io/crates/xmtp-sys) FFI bindings with idiomatic Rust types, providing a high-level `Client` → `Conversation` → `Message` API for E2E encrypted DMs, groups, content types, identity management, ENS resolution, and real-time streaming.
 
+## Linking
+
+The underlying `xmtp-sys` crate links a pre-built Rust `staticlib` that bundles its own
+copy of `std`. This causes duplicate symbol errors (e.g. `rust_eh_personality`) when
+building a Rust binary. Add one of the following workarounds to your **binary crate**:
+
+**Option A** — `build.rs`:
+
+```rust,ignore
+fn main() {
+    let target = std::env::var("TARGET").unwrap_or_default();
+    if target.contains("linux") {
+        println!("cargo:rustc-link-arg=-Wl,--allow-multiple-definition");
+    } else if target.contains("windows") && target.contains("msvc") {
+        println!("cargo:rustc-link-arg=/FORCE:MULTIPLE");
+    } else if target.contains("apple") {
+        println!("cargo:rustc-link-arg=-Wl,-multiply_defined,suppress");
+    }
+}
+```
+
+**Option B** — `.cargo/config.toml`:
+
+```toml
+[target.'cfg(target_os = "linux")']
+rustflags = ["-C", "link-arg=-Wl,--allow-multiple-definition"]
+
+[target.'cfg(all(target_os = "windows", target_env = "msvc"))']
+rustflags = ["-C", "link-arg=/FORCE:MULTIPLE"]
+
+[target.'cfg(target_os = "macos")']
+rustflags = ["-C", "link-arg=-Wl,-multiply_defined,suppress"]
+```
+
 ## Quick Start
 
 ```rust,ignore

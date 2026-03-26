@@ -1,4 +1,6 @@
-# xmtp
+<!-- markdownlint-disable MD033 MD041 MD036 -->
+
+# XMTP
 
 [![CI][ci-badge]][ci-url]
 [![License][license-badge]][license-url]
@@ -78,6 +80,10 @@ xmtp clear         # delete ALL profiles
 # Revoke all other installations (requires wallet signature)
 xmtp revoke alice
 ```
+
+### Linking
+
+The `xmtp-sys` crate links a pre-built Rust `staticlib` that bundles its own copy of `std`, which causes duplicate symbol errors when building a Rust binary. See the [`xmtp` crate docs](https://docs.rs/xmtp#linking) for the one-time workaround (`build.rs` or `.cargo/config.toml`).
 
 ### Library
 

@@ -12,6 +12,40 @@
 //!
 //! For local development, set `XMTP_FFI_DIR` to point at the `xmtp-ffi` crate root
 //! (e.g. `../xmtp-ffi`) — it must contain `include/xmtp_ffi.h` and a built static lib.
+//!
+//! # Linking: duplicate symbol workaround
+//!
+//! The pre-built `libxmtp_ffi` is a Rust `staticlib` that bundles its own copy of `std`.
+//! When linked into another Rust binary, you may get duplicate symbol errors (e.g.
+//! `rust_eh_personality`). Your **binary crate** must tell the linker to tolerate this.
+//!
+//! **Option A** — add a `build.rs` to your binary crate:
+//!
+//! ```rust,ignore
+//! fn main() {
+//!     let target = std::env::var("TARGET").unwrap_or_default();
+//!     if target.contains("linux") {
+//!         println!("cargo:rustc-link-arg=-Wl,--allow-multiple-definition");
+//!     } else if target.contains("windows") && target.contains("msvc") {
+//!         println!("cargo:rustc-link-arg=/FORCE:MULTIPLE");
+//!     } else if target.contains("apple") {
+//!         println!("cargo:rustc-link-arg=-Wl,-multiply_defined,suppress");
+//!     }
+//! }
+//! ```
+//!
+//! **Option B** — add a `.cargo/config.toml` to your project:
+//!
+//! ```toml,ignore
+//! [target.'cfg(target_os = "linux")']
+//! rustflags = ["-C", "link-arg=-Wl,--allow-multiple-definition"]
+//!
+//! [target.'cfg(all(target_os = "windows", target_env = "msvc"))']
+//! rustflags = ["-C", "link-arg=/FORCE:MULTIPLE"]
+//!
+//! [target.'cfg(target_os = "macos")']
+//! rustflags = ["-C", "link-arg=-Wl,-multiply_defined,suppress"]
+//! ```
 
 // sys crate: unsafe FFI, non-idiomatic generated code
 #![allow(
