@@ -5,11 +5,11 @@
 
 use std::io::{self, Write};
 
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use xmtp::{
-    content, stream, types::SendOptions, ConsentState, ConversationOrderBy, ConversationType,
-    CreateGroupOptions, DeliveryStatus, ListConversationsOptions, ListMessagesOptions, MessageKind,
-    Recipient, SortDirection,
+    ConsentState, ConversationOrderBy, ConversationType, CreateGroupOptions, DeliveryStatus,
+    ListConversationsOptions, ListMessagesOptions, MessageKind, Recipient, SortDirection, content,
+    stream, types::SendOptions,
 };
 
 use super::config;
