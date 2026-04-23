@@ -320,7 +320,7 @@ pub unsafe extern "C" fn xmtp_stream_preferences(
             c.inner.clone(),
             move |result| match result {
                 Ok(updates) => {
-                    use xmtp_mls::groups::device_sync::preference_sync::PreferenceUpdate;
+                    use xmtp_mls::worker::device_sync::preference_sync::PreferenceUpdate;
                     let c_updates: Vec<FfiPreferenceUpdate> = updates
                         .into_iter()
                         .map(|u| match u {

@@ -1690,9 +1690,9 @@ checksum = "75984efb6ed102a0d42db99afb6c1948f0380d1d91808d5529916e6c08b49d8d"
 
 [[package]]
 name = "const-hex"
-version = "1.17.0"
+version = "1.18.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3bb320cac8a0750d7f25280aa97b09c26edfe161164238ecbbb31092b079e735"
+checksum = "531185e432bb31db1ecda541e9e7ab21468d4d844ad7505e0546a49b4945d49b"
 dependencies = [
  "cfg-if",
  "cpufeatures 0.2.17",
@@ -3140,7 +3140,7 @@ dependencies = [
  "libc",
  "percent-encoding",
  "pin-project-lite",
- "socket2 0.6.1",
+ "socket2 0.5.10",
  "tokio",
  "tower-service",
  "tracing",
@@ -3477,9 +3477,9 @@ checksum = "09edd9e8b54e49e587e4f6295a7d29c3ea94d469cb40ab8ca70b288248a81db2"
 
 [[package]]
 name = "libc"
-version = "0.2.178"
+version = "0.2.185"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "37c93d8daa9d8a012fd8ab92f088405fb202ea0b6ab73ee2482ae66af4f42091"
+checksum = "52ff2c0fe9bc6cb6b14a0592c2ff4fa9ceb83eea9db979b0487cd054946a2b8f"
 
 [[package]]
 name = "libcrux-aead"
@@ -3853,9 +3853,9 @@ dependencies = [
 
 [[package]]
 name = "mio"
-version = "1.1.1"
+version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a69bcab0ad47271a0234d9422b131806bf3968021e5dc9328caf2d4cd58557fc"
+checksum = "50b7e5b27aa02a74bac8c3f23f448f8d87ff11f92d3aac1a6ed369ee08cc56c1"
 dependencies = [
  "libc",
  "wasi",
@@ -4640,7 +4640,7 @@ dependencies = [
  "quinn-udp",
  "rustc-hash",
  "rustls",
- "socket2 0.6.1",
+ "socket2 0.5.10",
  "thiserror 2.0.17",
  "tokio",
  "tracing",
@@ -4677,7 +4677,7 @@ dependencies = [
  "cfg_aliases",
  "libc",
  "once_cell",
- "socket2 0.6.1",
+ "socket2 0.5.10",
  "tracing",
  "windows-sys 0.60.2",
 ]
@@ -5598,12 +5598,12 @@ dependencies = [
 
 [[package]]
 name = "socket2"
-version = "0.6.1"
+version = "0.6.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "17129e116933cf371d018bb80ae557e889637989d8638274fb25622827b03881"
+checksum = "3a766e1110788c36f4fa1c2b71b387a7815aa65f88ce0229841826633d93723e"
 dependencies = [
  "libc",
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -5907,9 +5907,9 @@ dependencies = [
 
 [[package]]
 name = "tokio"
-version = "1.48.0"
+version = "1.52.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ff360e02eab121e0bc37a2d3b4d4dc622e6eda3a8e5253d5435ecf5bd4c68408"
+checksum = "b67dee974fe86fd92cc45b7a95fdd2f99a36a6d7b0d431a231178d3d670bbcc6"
 dependencies = [
  "bytes",
  "libc",
@@ -5917,7 +5917,7 @@ dependencies = [
  "parking_lot 0.12.5",
  "pin-project-lite",
  "signal-hook-registry",
- "socket2 0.6.1",
+ "socket2 0.6.3",
  "tokio-macros",
  "tracing",
  "windows-sys 0.61.2",
@@ -5925,9 +5925,9 @@ dependencies = [
 
 [[package]]
 name = "tokio-macros"
-version = "2.6.0"
+version = "2.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "af407857209536a95c8e56f8231ef2c2e2aff839b22e07a1ffcbc617e9db9fa5"
+checksum = "385a6cb71ab9ab790c5fe8d67f1645e6c450a7ce006a33de03daa956cf70a496"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -6074,7 +6074,7 @@ dependencies = [
  "percent-encoding",
  "pin-project",
  "rustls-native-certs",
- "socket2 0.6.1",
+ "socket2 0.6.3",
  "sync_wrapper",
  "tokio",
  "tokio-rustls",
@@ -6267,9 +6267,9 @@ dependencies = [
 
 [[package]]
 name = "tracing-subscriber"
-version = "0.3.22"
+version = "0.3.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2f30143827ddab0d256fd843b7a66d164e9f271cfa0dde49142c5ca0ca291f1e"
+checksum = "cb7f578e5945fb242538965c2d0b04418d38ec25c79d160cd279bf0731c8d319"
 dependencies = [
  "chrono",
  "matchers",
@@ -7219,7 +7219,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp-ffi"
-version = "0.1.10"
+version = "0.1.11"
 dependencies = [
  "cbindgen",
  "const-hex",
@@ -7244,7 +7244,7 @@ dependencies = [
 [[package]]
 name = "xmtp-workspace-hack"
 version = "0.1.0"
-source = "git+https://github.com/qntx/libxmtp?rev=fff77f2#fff77f2cb2e5261d0afc90dad66fb51db7ccd12e"
+source = "git+https://github.com/xmtp/libxmtp?tag=v1.10.0#5c42da539cb3bd0f090499d543621cba7f7d2a93"
 dependencies = [
  "aead",
  "aes-gcm",
@@ -7346,16 +7346,14 @@ dependencies = [
  "uniffi_bindgen",
  "uniffi_core",
  "wasm-bindgen",
- "wasm-bindgen-futures",
- "web-sys",
  "winnow",
  "zerocopy",
 ]
 
 [[package]]
 name = "xmtp_api"
-version = "1.9.0"
-source = "git+https://github.com/qntx/libxmtp?rev=fff77f2#fff77f2cb2e5261d0afc90dad66fb51db7ccd12e"
+version = "1.10.0"
+source = "git+https://github.com/xmtp/libxmtp?tag=v1.10.0#5c42da539cb3bd0f090499d543621cba7f7d2a93"
 dependencies = [
  "async-trait",
  "const-hex",
@@ -7372,8 +7370,8 @@ dependencies = [
 
 [[package]]
 name = "xmtp_api_d14n"
-version = "1.9.0"
-source = "git+https://github.com/qntx/libxmtp?rev=fff77f2#fff77f2cb2e5261d0afc90dad66fb51db7ccd12e"
+version = "1.10.0"
+source = "git+https://github.com/xmtp/libxmtp?tag=v1.10.0#5c42da539cb3bd0f090499d543621cba7f7d2a93"
 dependencies = [
  "arc-swap",
  "async-trait",
@@ -7388,6 +7386,7 @@ dependencies = [
  "openmls",
  "openmls_rust_crypto",
  "parking_lot 0.12.5",
+ "pbjson-types",
  "pin-project",
  "prost",
  "thiserror 2.0.17",
@@ -7405,8 +7404,8 @@ dependencies = [
 
 [[package]]
 name = "xmtp_api_grpc"
-version = "1.9.0"
-source = "git+https://github.com/qntx/libxmtp?rev=fff77f2#fff77f2cb2e5261d0afc90dad66fb51db7ccd12e"
+version = "1.10.0"
+source = "git+https://github.com/xmtp/libxmtp?tag=v1.10.0#5c42da539cb3bd0f090499d543621cba7f7d2a93"
 dependencies = [
  "async-trait",
  "futures",
@@ -7430,8 +7429,8 @@ dependencies = [
 
 [[package]]
 name = "xmtp_archive"
-version = "1.9.0"
-source = "git+https://github.com/qntx/libxmtp?rev=fff77f2#fff77f2cb2e5261d0afc90dad66fb51db7ccd12e"
+version = "1.10.0"
+source = "git+https://github.com/xmtp/libxmtp?tag=v1.10.0#5c42da539cb3bd0f090499d543621cba7f7d2a93"
 dependencies = [
  "aes-gcm",
  "async-compression",
@@ -7460,8 +7459,8 @@ dependencies = [
 
 [[package]]
 name = "xmtp_common"
-version = "1.9.0"
-source = "git+https://github.com/qntx/libxmtp?rev=fff77f2#fff77f2cb2e5261d0afc90dad66fb51db7ccd12e"
+version = "1.10.0"
+source = "git+https://github.com/xmtp/libxmtp?tag=v1.10.0#5c42da539cb3bd0f090499d543621cba7f7d2a93"
 dependencies = [
  "async-trait",
  "const-hex",
@@ -7490,8 +7489,8 @@ dependencies = [
 
 [[package]]
 name = "xmtp_configuration"
-version = "1.9.0"
-source = "git+https://github.com/qntx/libxmtp?rev=fff77f2#fff77f2cb2e5261d0afc90dad66fb51db7ccd12e"
+version = "1.10.0"
+source = "git+https://github.com/xmtp/libxmtp?tag=v1.10.0#5c42da539cb3bd0f090499d543621cba7f7d2a93"
 dependencies = [
  "openmls",
  "url",
@@ -7502,8 +7501,8 @@ dependencies = [
 
 [[package]]
 name = "xmtp_content_types"
-version = "1.9.0"
-source = "git+https://github.com/qntx/libxmtp?rev=fff77f2#fff77f2cb2e5261d0afc90dad66fb51db7ccd12e"
+version = "1.10.0"
+source = "git+https://github.com/xmtp/libxmtp?tag=v1.10.0#5c42da539cb3bd0f090499d543621cba7f7d2a93"
 dependencies = [
  "aes-gcm",
  "base64 0.22.1",
@@ -7523,8 +7522,8 @@ dependencies = [
 
 [[package]]
 name = "xmtp_cryptography"
-version = "1.9.0"
-source = "git+https://github.com/qntx/libxmtp?rev=fff77f2#fff77f2cb2e5261d0afc90dad66fb51db7ccd12e"
+version = "1.10.0"
+source = "git+https://github.com/xmtp/libxmtp?tag=v1.10.0#5c42da539cb3bd0f090499d543621cba7f7d2a93"
 dependencies = [
  "alloy",
  "const-hex",
@@ -7547,8 +7546,8 @@ dependencies = [
 
 [[package]]
 name = "xmtp_db"
-version = "1.9.0"
-source = "git+https://github.com/qntx/libxmtp?rev=fff77f2#fff77f2cb2e5261d0afc90dad66fb51db7ccd12e"
+version = "1.10.0"
+source = "git+https://github.com/xmtp/libxmtp?tag=v1.10.0#5c42da539cb3bd0f090499d543621cba7f7d2a93"
 dependencies = [
  "arc-swap",
  "bincode",
@@ -7586,8 +7585,8 @@ dependencies = [
 
 [[package]]
 name = "xmtp_id"
-version = "1.9.0"
-source = "git+https://github.com/qntx/libxmtp?rev=fff77f2#fff77f2cb2e5261d0afc90dad66fb51db7ccd12e"
+version = "1.10.0"
+source = "git+https://github.com/xmtp/libxmtp?tag=v1.10.0#5c42da539cb3bd0f090499d543621cba7f7d2a93"
 dependencies = [
  "alloy",
  "async-trait",
@@ -7618,8 +7617,8 @@ dependencies = [
 
 [[package]]
 name = "xmtp_macro"
-version = "1.9.0"
-source = "git+https://github.com/qntx/libxmtp?rev=fff77f2#fff77f2cb2e5261d0afc90dad66fb51db7ccd12e"
+version = "1.10.0"
+source = "git+https://github.com/xmtp/libxmtp?tag=v1.10.0#5c42da539cb3bd0f090499d543621cba7f7d2a93"
 dependencies = [
  "num_cpus",
  "proc-macro2",
@@ -7630,8 +7629,8 @@ dependencies = [
 
 [[package]]
 name = "xmtp_mls"
-version = "1.9.0"
-source = "git+https://github.com/qntx/libxmtp?rev=fff77f2#fff77f2cb2e5261d0afc90dad66fb51db7ccd12e"
+version = "1.10.0"
+source = "git+https://github.com/xmtp/libxmtp?tag=v1.10.0#5c42da539cb3bd0f090499d543621cba7f7d2a93"
 dependencies = [
  "aes-gcm",
  "async-trait",
@@ -7690,8 +7689,8 @@ dependencies = [
 
 [[package]]
 name = "xmtp_mls_common"
-version = "1.9.0"
-source = "git+https://github.com/qntx/libxmtp?rev=fff77f2#fff77f2cb2e5261d0afc90dad66fb51db7ccd12e"
+version = "1.10.0"
+source = "git+https://github.com/xmtp/libxmtp?tag=v1.10.0#5c42da539cb3bd0f090499d543621cba7f7d2a93"
 dependencies = [
  "const-hex",
  "openmls",
@@ -7709,8 +7708,8 @@ dependencies = [
 
 [[package]]
 name = "xmtp_proto"
-version = "1.9.0"
-source = "git+https://github.com/qntx/libxmtp?rev=fff77f2#fff77f2cb2e5261d0afc90dad66fb51db7ccd12e"
+version = "1.10.0"
+source = "git+https://github.com/xmtp/libxmtp?tag=v1.10.0#5c42da539cb3bd0f090499d543621cba7f7d2a93"
 dependencies = [
  "async-trait",
  "bytes",

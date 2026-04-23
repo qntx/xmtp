@@ -2,10 +2,13 @@
 
 use std::ffi::c_char;
 
-use xmtp_mls::groups::device_sync::{
-    ArchiveOptions as NativeArchiveOptions, BackupElementSelection,
-    archive::{ArchiveImporter, ENC_KEY_SIZE, exporter::ArchiveExporter, insert_importer},
+use xmtp_archive::{
+    ENC_KEY_SIZE,
+    archive_options::{ArchiveOptions as NativeArchiveOptions, BackupElementSelection},
+    exporter::ArchiveExporter,
+    importer::ArchiveImporter,
 };
+use xmtp_mls::worker::device_sync::archive::insert_importer;
 
 use crate::ffi::*;
 

@@ -1479,7 +1479,7 @@ pub unsafe extern "C" fn xmtp_conversation_group_permissions(
                 .unwrap_or(FfiPermissionPolicy::DoesNotExist)
         };
 
-        use xmtp_mls::mls_common::group_mutable_metadata::MetadataField;
+        use xmtp_mls_common::group_mutable_metadata::MetadataField;
         let policy_set = FfiPermissionPolicySet {
             add_member_policy: membership_policy_to_ffi(&ps.add_member_policy),
             remove_member_policy: membership_policy_to_ffi(&ps.remove_member_policy),

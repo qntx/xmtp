@@ -1,43 +1,43 @@
 [package]
 name = "xmtp-ffi"
-version = "0.1.10"
+version = "0.1.11"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 publish = false
 description = "C FFI wrapper around libxmtp for xmtp-sys"
 
 # Standalone workspace root — keeps libxmtp's dependency tree separate from the
-# parent workspace. libxmtp crates are pulled as git dependencies from the
-# qntx/libxmtp fork.
+# parent workspace. libxmtp crates are pulled from the upstream xmtp/libxmtp
+# repository pinned to a release tag.
 [workspace]
 
 [lib]
 crate-type = ["staticlib", "cdylib"]
 
 [dependencies]
-# libxmtp core crates (pinned to qntx fork at a fixed commit)
-xmtp_mls = { git = "https://github.com/qntx/libxmtp", rev = "fff77f2" }
-xmtp_api = { git = "https://github.com/qntx/libxmtp", rev = "fff77f2" }
-xmtp_api_grpc = { git = "https://github.com/qntx/libxmtp", rev = "fff77f2" }
-xmtp_api_d14n = { git = "https://github.com/qntx/libxmtp", rev = "fff77f2" }
-xmtp_db = { git = "https://github.com/qntx/libxmtp", rev = "fff77f2" }
-xmtp_id = { git = "https://github.com/qntx/libxmtp", rev = "fff77f2" }
-xmtp_proto = { git = "https://github.com/qntx/libxmtp", rev = "fff77f2" }
-xmtp_common = { git = "https://github.com/qntx/libxmtp", rev = "fff77f2", features = ["logging"] }
-xmtp_cryptography = { git = "https://github.com/qntx/libxmtp", rev = "fff77f2" }
-xmtp_content_types = { git = "https://github.com/qntx/libxmtp", rev = "fff77f2" }
-xmtp_configuration = { git = "https://github.com/qntx/libxmtp", rev = "fff77f2" }
-xmtp_mls_common = { git = "https://github.com/qntx/libxmtp", rev = "fff77f2" }
-xmtp_archive = { git = "https://github.com/qntx/libxmtp", rev = "fff77f2" }
+# libxmtp core crates (pinned to upstream release tag)
+xmtp_mls = { git = "https://github.com/xmtp/libxmtp", tag = "v1.10.0" }
+xmtp_api = { git = "https://github.com/xmtp/libxmtp", tag = "v1.10.0" }
+xmtp_api_grpc = { git = "https://github.com/xmtp/libxmtp", tag = "v1.10.0" }
+xmtp_api_d14n = { git = "https://github.com/xmtp/libxmtp", tag = "v1.10.0" }
+xmtp_db = { git = "https://github.com/xmtp/libxmtp", tag = "v1.10.0" }
+xmtp_id = { git = "https://github.com/xmtp/libxmtp", tag = "v1.10.0" }
+xmtp_proto = { git = "https://github.com/xmtp/libxmtp", tag = "v1.10.0" }
+xmtp_common = { git = "https://github.com/xmtp/libxmtp", tag = "v1.10.0", features = ["logging"] }
+xmtp_cryptography = { git = "https://github.com/xmtp/libxmtp", tag = "v1.10.0" }
+xmtp_content_types = { git = "https://github.com/xmtp/libxmtp", tag = "v1.10.0" }
+xmtp_configuration = { git = "https://github.com/xmtp/libxmtp", tag = "v1.10.0" }
+xmtp_mls_common = { git = "https://github.com/xmtp/libxmtp", tag = "v1.10.0" }
+xmtp_archive = { git = "https://github.com/xmtp/libxmtp", tag = "v1.10.0" }
 
 # Runtime & utilities
-http = "1"
-tokio = { version = "1", features = ["full"] }
-hex = { package = "const-hex", version = "1.14" }
-tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+http = "1.4.0"
+tokio = { version = "1.52.1", features = ["full"] }
+hex = { package = "const-hex", version = "1.18.1" }
+tracing-subscriber = { version = "0.3.23", features = ["env-filter", "fmt"] }
 
 [build-dependencies]
-cbindgen = "0.29"
+cbindgen = "0.29.2"
 
 # Replicate libxmtp workspace patches for correct dependency resolution
 [patch.crates-io]

@@ -6,8 +6,8 @@
 [![License][license-badge]][license-url]
 [![Rust][rust-badge]][rust-url]
 
-[ci-badge]: https://github.com/qntx/xmtp/actions/workflows/rust.yml/badge.svg
-[ci-url]: https://github.com/qntx/xmtp/actions/workflows/rust.yml
+[ci-badge]: https://github.com/qntx/xmtp/actions/workflows/ci.yml/badge.svg
+[ci-url]: https://github.com/qntx/xmtp/actions/workflows/ci.yml
 [license-badge]: https://img.shields.io/badge/license-MIT%2FApache--2.0-blue.svg
 [license-url]: LICENSE-MIT
 [rust-badge]: https://img.shields.io/badge/rust-edition%202024-orange.svg
