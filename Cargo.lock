@@ -5754,7 +5754,7 @@ dependencies = [
 
 [[package]]
 name = "xmtp-sys"
-version = "0.1.10"
+version = "0.1.11"
 dependencies = [
  "bindgen",
  "flate2",
