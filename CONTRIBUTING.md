@@ -174,18 +174,52 @@ make pre-commit     # fmt + clippy + test + build + changelog
 
 | Workflow | Trigger | Purpose |
 | --- | --- | --- |
-| `rust.yml` | Push/PR to `main` | CI checks (reusable workflow) |
-| `ffi-build.yml` | `ffi-v*.*.*` tag | Build FFI static libraries for all targets |
-| `cd.yml` | `v*.*.*` tag | Build CLI binaries, create GitHub Release |
-| `rust-publish.yml` | `v*.*.*` tag | Publish `xmtp` and `xmtp-cli` to crates.io |
+| `ci.yml` | Push/PR to `main` | CI checks (reusable workflow) |
+| `ffi-build.yml` | `ffi-v*.*.*` tag | Build FFI static libraries for 5 targets → GitHub Release, then publish `xmtp-sys` to crates.io |
+| `release.yml` | `v*.*.*` tag | Build CLI binaries, create GitHub Release |
+| `publish.yml` | `v*.*.*` tag | Publish `xmtp` and `xmtp-cli` to crates.io |
+
+### Version Coupling (CRITICAL)
+
+**`xmtp-sys.version` MUST always equal `xmtp-ffi.version`.**
+
+This invariant is enforced by two mechanisms working together:
+
+1. `ffi-build.yml` runs `cargo publish -p xmtp-sys` as its final job whenever an
+   `ffi-v*` tag is pushed — so every FFI release also ships a new `xmtp-sys` crate.
+2. `xmtp-sys/build.rs` uses its own `CARGO_PKG_VERSION` to download
+   `https://github.com/qntx/xmtp/releases/download/ffi-v{version}/xmtp-ffi-{target}.{ext}`.
+
+If the two versions diverge, downstream consumers hit `404 Not Found` at build
+time because the FFI release tag does not exist. **Always bump both versions
+together in the same commit before tagging.**
 
 ### Release Flow
 
-1. Update upstream libxmtp pin in `xmtp-ffi/Cargo.toml` if needed
-2. `git tag ffi-v0.1.x && git push --tags` → builds + releases FFI artifacts
-3. Bump `xmtp-sys` version to match → downloads new FFI from release
-4. `make regenerate-bindings` if header changed
-5. `git tag v0.4.x && git push --tags` → builds CLI binaries + publishes crates
+**Phase A — FFI release** (when upgrading `libxmtp` or changing `xmtp-ffi` source):
+
+1. Update upstream libxmtp pin in `xmtp-ffi/Cargo.toml` and adapt any breaking APIs
+2. **Bump both versions together** in the same commit:
+   - `xmtp-ffi/Cargo.toml` → `version = "0.1.N"`
+   - `xmtp-sys/Cargo.toml` → `version = "0.1.N"` (must match exactly)
+3. Verify `cd xmtp-ffi && cargo build` succeeds, then diff
+   `xmtp-ffi/include/xmtp_ffi.h`:
+   - **Unchanged** → no further action needed
+   - **Changed** → run `make regenerate-bindings` and commit the refreshed
+     `xmtp-sys/src/bindings.rs`
+4. `git tag ffi-v0.1.N && git push --tags` — triggers `ffi-build.yml`:
+   - Builds static libs for 5 targets → publishes GitHub Release `ffi-v0.1.N`
+   - Publishes `xmtp-sys v0.1.N` to crates.io
+
+**Phase B — SDK + CLI release** (always, or when only SDK/CLI changes):
+
+1. Bump workspace version in root `Cargo.toml` → affects `xmtp` and `xmtp-cli`
+2. `git tag v0.9.N && git push --tags` — triggers `release.yml` + `publish.yml`:
+   - Builds CLI binaries for all platforms → GitHub Release `v0.9.N`
+   - Publishes `xmtp` and `xmtp-cli` to crates.io
+
+> Phase A can be skipped when there are no FFI changes. Phase B is the normal
+> release cadence.
 
 ## Supported Platforms
 
