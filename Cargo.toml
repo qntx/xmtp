@@ -18,7 +18,7 @@ xmtp-sys = { version = "0.1", path = "xmtp-sys" }
 alloy-ens = { version = "2.0.1", default-features = false, features = ["provider"] }
 alloy-primitives = { version = "1.5.7", default-features = false }
 alloy-provider = "2.0.1"
-alloy-signer = "2.0.1"
+alloy-signer = "2.0.4"
 alloy-signer-ledger = "2.0.1"
 alloy-signer-local = { version = "2.0.1", default-features = false }
 clap = { version = "4.6.1", features = ["derive"] }
