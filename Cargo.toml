@@ -15,7 +15,7 @@ description = "Client library for the XMTP messaging protocol."
 xmtp = { version = "0.9", path = "xmtp" }
 xmtp-sys = { version = "0.1", path = "xmtp-sys" }
 
-alloy-ens = { version = "2.0.1", default-features = false, features = ["provider"] }
+alloy-ens = { version = "2.0.4", default-features = false, features = ["provider"] }
 alloy-primitives = { version = "1.5.7", default-features = false }
 alloy-provider = "2.0.1"
 alloy-signer = "2.0.1"
