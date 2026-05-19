@@ -28,7 +28,7 @@ flate2 = "1.1.9"
 getrandom = "0.4.2"
 hex = "0.4.3"
 k256 = { version = "0.13.4", features = ["ecdsa"] }
-tar = "0.4.45"
+tar = "0.4.46"
 prost = { version = "0.14.3", features = ["derive"] }
 thiserror = "2.0.18"
 tokio = { version = "1.52.3", features = ["rt-multi-thread", "macros", "sync", "time"] }
