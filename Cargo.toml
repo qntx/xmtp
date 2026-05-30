@@ -37,7 +37,7 @@ url = "2.5.8"
 ureq = "3.3.0"
 zip = { version = "8.6.0", default-features = false, features = ["deflate"] }
 ratatui = "0.30.0"
-serde_json = "1.0.149"
+serde_json = "1.0.150"
 
 [profile.release]
 codegen-units = 1
