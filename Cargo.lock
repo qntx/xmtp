@@ -443,9 +443,9 @@ dependencies = [
 
 [[package]]
 name = "alloy-signer-ledger"
-version = "2.0.4"
+version = "2.0.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "94e11ddaddfb98c1ddce737dc440225565b0ae0987ac9ad5e59a85db5904878c"
+checksum = "c29a14f2fb7aef1c413b84107148d7f2ac97396eddc1f7fc2abf5a3db8c10ffc"
 dependencies = [
  "alloy-consensus",
  "alloy-network",
