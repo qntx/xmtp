@@ -1532,6 +1532,38 @@ pub(crate) fn decoded_to_enriched(
         let len = b.len() as i32;
         (Box::into_raw(b) as *mut u8, len)
     };
+
+    let reactions_vec: Vec<FfiReaction> = msg
+        .reactions
+        .iter()
+        .filter_map(|r| match &r.content {
+            xmtp_mls::messages::decoded_message::MessageBody::Reaction(reaction) => Some(FfiReaction {
+                reference: to_c_string(&hex::encode(&reaction.reference)),
+                reference_inbox_id: to_c_string(&reaction.reference_inbox_id),
+                sender_inbox_id: to_c_string(&r.metadata.sender_inbox_id),
+                action: match reaction.action() {
+                    xmtp_proto::xmtp::mls::message_contents::content_types::ReactionAction::Added => FfiReactionAction::Added,
+                    xmtp_proto::xmtp::mls::message_contents::content_types::ReactionAction::Removed => FfiReactionAction::Removed,
+                    xmtp_proto::xmtp::mls::message_contents::content_types::ReactionAction::Unspecified => FfiReactionAction::Unspecified,
+                },
+                content: to_c_string(&reaction.content),
+                schema: match reaction.schema() {
+                    xmtp_proto::xmtp::mls::message_contents::content_types::ReactionSchema::Unspecified => FfiReactionSchema::Unspecified,
+                    xmtp_proto::xmtp::mls::message_contents::content_types::ReactionSchema::Unicode => FfiReactionSchema::Unicode,
+                    xmtp_proto::xmtp::mls::message_contents::content_types::ReactionSchema::Shortcode => FfiReactionSchema::Shortcode,
+                    xmtp_proto::xmtp::mls::message_contents::content_types::ReactionSchema::Custom => FfiReactionSchema::Custom,
+                },
+            }),
+            _ => None,
+        })
+        .collect();
+
+    let reactions = if reactions_vec.is_empty() {
+        std::ptr::null_mut()
+    } else {
+        Box::into_raw(reactions_vec.into_boxed_slice()) as *mut FfiReaction
+    };
+
     FfiEnrichedMessage {
         id: to_c_string(&hex::encode(&msg.metadata.id)),
         group_id: to_c_string(&hex::encode(&msg.metadata.group_id)),
@@ -1556,6 +1588,7 @@ pub(crate) fn decoded_to_enriched(
             None => std::ptr::null_mut(),
         },
         expires_at_ns: msg.metadata.expires_at_ns.unwrap_or(0),
+        reactions,
         num_reactions: msg.reactions.len() as i32,
         num_replies: msg.num_replies as i32,
         content_bytes,

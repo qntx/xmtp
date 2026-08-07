@@ -93,6 +93,33 @@ enum XmtpFfiDeliveryStatus
 typedef int32_t XmtpFfiDeliveryStatus;
 #endif // __cplusplus
 
+enum XmtpFfiReactionAction
+#ifdef __cplusplus
+  : int32_t
+#endif // __cplusplus
+ {
+    XMTP_FFI_REACTION_ACTION_UNSPECIFIED = 0,
+    XMTP_FFI_REACTION_ACTION_ADDED = 1,
+    XMTP_FFI_REACTION_ACTION_REMOVED = 2,
+};
+#ifndef __cplusplus
+typedef int32_t XmtpFfiReactionAction;
+#endif // __cplusplus
+
+enum XmtpFfiReactionSchema
+#ifdef __cplusplus
+  : int32_t
+#endif // __cplusplus
+ {
+    XMTP_FFI_REACTION_SCHEMA_UNSPECIFIED = 0,
+    XMTP_FFI_REACTION_SCHEMA_UNICODE = 1,
+    XMTP_FFI_REACTION_SCHEMA_SHORTCODE = 2,
+    XMTP_FFI_REACTION_SCHEMA_CUSTOM = 3,
+};
+#ifndef __cplusplus
+typedef int32_t XmtpFfiReactionSchema;
+#endif // __cplusplus
+
 /**
  * Consent entity type.
  */
@@ -516,6 +543,18 @@ typedef struct XmtpFfiGroupPermissions {
 } XmtpFfiGroupPermissions;
 
 /**
+ * Ffi data for Reaction content
+ */
+typedef struct XmtpFfiReaction {
+    char *reference;
+    char *reference_inbox_id;
+    char *sender_inbox_id;
+    XmtpFfiReactionAction action;
+    char *content;
+    XmtpFfiReactionSchema schema;
+} XmtpFfiReaction;
+
+/**
  * An enriched (decoded) message exposed to C.
  * Contains metadata + the original encoded content bytes for upper-layer decoding.
  */
@@ -558,6 +597,10 @@ typedef struct XmtpFfiEnrichedMessage {
      * Expiration timestamp in nanoseconds (0 = no expiration).
      */
     int64_t expires_at_ns;
+    /**
+     * Array of reactions
+     */
+    struct XmtpFfiReaction *reactions;
     /**
      * Number of reactions.
      */

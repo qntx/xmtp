@@ -8,11 +8,12 @@
 use std::ffi::{CStr, c_char};
 use std::ptr;
 
+use crate::content::Reaction;
 use crate::error::{self, Result};
 use crate::ffi::{
     FfiList, OwnedHandle, borrow_c_string, borrow_nullable_string, ffi_usize, identifiers_to_ffi,
-    read_borrowed_strings, take_c_string, take_nullable_string, to_c_string, to_c_string_array,
-    to_ffi_len,
+    reactions_from_raw_parts, read_borrowed_strings, take_c_string, take_nullable_string,
+    to_c_string, to_c_string_array, to_ffi_len,
 };
 use crate::types::{
     AccountIdentifier, ConsentState, ConversationDebugInfo, ConversationMetadata, ConversationType,
@@ -81,6 +82,8 @@ pub struct Message {
     pub content: Vec<u8>,
     /// Expiration timestamp in nanoseconds (0 = no expiration).
     pub expires_at_ns: i64,
+    /// List of Reactions
+    pub reactions: Vec<Reaction>,
     /// Number of reactions to this message.
     pub num_reactions: i32,
     /// Number of replies to this message.
@@ -701,6 +704,8 @@ pub(crate) fn read_enriched_message_list(
             fallback: unsafe { borrow_nullable_string(m.fallback_text) },
             content,
             expires_at_ns: m.expires_at_ns,
+            // SAFETY: `m.reactions` points to a valid array of `m.num_reactions`
+            reactions: unsafe { reactions_from_raw_parts(m.reactions, m.num_reactions) },
             num_reactions: m.num_reactions,
             num_replies: m.num_replies,
         });

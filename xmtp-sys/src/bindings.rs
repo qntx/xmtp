@@ -50,6 +50,23 @@ pub enum XmtpFfiDeliveryStatus {
 }
 #[repr(i32)]
 #[non_exhaustive]
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+pub enum XmtpFfiReactionAction {
+    XMTP_FFI_REACTION_ACTION_UNSPECIFIED = 0,
+    XMTP_FFI_REACTION_ACTION_ADDED = 1,
+    XMTP_FFI_REACTION_ACTION_REMOVED = 2,
+}
+#[repr(i32)]
+#[non_exhaustive]
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+pub enum XmtpFfiReactionSchema {
+    XMTP_FFI_REACTION_SCHEMA_UNSPECIFIED = 0,
+    XMTP_FFI_REACTION_SCHEMA_UNICODE = 1,
+    XMTP_FFI_REACTION_SCHEMA_SHORTCODE = 2,
+    XMTP_FFI_REACTION_SCHEMA_CUSTOM = 3,
+}
+#[repr(i32)]
+#[non_exhaustive]
 #[doc = " Consent entity type."]
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
 pub enum XmtpFfiConsentEntityType {
@@ -693,6 +710,43 @@ impl Default for XmtpFfiGroupPermissions {
         }
     }
 }
+#[doc = " Ffi data for Reaction content"]
+#[repr(C)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub struct XmtpFfiReaction {
+    pub reference: *mut ::core::ffi::c_char,
+    pub reference_inbox_id: *mut ::core::ffi::c_char,
+    pub sender_inbox_id: *mut ::core::ffi::c_char,
+    pub action: XmtpFfiReactionAction,
+    pub content: *mut ::core::ffi::c_char,
+    pub schema: XmtpFfiReactionSchema,
+}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of XmtpFfiReaction"][::core::mem::size_of::<XmtpFfiReaction>() - 48usize];
+    ["Alignment of XmtpFfiReaction"][::core::mem::align_of::<XmtpFfiReaction>() - 8usize];
+    ["Offset of field: XmtpFfiReaction::reference"]
+        [::core::mem::offset_of!(XmtpFfiReaction, reference) - 0usize];
+    ["Offset of field: XmtpFfiReaction::reference_inbox_id"]
+        [::core::mem::offset_of!(XmtpFfiReaction, reference_inbox_id) - 8usize];
+    ["Offset of field: XmtpFfiReaction::sender_inbox_id"]
+        [::core::mem::offset_of!(XmtpFfiReaction, sender_inbox_id) - 16usize];
+    ["Offset of field: XmtpFfiReaction::action"]
+        [::core::mem::offset_of!(XmtpFfiReaction, action) - 24usize];
+    ["Offset of field: XmtpFfiReaction::content"]
+        [::core::mem::offset_of!(XmtpFfiReaction, content) - 32usize];
+    ["Offset of field: XmtpFfiReaction::schema"]
+        [::core::mem::offset_of!(XmtpFfiReaction, schema) - 40usize];
+};
+impl Default for XmtpFfiReaction {
+    fn default() -> Self {
+        let mut s = ::core::mem::MaybeUninit::<Self>::uninit();
+        unsafe {
+            ::core::ptr::write_bytes(s.as_mut_ptr(), 0, 1);
+            s.assume_init()
+        }
+    }
+}
 #[doc = " An enriched (decoded) message exposed to C.\n Contains metadata + the original encoded content bytes for upper-layer decoding."]
 #[repr(C)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -717,6 +771,8 @@ pub struct XmtpFfiEnrichedMessage {
     pub fallback_text: *mut ::core::ffi::c_char,
     #[doc = " Expiration timestamp in nanoseconds (0 = no expiration)."]
     pub expires_at_ns: i64,
+    #[doc = " Array of reactions"]
+    pub reactions: *mut XmtpFfiReaction,
     #[doc = " Number of reactions."]
     pub num_reactions: i32,
     #[doc = " Number of replies."]
@@ -728,7 +784,7 @@ pub struct XmtpFfiEnrichedMessage {
 }
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
-    ["Size of XmtpFfiEnrichedMessage"][::core::mem::size_of::<XmtpFfiEnrichedMessage>() - 104usize];
+    ["Size of XmtpFfiEnrichedMessage"][::core::mem::size_of::<XmtpFfiEnrichedMessage>() - 112usize];
     ["Alignment of XmtpFfiEnrichedMessage"]
         [::core::mem::align_of::<XmtpFfiEnrichedMessage>() - 8usize];
     ["Offset of field: XmtpFfiEnrichedMessage::id"]
@@ -753,14 +809,16 @@ const _: () = {
         [::core::mem::offset_of!(XmtpFfiEnrichedMessage, fallback_text) - 64usize];
     ["Offset of field: XmtpFfiEnrichedMessage::expires_at_ns"]
         [::core::mem::offset_of!(XmtpFfiEnrichedMessage, expires_at_ns) - 72usize];
+    ["Offset of field: XmtpFfiEnrichedMessage::reactions"]
+        [::core::mem::offset_of!(XmtpFfiEnrichedMessage, reactions) - 80usize];
     ["Offset of field: XmtpFfiEnrichedMessage::num_reactions"]
-        [::core::mem::offset_of!(XmtpFfiEnrichedMessage, num_reactions) - 80usize];
+        [::core::mem::offset_of!(XmtpFfiEnrichedMessage, num_reactions) - 88usize];
     ["Offset of field: XmtpFfiEnrichedMessage::num_replies"]
-        [::core::mem::offset_of!(XmtpFfiEnrichedMessage, num_replies) - 84usize];
+        [::core::mem::offset_of!(XmtpFfiEnrichedMessage, num_replies) - 92usize];
     ["Offset of field: XmtpFfiEnrichedMessage::content_bytes"]
-        [::core::mem::offset_of!(XmtpFfiEnrichedMessage, content_bytes) - 88usize];
+        [::core::mem::offset_of!(XmtpFfiEnrichedMessage, content_bytes) - 96usize];
     ["Offset of field: XmtpFfiEnrichedMessage::content_bytes_len"]
-        [::core::mem::offset_of!(XmtpFfiEnrichedMessage, content_bytes_len) - 96usize];
+        [::core::mem::offset_of!(XmtpFfiEnrichedMessage, content_bytes_len) - 104usize];
 };
 impl Default for XmtpFfiEnrichedMessage {
     fn default() -> Self {

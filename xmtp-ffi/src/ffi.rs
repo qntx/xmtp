@@ -3,6 +3,7 @@
 use std::cell::RefCell;
 use std::ffi::{CStr, CString, c_char};
 use std::sync::OnceLock;
+
 use tokio::runtime::Runtime;
 
 // ---------------------------------------------------------------------------
@@ -203,6 +204,23 @@ pub enum FfiGroupPermissionsPreset {
 pub enum FfiPreferenceUpdateKind {
     Consent = 0,
     HmacKey = 1,
+}
+
+#[repr(i32)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FfiReactionAction {
+    Unspecified = 0,
+    Added = 1,
+    Removed = 2,
+}
+
+#[repr(i32)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FfiReactionSchema {
+    Unspecified = 0,
+    Unicode = 1,
+    Shortcode = 2,
+    Custom = 3,
 }
 
 // ---------------------------------------------------------------------------
@@ -438,6 +456,17 @@ pub struct FfiGroupMetadata {
     pub conversation_type: FfiConversationType,
 }
 
+/// Ffi data for Reaction content
+#[repr(C)]
+pub struct FfiReaction {
+    pub reference: *mut c_char,
+    pub reference_inbox_id: *mut c_char,
+    pub sender_inbox_id: *mut c_char,
+    pub action: FfiReactionAction,
+    pub content: *mut c_char,
+    pub schema: FfiReactionSchema,
+}
+
 /// Permission policy set for a conversation.
 #[repr(C)]
 pub struct FfiPermissionPolicySet {
@@ -483,6 +512,8 @@ pub struct FfiEnrichedMessage {
     pub fallback_text: *mut c_char,
     /// Expiration timestamp in nanoseconds (0 = no expiration).
     pub expires_at_ns: i64,
+    /// Array of reactions
+    pub reactions: *mut FfiReaction,
     /// Number of reactions.
     pub num_reactions: i32,
     /// Number of replies.

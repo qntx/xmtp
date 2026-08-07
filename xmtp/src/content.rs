@@ -10,6 +10,7 @@ use prost::Message as ProstMessage;
 
 use crate::conversation::{Conversation, Message};
 use crate::error::Result;
+use crate::ffi::take_c_string;
 use crate::types::SendOptions;
 
 /// Content type identifier on the XMTP network.
@@ -91,6 +92,18 @@ pub enum ReactionAction {
     Removed = 2,
 }
 
+impl ReactionAction {
+    /// Convert FFI `ReactionAction` (i32 enum) into the safe SDK type.
+    pub const fn from_ffi(v: i32) -> Option<Self> {
+        match v {
+            0 => Some(Self::Unspecified),
+            1 => Some(Self::Added),
+            2 => Some(Self::Removed),
+            _ => None,
+        }
+    }
+}
+
 /// Reaction content schema.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, prost::Enumeration)]
 #[repr(i32)]
@@ -103,6 +116,19 @@ pub enum ReactionSchema {
     Shortcode = 2,
     /// Custom string.
     Custom = 3,
+}
+
+impl ReactionSchema {
+    /// Convert FFI `ReactionSchema` (i32 enum) into the safe SDK type.
+    pub const fn from_ffi(v: i32) -> Option<Self> {
+        match v {
+            0 => Some(Self::Unspecified),
+            1 => Some(Self::Unicode),
+            2 => Some(Self::Shortcode),
+            3 => Some(Self::Custom),
+            _ => None,
+        }
+    }
 }
 
 /// Metadata for a remotely hosted encrypted attachment.
@@ -292,12 +318,35 @@ pub struct Reaction {
     pub reference: String,
     /// Inbox ID of the referenced message's sender.
     pub reference_inbox_id: String,
+    /// Inbox ID of the reaction sender.
+    pub sender_inbox_id: String,
     /// Reaction action.
     pub action: ReactionAction,
     /// The emoji / shortcode / custom content.
     pub content: String,
     /// Content schema.
     pub schema: ReactionSchema,
+}
+
+impl Reaction {
+    /// Convert a single FFI reaction (already dereferenced) into the safe SDK type.
+    pub(crate) fn from_ffi(ffi: &xmtp_sys::XmtpFfiReaction) -> Self {
+        Self {
+            // SAFETY: `reference` is a C string allocated by the FFI layer (or null, handled by `take_c_string`).
+            reference: unsafe { take_c_string(ffi.reference) }.unwrap_or_default(),
+            // SAFETY: `reference_inbox_id` is a C string allocated by the FFI layer (or null, handled by `take_c_string`).
+            reference_inbox_id: unsafe { take_c_string(ffi.reference_inbox_id) }
+                .unwrap_or_default(),
+            // SAFETY: `sender_inbox_id` is a C string allocated by the FFI layer (or null, handled by `take_c_string`).
+            sender_inbox_id: unsafe { take_c_string(ffi.sender_inbox_id) }.unwrap_or_default(),
+            action: ReactionAction::from_ffi(ffi.action as i32)
+                .unwrap_or(ReactionAction::Unspecified),
+            // SAFETY: `content` is a C string allocated by the FFI layer (or null, handled by `take_c_string`).
+            content: unsafe { take_c_string(ffi.content) }.unwrap_or_default(),
+            schema: ReactionSchema::from_ffi(ffi.schema as i32)
+                .unwrap_or(ReactionSchema::Unspecified),
+        }
+    }
 }
 
 /// A decoded reply.
@@ -506,6 +555,7 @@ pub fn decode(raw: &[u8]) -> Result<Content> {
             Ok(Content::Reaction(Reaction {
                 reference: rv2.reference,
                 reference_inbox_id: rv2.reference_inbox_id,
+                sender_inbox_id: String::new(),
                 action: ReactionAction::try_from(rv2.action).unwrap_or(ReactionAction::Unspecified),
                 content: rv2.content,
                 schema: ReactionSchema::try_from(rv2.schema).unwrap_or(ReactionSchema::Unspecified),

@@ -7,6 +7,7 @@
 use std::ffi::{CStr, CString, c_char};
 use std::ptr::NonNull;
 
+use crate::content::Reaction;
 use crate::error::{Result, XmtpError};
 
 /// RAII wrapper for an opaque FFI pointer. Calls `free` on drop.
@@ -225,6 +226,18 @@ pub(crate) unsafe fn borrow_nullable_string(ptr: *mut c_char) -> Option<String> 
                 .to_owned(),
         )
     }
+}
+
+pub(crate) unsafe fn reactions_from_raw_parts(
+    ptr: *mut xmtp_sys::XmtpFfiReaction,
+    len: i32,
+) -> Vec<Reaction> {
+    if ptr.is_null() || len <= 0 {
+        return Vec::new();
+    }
+    // SAFETY: `ptr` is non-null and `len` is positive
+    let slice = unsafe { std::slice::from_raw_parts(ptr, ffi_usize(len)) };
+    slice.iter().map(Reaction::from_ffi).collect()
 }
 
 #[cfg(test)]
