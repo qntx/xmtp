@@ -34,7 +34,7 @@ openmls_rust_crypto = { git = "https://github.com/xmtp/openmls", rev = "3fabbf23
 
 # Runtime & utilities
 # libxmtp v1.11.0 lock is alloy 2.1.1; 2.4+ renamed ProviderBuilder::connect_http.
-alloy = "=2.4.1"
+alloy = "=2.4.2"
 http = "1.4.0"
 tokio = { version = "1.52.1", features = ["full"] }
 hex = { package = "const-hex", version = "1.18.1" }
